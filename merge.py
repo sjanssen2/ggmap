@@ -35,14 +35,36 @@ def parse_metaphlan_markers_info(filename, abort_after_lines=20):
         file = open(filename, 'r')
         file.readline()  # header
         readlines = 0
+        accession = None
+        type = None
         for line in file:
             readlines += 1
-            accessions[line.rstrip().split("|")[1]] = True
+            if line.startswith('gi|'):
+                type = 'gi'
+                accession = (line.split('\t')[0]).split('|')[1]
+            elif line.startswith('GeneID:'):
+                type = 'GeneID'
+                accession = (line.split('\t')[0]).split(':')[1]
+            elif line.startswith('NC_'):
+                type = 'NC'
+                accession = line.split('\t')[0]
+            else:
+                type = None
+                accession = None
+
+            if (type is not None) and (accession is not None):
+                if type not in accessions:
+                    accessions[type] = {}
+                accessions[type][accession] = True
+
             if (abort_after_lines is not None) and \
                (readlines >= abort_after_lines):
                 break
         file.close()
-        return list(accessions.keys())
+
+        for type in accessions.keys():
+            accessions[type] = list(accessions[type].keys())
+        return accessions
     except IOError:
         print('Cannot read file')
 
@@ -134,7 +156,7 @@ def _get_taxids_cache(accessions, verbose=True):
         return {}
 
 
-def _parse_ncbi_gg(accessions):
+def _parse_ncbi_nucleotide(accessions):
     base_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
     results = {}
     url = ("%s?db=nucleotide&id=%s&rettype=docsum" % (
@@ -176,6 +198,46 @@ def _parse_ncbi_gg(accessions):
             taxid = (line.split('>')[1]).split('<')[0]
         elif '<Item Name="Status" Type="String">' in line:
             status = (line.split('>')[1]).split('<')[0]
+        block += line
+
+    return results
+
+
+def _parse_ncbi_gene(accessions):
+    base_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
+    results = {}
+    url = ("%s?db=gene&id=%s&rettype=docsum" % (
+            base_url,
+            ','.join(accessions)))
+    response = urllib.request.urlopen(url)
+
+    accession = None
+    taxid = None
+    block = ""
+    status = None
+    for line in response.read().decode('utf-8').split('\n'):
+        if line.startswith('<DocumentSummary uid="'):
+            accession = line.split('"')[1]
+            taxid = None
+            block = line
+            status = None
+        elif line.startswith('</DocumentSummary>'):
+            if (accession is None) or (taxid is None):
+                print('Parsing error for block "%s".' % block)
+                sys.exit(1)
+            if (status == 'withdrawn'):
+                print("Withdraw '%s'" % accession, file=sys.stderr)
+            try:
+                results[accession] = int(taxid)
+            except ValueError:
+                print('Parsing error for block "%s".' % block)
+                sys.exit(1)
+        elif '<TaxID>' in line:
+            taxid = (line.split('>')[1]).split('<')[0]
+        elif line.startswith('<error>cannot get document summary</error>'):
+            status = 'withdrawn'
+            taxid = -1
+
         block += line
 
     return results
@@ -264,7 +326,7 @@ def _parse_img(accessions):
 
 
 def _get_taxids_http(accessions, verbose=True, log_results=True,
-                     chunk_size=100):
+                     chunk_size=100, db='nucleotide'):
     if len(accessions) > 0:
         if verbose:
             print("fetching %i accessions from HTTP:" % len(accessions),
@@ -280,7 +342,10 @@ def _get_taxids_http(accessions, verbose=True, log_results=True,
                         chunks.index(chunk_accessions),
                         len(chunk_accessions)),
                       file=sys.stderr, end="")
-            chunk_results = _parse_ncbi_gg(chunk_accessions)
+            if db == 'nucleotide':
+                chunk_results = _parse_ncbi_nucleotide(chunk_accessions)
+            elif db == 'gene':
+                chunk_results = _parse_ncbi_gene(chunk_accessions)
             # chunk_results = _parse_ebi_gg(chunk_accessions)
 
             if verbose:
@@ -339,9 +404,12 @@ def fetchTaxids(accessions, type_ids, verbose=True, log_results=True, chunk_size
 
     # second, for the remaining accessions, start a REST request to EBI
     http_accessions = list(set(accessions) - set(cached_results.keys()))
-    if type_ids == 'Genbank':
+    if (type_ids == 'Genbank') or (type_ids == 'gi') or (type_ids == 'NC'):
         http_results = _get_taxids_http(http_accessions, verbose, log_results,
-                                        chunk_size=chunk_size)
+                                        chunk_size=chunk_size, db='nucleotide')
+    elif (type_ids == 'GeneID'):
+        http_results = _get_taxids_http(http_accessions, verbose, log_results,
+                                        chunk_size=chunk_size, db='gene')
     elif type_ids == 'IMG':
         http_results = _get_taxids_img(http_accessions, verbose, log_results)
     else:
@@ -378,10 +446,10 @@ def fetchTaxids_threaded(accessions, type_ids, num_threads):
 
 if __name__ == "__main__":
     abort_after_lines = None
-    num_threads = 5
+    num_threads = 1
     inner_chunk_size = 200
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
-    runtype = 'metaphlan'
+    runtype = 'some'
 
     accessions = []
     if runtype == 'GreenGenes':
@@ -392,6 +460,11 @@ if __name__ == "__main__":
         fetchTaxids_threaded([v for k, v in r['IMG'].items()],
                              'IMG', num_threads)
     elif runtype == 'metaphlan':
-        accessions = parse_metaphlan_markers_info('/home/sjanssen/GreenGenes/Metaphlan/markers_info.txt', abort_after_lines=abort_after_lines)
+        r = parse_metaphlan_markers_info('/home/sjanssen/GreenGenes/Metaphlan/markers_info.txt', abort_after_lines=abort_after_lines)
+        fetchTaxids_threaded(r['gi'], 'gi', num_threads)
+        fetchTaxids_threaded(r['GeneID'], 'GeneID', num_threads)
+        fetchTaxids_threaded(r['NC'], 'NC', num_threads)
+
+
 
     print("Exiting Main Thread")
