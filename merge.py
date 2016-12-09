@@ -161,11 +161,53 @@ def _parse_ncbi_gg(accessions):
     return results
 
 
+def _parse_ebi_gg(accessions):
+    base_url = 'http://www.ebi.ac.uk/ena/data/view/'
+    results = {}
+    url = ("%s%s&display=xml&header=true" % (
+            base_url,
+            ','.join(accessions)))
+    response = urllib.request.urlopen(url)
+
+    accession = None
+    taxid = None
+    block = ""
+    for line in response.read().decode('utf-8').split('\n'):
+        block += line
+        if line.startswith('<entry accession="'):
+            for field in line.split(" "):
+                if field.startswith('accession'):
+                    accession = (field.split('=')[1])[1:-1]
+                elif field.startswith('version'):
+                    accession += "." + (field.split('=')[1])[1:-1]
+            if accession not in accessions:
+                accession = None
+        elif line.startswith('</entry>'):
+            if (accession is not None) and (taxid is not None):
+                try:
+                    results[accession] = int(taxid)
+                except ValueError:
+                    print('Parsing error (no int) for block "%s".' % block)
+                    sys.exit(1)
+            else:
+                print('Parsing error (none) for block "%s".' % block)
+                sys.exit(1)
+            block = ""
+            accession = None
+            taxid = None
+        elif 'taxId="' in line:
+            for field in line.split(" "):
+                if field.startswith('taxId'):
+                    taxid = (field.split('=')[1])[1:-2]
+
+    return results
+
+
 def _get_taxids_http(accessions, verbose=True, log_results=True,
                      chunk_size=100):
     if len(accessions) > 0:
         if verbose:
-            print("fetching %i accessions from EBI:" % len(accessions),
+            print("fetching %i accessions from HTTP:" % len(accessions),
                   file=sys.stderr)
         chunks = [accessions[i:i+chunk_size]
                   for i in range(0, len(accessions), chunk_size)]
@@ -179,11 +221,11 @@ def _get_taxids_http(accessions, verbose=True, log_results=True,
                         len(chunk_accessions)),
                       file=sys.stderr, end="")
             chunk_results = _parse_ncbi_gg(chunk_accessions)
+            # chunk_results = _parse_ebi_gg(chunk_accessions)
+
             if verbose:
                 print(' got %i.' % (len(chunk_results)), file=sys.stderr)
 
-            # url = ('http://www.ebi.ac.uk/ena/data/view/%s&display=xml&header=true'
-            #        % ','.join(chunk_accessions))
             if log_results and len(chunk_results) > 0:
                 log = write_accession_taxids(chunk_results, filehandle=log)
 
@@ -217,7 +259,7 @@ def slice_it(li, cols=2):
 
 
 if __name__ == "__main__":
-    abort_after_lines = None
+    abort_after_lines = 1000
     num_threads = 1
     inner_chunk_size = 200
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
