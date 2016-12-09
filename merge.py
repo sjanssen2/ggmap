@@ -51,7 +51,8 @@ def parse_gg_accessions(filename, abort_after_lines=20):
             if accession_type not in accessions.keys():
                 accessions[accession_type] = {}
             accessions[accession_type][gg_id] = accession
-            if (abort_after_lines is not None) and (readlines >= abort_after_lines):
+            if (abort_after_lines is not None) and \
+               (readlines >= abort_after_lines):
                 break
         file.close()
         return accessions
@@ -60,13 +61,14 @@ def parse_gg_accessions(filename, abort_after_lines=20):
 
 
 def write_accession_taxids(dict, filehandle=None, verbose=True):
+    header = ['Accession', 'NCBI-taxid (-1 = withdrawn)']
     if filehandle is None:
         filehandle = tempfile.NamedTemporaryFile(dir="./",
                                                  delete=False,
                                                  prefix=LOGFILE_PREFIX,
                                                  suffix=LOGFILE_SUFFIX,
                                                  mode='w')
-        filehandle.write("#" + "\t".join(['Accession', 'NCBI-taxid (-1 = withdrawn)']) + "\n")
+        filehandle.write("#" + "\t".join(header) + "\n")
     if verbose:
         print("  logged %i accessions to file '%s'" %
               (len(dict), filehandle.name), file=sys.stderr)
@@ -112,7 +114,55 @@ def _get_taxids_cache(accessions, verbose=True):
         return {}
 
 
-def _get_taxids_http(accessions, verbose=True, log_results=True, chunk_size=100):
+def _parse_ncbi_gg(accessions):
+    base_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
+    results = {}
+    url = ("%s?db=nucleotide&id=%s&rettype=docsum" % (
+            base_url,
+            ','.join(accessions)))
+    response = urllib.request.urlopen(url)
+
+    accession = None
+    taxid = None
+    block = ""
+    status = None
+    for line in response.read().decode('utf-8').split('\n'):
+        if line.startswith('<DocSum>'):
+            accession = None
+            taxid = None
+            block = ""
+        elif line.startswith('</DocSum>'):
+            if (accession is None) or (taxid is None):
+                print('Parsing error for block "%s".' % block)
+                sys.exit(1)
+            if (status == 'withdrawn'):
+                print("Withdraw '%s'" % accession, file=sys.stderr)
+                taxid = -1
+            try:
+                results[accession] = int(taxid)
+            except ValueError:
+                print('Parsing error for block "%s".' % block)
+                sys.exit(1)
+        elif '<Item Name="Extra" Type="String">' in line:
+            for id in ((line.split('>')[1]).split('<')[0]).split('|'):
+                if id in accessions:
+                    accession = id
+                    break
+        elif '<Item Name="Caption" Type="String">' in line:
+            id = (line.split('>')[1]).split('<')[0]
+            if id in accessions:
+                accession = id
+        elif '<Item Name="TaxId" Type="Integer">' in line:
+            taxid = (line.split('>')[1]).split('<')[0]
+        elif '<Item Name="Status" Type="String">' in line:
+            status = (line.split('>')[1]).split('<')[0]
+        block += line
+
+    return results
+
+
+def _get_taxids_http(accessions, verbose=True, log_results=True,
+                     chunk_size=100):
     if len(accessions) > 0:
         if verbose:
             print("fetching %i accessions from EBI:" % len(accessions),
@@ -123,59 +173,20 @@ def _get_taxids_http(accessions, verbose=True, log_results=True, chunk_size=100)
         results = {}
         log = None
         for chunk_accessions in chunks:
-            chunk_results = {}
-            url = ("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=%s&rettype=docsum"
-                   % ','.join(chunk_accessions))
-            # url = ('http://www.ebi.ac.uk/ena/data/view/%s&display=xml&header=true'
-            #        % ','.join(chunk_accessions))
             if verbose:
                 print('  chunk %i: requesting %i accessions: ...' % (
                         chunks.index(chunk_accessions),
                         len(chunk_accessions)),
                       file=sys.stderr, end="")
-            response = urllib.request.urlopen(url)
-
-            accession = None
-            taxid = None
-            block = ""
-            status = None
-            for line in response.read().decode('utf-8').split('\n'):
-                if line.startswith('<DocSum>'):
-                    accession = None
-                    taxid = None
-                    block = ""
-                elif line.startswith('</DocSum>'):
-                    if (accession is None) or (taxid is None):
-                        print('Parsing error for block "%s".' % block)
-                        sys.exit(1)
-                    if (status == 'withdrawn'):
-                        print("Withdraw '%s'" % accession, file=sys.stderr)
-                        taxid = -1
-                    try:
-                        chunk_results[accession] = int(taxid)
-                    except ValueError:
-                        print('Parsing error for block "%s".' % block)
-                        sys.exit(1)
-                elif '<Item Name="Extra" Type="String">' in line:
-                    for id in ((line.split('>')[1]).split('<')[0]).split('|'):
-                        if id in chunk_accessions:
-                            accession = id
-                            break
-                elif '<Item Name="Caption" Type="String">' in line:
-                    id = (line.split('>')[1]).split('<')[0]
-                    if id in chunk_accessions:
-                        accession = id
-                elif '<Item Name="TaxId" Type="Integer">' in line:
-                    taxid = (line.split('>')[1]).split('<')[0]
-                elif '<Item Name="Status" Type="String">' in line:
-                    status = (line.split('>')[1]).split('<')[0]
-                block += line
+            chunk_results = _parse_ncbi_gg(chunk_accessions)
             if verbose:
                 print(' got %i.' % (len(chunk_results)), file=sys.stderr)
-                #print('missing accession: %s' % ",".join([ accession for accession in chunk_accessions if accession not in chunk_results]))
 
+            # url = ('http://www.ebi.ac.uk/ena/data/view/%s&display=xml&header=true'
+            #        % ','.join(chunk_accessions))
             if log_results and len(chunk_results) > 0:
                 log = write_accession_taxids(chunk_results, filehandle=log)
+
             results = {**results, **chunk_results}
         return results
     else:
