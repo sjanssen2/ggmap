@@ -7,6 +7,7 @@ import time
 
 
 LOGFILE_PREFIX = 'log_taxid_'
+RESFILE_PREFIX = 'result_taxid_'
 LOGFILE_SUFFIX = '.txt'
 exitFlag = 0
 
@@ -65,7 +66,7 @@ def write_accession_taxids(dict, filehandle=None, verbose=True):
                                                  prefix=LOGFILE_PREFIX,
                                                  suffix=LOGFILE_SUFFIX,
                                                  mode='w')
-        filehandle.write("#" + "\t".join(['Accession', 'NCBI-taxid']) + "\n")
+        filehandle.write("#" + "\t".join(['Accession', 'NCBI-taxid (-1 = withdrawn)']) + "\n")
     if verbose:
         print("  logged %i accessions to file '%s'" %
               (len(dict), filehandle.name), file=sys.stderr)
@@ -96,6 +97,8 @@ def _get_taxids_cache(accessions, verbose=True):
             print('searching cache: ', file=sys.stderr, end="")
         for logfile in glob.glob("./%s*%s" % (LOGFILE_PREFIX, LOGFILE_SUFFIX)):
             read_accesion_taxids(logfile, cache)
+        for logfile in glob.glob("./%s*%s" % (RESFILE_PREFIX, LOGFILE_SUFFIX)):
+            read_accesion_taxids(logfile, cache)
         results = {}
         for id in accessions:
             if id in cache:
@@ -121,8 +124,10 @@ def _get_taxids_http(accessions, verbose=True, log_results=True, chunk_size=100)
         log = None
         for chunk_accessions in chunks:
             chunk_results = {}
-            url = ('http://www.ebi.ac.uk/ena/data/view/%s&display=xml&header=true'
+            url = ("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nucleotide&id=%s&rettype=docsum"
                    % ','.join(chunk_accessions))
+            # url = ('http://www.ebi.ac.uk/ena/data/view/%s&display=xml&header=true'
+            #        % ','.join(chunk_accessions))
             if verbose:
                 print('  chunk %i: requesting %i accessions: ...' % (
                         chunks.index(chunk_accessions),
@@ -130,18 +135,41 @@ def _get_taxids_http(accessions, verbose=True, log_results=True, chunk_size=100)
                       file=sys.stderr, end="")
             response = urllib.request.urlopen(url)
 
+            accession = None
+            taxid = None
+            block = ""
+            status = None
             for line in response.read().decode('utf-8').split('\n'):
-                if line.startswith('<entry accession="'):
-                    for field in line.split(" "):
-                        if field.startswith('accession'):
-                            accession = (field.split('=')[1])[1:-1]
-                        elif field.startswith('version'):
-                            accession += "." + (field.split('=')[1])[1:-1]
-                elif 'taxId="' in line:
-                    for field in line.split(" "):
-                        if field.startswith('taxId'):
-                            taxid = (field.split('=')[1])[1:-2]
-                            chunk_results[accession] = int(taxid)
+                if line.startswith('<DocSum>'):
+                    accession = None
+                    taxid = None
+                    block = ""
+                elif line.startswith('</DocSum>'):
+                    if (accession is None) or (taxid is None):
+                        print('Parsing error for block "%s".' % block)
+                        sys.exit(1)
+                    if (status == 'withdrawn'):
+                        print("Withdraw '%s'" % accession, file=sys.stderr)
+                        taxid = -1
+                    try:
+                        chunk_results[accession] = int(taxid)
+                    except ValueError:
+                        print('Parsing error for block "%s".' % block)
+                        sys.exit(1)
+                elif '<Item Name="Extra" Type="String">' in line:
+                    for id in ((line.split('>')[1]).split('<')[0]).split('|'):
+                        if id in chunk_accessions:
+                            accession = id
+                            break
+                elif '<Item Name="Caption" Type="String">' in line:
+                    id = (line.split('>')[1]).split('<')[0]
+                    if id in chunk_accessions:
+                        accession = id
+                elif '<Item Name="TaxId" Type="Integer">' in line:
+                    taxid = (line.split('>')[1]).split('<')[0]
+                elif '<Item Name="Status" Type="String">' in line:
+                    status = (line.split('>')[1]).split('<')[0]
+                block += line
             if verbose:
                 print(' got %i.' % (len(chunk_results)), file=sys.stderr)
                 #print('missing accession: %s' % ",".join([ accession for accession in chunk_accessions if accession not in chunk_results]))
@@ -180,7 +208,7 @@ def slice_it(li, cols=2):
 if __name__ == "__main__":
     abort_after_lines = None
     num_threads = 1
-    inner_chunk_size = 100
+    inner_chunk_size = 200
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
 
     r = parse_gg_accessions(file_input, abort_after_lines=abort_after_lines)
