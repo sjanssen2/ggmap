@@ -12,16 +12,17 @@ exitFlag = 0
 
 
 class thread_fetch(threading.Thread):
-    def __init__(self, threadID, name, accessions):
+    def __init__(self, threadID, name, accessions, chunk_size):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.name = name
         self.accessions = accessions
+        self.chunk_size = chunk_size
 
     def run(self):
         print("Starting %s with %i accessions." %
               (self.name, len(self.accessions)))
-        fetchTaxids(self.accessions)
+        fetchTaxids(self.accessions, chunk_size=self.chunk_size)
         print("Exiting " + self.name)
 
 
@@ -108,13 +109,13 @@ def _get_taxids_cache(accessions, verbose=True):
         return {}
 
 
-def _get_taxids_http(accessions, verbose=True, log_results=True, chunkSize=100):
+def _get_taxids_http(accessions, verbose=True, log_results=True, chunk_size=100):
     if len(accessions) > 0:
         if verbose:
             print("fetching %i accessions from EBI:" % len(accessions),
                   file=sys.stderr)
-        chunks = [accessions[i:i+chunkSize]
-                  for i in range(0, len(accessions), chunkSize)]
+        chunks = [accessions[i:i+chunk_size]
+                  for i in range(0, len(accessions), chunk_size)]
 
         results = {}
         log = None
@@ -143,6 +144,8 @@ def _get_taxids_http(accessions, verbose=True, log_results=True, chunkSize=100):
                             chunk_results[accession] = int(taxid)
             if verbose:
                 print(' got %i.' % (len(chunk_results)), file=sys.stderr)
+                #print('missing accession: %s' % ",".join([ accession for accession in chunk_accessions if accession not in chunk_results]))
+
             if log_results and len(chunk_results) > 0:
                 log = write_accession_taxids(chunk_results, filehandle=log)
             results = {**results, **chunk_results}
@@ -151,7 +154,7 @@ def _get_taxids_http(accessions, verbose=True, log_results=True, chunkSize=100):
         return {}
 
 
-def fetchTaxids(accessions, verbose=True, log_results=True):
+def fetchTaxids(accessions, verbose=True, log_results=True, chunk_size=100):
     """ Fetches NCBI taxonomy IDs via EBI for a list of accessions.
     """
 
@@ -160,7 +163,8 @@ def fetchTaxids(accessions, verbose=True, log_results=True):
 
     # second, for the remaining accessions, start a REST request to EBI
     http_accessions = list(set(accessions) - set(cached_results.keys()))
-    http_results = _get_taxids_http(http_accessions, verbose, log_results)
+    http_results = _get_taxids_http(http_accessions, verbose, log_results,
+                                    chunk_size=chunk_size)
 
     return {**cached_results, **http_results}
 
@@ -175,7 +179,8 @@ def slice_it(li, cols=2):
 
 if __name__ == "__main__":
     abort_after_lines = None
-    num_threads = 20
+    num_threads = 1
+    inner_chunk_size = 100
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
 
     r = parse_gg_accessions(file_input, abort_after_lines=abort_after_lines)
@@ -186,7 +191,8 @@ if __name__ == "__main__":
         threads.append(thread_fetch(
             chunks.index(chunk),
             "Thread-%i" % chunks.index(chunk),
-            chunk
+            chunk,
+            inner_chunk_size
         ))
     for thread in threads:
         thread.start()
