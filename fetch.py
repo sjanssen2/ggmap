@@ -33,7 +33,6 @@ def parse_metaphlan_markers_info(filename, abort_after_lines=20):
     accessions = {}
     try:
         file = open(filename, 'r')
-        file.readline()  # header
         readlines = 0
         accession = None
         type = None
@@ -294,7 +293,8 @@ def _parse_img(accessions):
         url = ("%s?section=TaxonDetail&page=taxonDetail&taxon_oid=%s" % (
                 base_url,
                 ",".join(accessions)))
-        response = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Fake'}))
+        response = urllib.request.urlopen(urllib.request.Request(url,
+                                          headers={'User-Agent': 'Fake'}))
 
         accession = None
         taxid = None
@@ -304,7 +304,8 @@ def _parse_img(accessions):
             block += line
             if 'http://www.ncbi.nlm.nih.gov/Taxonomy/' in line:
                 taxid = (line.split('>')[2]).split('<')[0]
-            elif "<input type='hidden' id='taxon_filter_oid' name='taxon_filter_oid' value='" in line:
+            elif ("<input type='hidden' id='taxon_filter_oid' ",
+                  "name='taxon_filter_oid' value='") in line:
                 accession = line.split("'")[7]
             elif ("Taxon object identifier" in line) and ("not found" in line):
                 taxid = -1
@@ -384,7 +385,8 @@ def _get_taxids_img(accessions, verbose=True, log_results=True):
                 if list(chunk_results.values())[0] == -1:
                     print(' ID not found', file=sys.stderr)
                 else:
-                    print(' got "%s".' % (list(chunk_results.values())[0]), file=sys.stderr)
+                    print(' got "%s".' % (list(chunk_results.values())[0]),
+                          file=sys.stderr)
 
             if log_results and len(chunk_results) > 0:
                 log = write_accession_taxids(chunk_results, filehandle=log)
@@ -395,7 +397,8 @@ def _get_taxids_img(accessions, verbose=True, log_results=True):
         return {}
 
 
-def fetchTaxids(accessions, type_ids, verbose=True, log_results=True, chunk_size=100):
+def fetchTaxids(accessions, type_ids, verbose=True, log_results=True,
+                chunk_size=100):
     """ Fetches NCBI taxonomy IDs via EBI for a list of accessions.
     """
 
@@ -449,6 +452,8 @@ if __name__ == "__main__":
     num_threads = 1
     inner_chunk_size = 200
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
+    file_input_metaphlan = ('/home/sjanssen/GreenGenes/Metaphlan/',
+                            'markers_info.txt')
     runtype = 'some'
 
     accessions = []
@@ -460,11 +465,10 @@ if __name__ == "__main__":
         fetchTaxids_threaded([v for k, v in r['IMG'].items()],
                              'IMG', num_threads)
     elif runtype == 'metaphlan':
-        r = parse_metaphlan_markers_info('/home/sjanssen/GreenGenes/Metaphlan/markers_info.txt', abort_after_lines=abort_after_lines)
+        r = parse_metaphlan_markers_info(file_input_metaphlan,
+                                         abort_after_lines=abort_after_lines)
         fetchTaxids_threaded(r['gi'], 'gi', num_threads)
         fetchTaxids_threaded(r['GeneID'], 'GeneID', num_threads)
         fetchTaxids_threaded(r['NC'], 'NC', num_threads)
-
-
 
     print("Exiting Main Thread")
