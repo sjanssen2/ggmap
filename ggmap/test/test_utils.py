@@ -1,5 +1,4 @@
 from unittest import TestCase, main
-from io import StringIO
 from copy import deepcopy
 
 from skbio.util import get_data_path
