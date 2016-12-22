@@ -3,7 +3,8 @@ from unittest import TestCase, main
 from skbio.util import get_data_path
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
-                            read_taxid_list
+                            read_taxid_list, _read_ncbitaxonomy_file, \
+                            read_ncbi_merged
 
 
 class ContactsTests(TestCase):
@@ -45,6 +46,10 @@ class ContactsTests(TestCase):
             'GeneID': {
                 '2658371': '244590', '11117645': '1054461',
                 '1259969': '205879', '11117646': '1054461'}}
+        self.file_merged = get_data_path('head_merged.dmp')
+        self.true_merged = {80: 155892, 67: 32033, 36: 184914, 37: 42,
+                            76: 155892, 30: 29, 12: 74109, 77: 74311, 46: 39,
+                            79: 74313}
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)
@@ -55,6 +60,16 @@ class ContactsTests(TestCase):
 
         with self.assertRaises(IOError):
             read_ncbi_nodes('/tmp/non')
+
+    def test_read_ncbi_merged(self):
+        nodes = read_ncbi_merged(self.file_merged)
+        self.assertEqual(self.true_merged, nodes)
+
+        with self.assertRaises(ValueError):
+            read_ncbi_merged(self.file_names)
+
+        with self.assertRaises(IOError):
+            read_ncbi_merged('/tmp/non')
 
     def test_read_metaphlan_markers_info(self):
         self.assertEqual(self.true_marker,
@@ -75,6 +90,17 @@ class ContactsTests(TestCase):
         with self.assertRaises(ValueError):
             read_taxid_list(self.file_names)
 
+    def test__read_ncbitaxonomy_file(self):
+        self.assertEqual(self.true_nodes,
+                         _read_ncbitaxonomy_file(self.file_nodes))
+        self.assertEqual(self.true_merged,
+                         _read_ncbitaxonomy_file(self.file_merged))
+
+        with self.assertRaises(ValueError):
+            _read_ncbitaxonomy_file(self.file_names)
+
+        with self.assertRaises(IOError):
+            _read_ncbitaxonomy_file('/tmp/non')
 
 if __name__ == '__main__':
     main()

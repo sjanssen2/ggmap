@@ -1,3 +1,41 @@
+def _read_ncbitaxonomy_file(filename):
+    """ A generic function to read an NCBI taxonomy file, which is delimited
+    by '\t|\t?'.
+
+    Parameters
+    ----------
+    filename : str
+        Path to a file from an NCBI taxonomy dump.
+
+    Returns
+    -------
+    A dict. Key = first field of file, Value = second field of file.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    ValueError
+        If IDs of entries cannot be converted into int.
+    """
+    entries = {}
+    try:
+        file = open(filename, 'r')
+        for line in file:
+            fields = list(map(str.strip, line.split('|')))
+            try:
+                entries[int(fields[0])] = int(fields[1])
+            except ValueError:
+                file.close()
+                raise ValueError("cannot convert entry IDs (%s, %s) to int."
+                                 % (fields[0], fields[1]))
+
+        file.close()
+        return entries
+
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
+
 
 def read_ncbi_nodes(filename):
     """ Reads NCBI's nodes.dmp file and returns a dict of nodes and parents.
@@ -18,23 +56,29 @@ def read_ncbi_nodes(filename):
     ValueError
         If IDs of nodes or parent nodes cannot be converted into int.
     """
-    nodes = {}
-    try:
-        file = open(filename, 'r')
-        for line in file:
-            fields = line.split('\t|\t')
-            try:
-                nodes[int(fields[0])] = int(fields[1])
-            except ValueError:
-                file.close()
-                raise ValueError("cannot convert node IDs (%s, %s) to int."
-                                 % (fields[0], fields[1]))
+    return _read_ncbitaxonomy_file(filename)
 
-        file.close()
-        return nodes
 
-    except IOError:
-        raise IOError('Cannot read file "%s"' % filename)
+def read_ncbi_merged(filename):
+    """ Reads NCBI's merged.dmp file and returns a dict of old and merged IDs.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the filename 'merged.dmp' of NCBI's taxonomy.
+
+    Returns
+    -------
+    A dict, where keys are old IDs and their values are the new merged IDs.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    ValueError
+        If IDs of old or merged nodes cannot be converted into int.
+    """
+    return _read_ncbitaxonomy_file(filename)
 
 
 def read_metaphlan_markers_info(filename):
