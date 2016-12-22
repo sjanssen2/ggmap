@@ -1,3 +1,5 @@
+import sys
+
 from skbio.tree import TreeNode
 
 
@@ -25,7 +27,7 @@ def get_lineage(taxid, nodes):
         return list(reversed(lineage))
 
 
-def build_ncbi_tree(nodes, verbose=False):
+def build_ncbi_tree(nodes, verbose=False, out=sys.stdout):
     """ Build a TreeNode from a dict of nodes.
 
     Parameters
@@ -35,6 +37,8 @@ def build_ncbi_tree(nodes, verbose=False):
         parent taxID.
     verbose : Boolean
         Print verbose status information while executing. Default = False
+    out : file handle
+        File handle into verbosity information should be printed.
 
     Returns
     -------
@@ -45,17 +49,17 @@ def build_ncbi_tree(nodes, verbose=False):
     tips = set(nodes) - parents
 
     if verbose:
-        print("build ncbi tree for %i tips: " % len(list(tips)), end="")
+        out.write("build ncbi tree for %i tips: " % len(list(tips)))
     ls = {}
     for c, tip in enumerate(list(tips)):
         if verbose and (int(c % (len(tips) / 100)) == 0):
-            print(".", end="")
+            out.write(".")
         try:
             ls[tip] = get_lineage(tip, nodes)[:-1]
         except KeyError:
             raise KeyError("Cannot obtain lineage for taxid %s" % tip)
     tree = TreeNode.from_taxonomy(ls.items())
     if verbose:
-        print(" done.")
+        out.write(" done.\n")
 
     return tree

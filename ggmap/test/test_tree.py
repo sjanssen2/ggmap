@@ -1,4 +1,5 @@
 from unittest import TestCase, main
+from io import StringIO
 
 from skbio.util import get_data_path
 
@@ -23,6 +24,13 @@ class ContactsTests(TestCase):
         tree = build_ncbi_tree(self.taxonomy)
         self.assertCountEqual(list(map(lambda node: node.name, tree.tips())),
                               [28384, 2, 2759, 2157, 12884, 12908, 10239])
+
+        out = StringIO()
+        tree = build_ncbi_tree(self.taxonomy, verbose=True, out=out)
+        self.assertCountEqual(list(map(lambda node: node.name, tree.tips())),
+                              [28384, 2, 2759, 2157, 12884, 12908, 10239])
+        self.assertEqual(out.getvalue().strip(),
+                         "build ncbi tree for 7 tips: ....... done.")
 
         with self.assertRaises(KeyError):
             build_ncbi_tree(read_ncbi_nodes(self.file_nodes_head))
