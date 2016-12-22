@@ -1,0 +1,9 @@
+#Type	Accession	NCBI-taxid (-1 = withdrawn)
+Genbank	X71860.1	633697
+Genbank	NZ_GG661973.1	556267
+Genbank	AM749780.1	1303518
+Genbank	FJ193781.1	165433
+Genbank	JQ941795.1	77133
+Genbank	EU509548.1	77133
+Genbank	JN530275.1	155900
+Genbank	JQ694525.1	57045
