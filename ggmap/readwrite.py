@@ -35,3 +35,64 @@ def read_ncbi_nodes(filename):
 
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def read_metaphlan_markers_info(filename):
+    """ Reads the MetaPhlAn markers_info.txt file.
+
+    MetaPhlAn's OTU analogous are 'clades'. Currently, they have around 8900.
+    A 'clade' is composed of one or many (sub)sequences of specific marker
+    genes. Those marker genes come from three sources: 1) genbank: "^gi|",
+    2) gene: "^GeneID:", and 3) NCBI nr: "^NC_".
+
+    Parameters
+    ----------
+    filename : str
+        Path to the filename 'markers_info' of MetaPhlAn.
+
+    Returns
+    -------
+    A dict with an entry for each 'clade'. Their values are dicts themselves,
+    with keys that refer to one of the three sequence sources. And their values
+    are sets of marker gene IDs. For example:
+    's__Escherichia_phage_vB_EcoP_G7C': {'GeneID': {'11117645', '11117646'}}
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    clades = {}
+    try:
+        file = open(filename, 'r')
+        for line in file:
+            if line.startswith('gi|'):
+                type_ids = 'gi'
+                accession = (line.split('\t')[0]).split('|')[1]
+            elif line.startswith('GeneID:'):
+                type_ids = 'GeneID'
+                accession = (line.split('\t')[0]).split(':')[1]
+            elif line.startswith('NC_'):
+                type_ids = 'NC'
+                accession = line.split('\t')[0]
+            else:
+                type_ids = None
+                accession = None
+
+            if (type_ids is not None) and (accession is not None):
+                clade = line.split("clade': '")[1].split("'")[0]
+                if clade not in clades:
+                    clades[clade] = {}
+                if type_ids not in clades[clade]:
+                    clades[clade][type_ids] = {}
+                clades[clade][type_ids][accession] = True
+
+        for clade in clades:
+            for type_id in clades[clade]:
+                clades[clade][type_id] = set(clades[clade][type_id].keys())
+
+        file.close()
+        return clades
+
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
