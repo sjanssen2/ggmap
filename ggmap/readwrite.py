@@ -188,3 +188,36 @@ def read_taxid_list(filename, dict={}):
         return dict
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def read_gg_accessions(filename):
+    """ Reads a GreenGenes accession list.
+
+    Parameters
+    ----------
+    filename: str
+        Path to the file containing GreenGenes accessions.
+
+    Returns
+    -------
+    A dict that holds all accessions, split into accession types e.g. Genbank,
+    IMG
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    accessions = {}
+    try:
+        file = open(filename, 'r')
+        file.readline()  # header
+        for line in file:
+            gg_id, accession_type, accession = line.rstrip().split("\t")
+            if accession_type not in accessions.keys():
+                accessions[accession_type] = {}
+            accessions[accession_type][gg_id] = accession
+        file.close()
+        return accessions
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)

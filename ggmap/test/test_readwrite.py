@@ -4,7 +4,7 @@ from skbio.util import get_data_path
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_taxid_list, _read_ncbitaxonomy_file, \
-                            read_ncbi_merged
+                            read_ncbi_merged, read_gg_accessions
 
 
 class ReadWriteTests(TestCase):
@@ -50,6 +50,14 @@ class ReadWriteTests(TestCase):
         self.true_merged = {80: 155892, 67: 32033, 36: 184914, 37: 42,
                             76: 155892, 234829: 29, 12: 74109, 77: 74311,
                             46: 39, 205879: 74313}
+        self.file_accessions = get_data_path('subset_gg_13_5_accessions.txt')
+        self.true_accessions = {
+            'IMG': {'4486316': '2517093047', '4486315': '2515154132',
+                    '4486318': '2508501010', '4486317': '2509276016'},
+            'Genbank': {'266930': 'EU509548.1', '336267': 'FJ193781.1',
+                        '13988': 'X71860.1', '4175983': 'JN530275.1',
+                        '4485548': 'NZ_GG661973.1', '2338842': 'JQ941795.1',
+                        '4466933': 'JQ694525.1', '243587': 'AM749780.1'}}
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)
@@ -101,6 +109,16 @@ class ReadWriteTests(TestCase):
 
         with self.assertRaises(IOError):
             _read_ncbitaxonomy_file('/tmp/non')
+
+    def test_read_gg_accessions(self):
+        self.assertEqual(self.true_accessions,
+                         read_gg_accessions(self.file_accessions))
+
+        with self.assertRaises(IOError):
+            read_taxid_list('/tmp/non')
+
+        with self.assertRaises(ValueError):
+            read_taxid_list(self.file_names)
 
 if __name__ == '__main__':
     main()
