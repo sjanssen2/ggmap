@@ -2,7 +2,8 @@ from unittest import TestCase, main
 
 from skbio.util import get_data_path
 
-from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info
+from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
+                            read_taxid_list
 
 
 class ContactsTests(TestCase):
@@ -33,6 +34,17 @@ class ContactsTests(TestCase):
             's__Streptomyces_sp_KhCrAH_244': {'gi': {'483970126'}},
             's__Tomato_begomovirus_satellite_DNA_beta': {'NC': {'NC_004904.1'}}
         }
+        self.file_mptaxids = get_data_path('subset_taxids_metaphlan.txt')
+        self.true_mptaxids = {
+            'NC': {
+                 'NC_012493.1': '575918', 'NC_002560.1': '134606',
+                 'NC_002566.1': '134606', 'NC_004904.1': '234829'},
+            'gi': {
+                '389575461': '633697', '483970126': '1157633',
+                '225074862': '556267', '512550081': '1303518'},
+            'GeneID': {
+                '2658371': '244590', '11117645': '1054461',
+                '1259969': '205879', '11117646': '1054461'}}
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)
@@ -52,6 +64,17 @@ class ContactsTests(TestCase):
             read_metaphlan_markers_info('/tmp/non')
 
         self.assertEqual({}, read_metaphlan_markers_info(self.file_nodes))
+
+    def test_read_taxid_list(self):
+        self.assertEqual(self.true_mptaxids,
+                         read_taxid_list(self.file_mptaxids))
+
+        with self.assertRaises(IOError):
+            read_taxid_list('/tmp/non')
+
+        with self.assertRaises(ValueError):
+            read_taxid_list(self.file_names)
+
 
 if __name__ == '__main__':
     main()

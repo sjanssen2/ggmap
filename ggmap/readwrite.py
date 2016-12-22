@@ -96,3 +96,51 @@ def read_metaphlan_markers_info(filename):
 
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def read_taxid_list(filename, dict={}):
+    """ Read a taxID list file.
+
+    A taxID list file consists of three tab separated columns: 1. ID type,
+    2. ID of sequence, 3. NCBI taxonomy ID for the sequence. It is headed by
+    one line starting with the '#' char.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file containing the taxID list.
+    dict : dict
+        Optional. Provide an existing dictionary into which parsed results
+        should be added. Useful if the taxID list consists of several files.
+
+    Returns
+    -------
+    A dict of dict. First dict's keys are the sequence types, e.g. "gi",
+    "GeneID", "NC". Second level keys are the sequence IDs and their values are
+    the according NCBI taxonomy IDs, or taxIDs for short.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    ValueError
+        If a line does not contain of exactly three tab delimited fields.
+    """
+    try:
+        f = open(filename, 'r')
+        f.readline()  # header
+        for line in f:
+            try:
+                type, accession, taxid = line.rstrip().split("\t")
+                if type not in dict:
+                    dict[type] = {}
+                dict[type][accession] = taxid
+            except ValueError:
+                f.close()
+                raise ValueError("Error parsing line '%s' of file '%s'" %
+                                 (line, filename))
+
+        f.close()
+        return dict
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
