@@ -7,7 +7,7 @@ from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_ncbi_merged
 
 
-class ContactsTests(TestCase):
+class ReadWriteTests(TestCase):
     def setUp(self):
         self.file_nodes = get_data_path('head_nodes.dmp')
         self.true_nodes = {16: 32011,
@@ -38,18 +38,18 @@ class ContactsTests(TestCase):
         self.file_mptaxids = get_data_path('subset_taxids_metaphlan.txt')
         self.true_mptaxids = {
             'NC': {
-                 'NC_012493.1': '575918', 'NC_002560.1': '134606',
-                 'NC_002566.1': '134606', 'NC_004904.1': '234829'},
+                 'NC_012493.1': 575918, 'NC_002560.1': 134606,
+                 'NC_002566.1': 134606, 'NC_004904.1': 234829},
             'gi': {
-                '389575461': '633697', '483970126': '1157633',
-                '225074862': '556267', '512550081': '1303518'},
+                '389575461': 633697, '483970126': 1157633,
+                '225074862': 556267, '512550081': 1303518},
             'GeneID': {
-                '2658371': '244590', '11117645': '1054461',
-                '1259969': '205879', '11117646': '1054461'}}
+                '2658371': 244590, '11117645': 1054461,
+                '1259969': 205879, '11117646': 1054461}}
         self.file_merged = get_data_path('head_merged.dmp')
         self.true_merged = {80: 155892, 67: 32033, 36: 184914, 37: 42,
-                            76: 155892, 30: 29, 12: 74109, 77: 74311, 46: 39,
-                            79: 74313}
+                            76: 155892, 234829: 29, 12: 74109, 77: 74311,
+                            46: 39, 205879: 74313}
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)

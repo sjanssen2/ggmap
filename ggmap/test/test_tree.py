@@ -7,7 +7,7 @@ from ggmap.readwrite import read_ncbi_nodes
 from ggmap.tree import get_lineage, build_ncbi_tree
 
 
-class ContactsTests(TestCase):
+class TreeTests(TestCase):
     def setUp(self):
         self.file_nodes = get_data_path('top_nodes.dmp')
         self.file_nodes_head = get_data_path('head_nodes.dmp')

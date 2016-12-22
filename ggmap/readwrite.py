@@ -178,7 +178,7 @@ def read_taxid_list(filename, dict={}):
                 type, accession, taxid = line.rstrip().split("\t")
                 if type not in dict:
                     dict[type] = {}
-                dict[type][accession] = taxid
+                dict[type][accession] = int(taxid)
             except ValueError:
                 f.close()
                 raise ValueError("Error parsing line '%s' of file '%s'" %
