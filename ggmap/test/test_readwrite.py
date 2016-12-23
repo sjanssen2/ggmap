@@ -236,6 +236,9 @@ class ReadWriteTests(TestCase):
         write_clade2otus_map(filename, self.true_map)
         self.assertTrue(filecmp.cmp(filename, self.file_true_map))
 
+        with self.assertRaises(IOError):
+            write_clade2otus_map('/dev', self.true_map)
+
     def test_read_clade2otus_map(self):
         self.assertCountEqual(read_clade2otus_map(self.file_true_map),
                               self.true_map)
