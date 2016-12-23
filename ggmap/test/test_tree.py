@@ -4,8 +4,9 @@ from io import StringIO
 from skbio.util import get_data_path
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
-                            read_taxid_list
-from ggmap.tree import get_lineage, build_ncbi_tree, map_metaphlan_onto_ncbi
+                            read_taxid_list, read_gg_accessions, \
+                            read_gg_otu_map
+from ggmap.tree import get_lineage, build_ncbi_tree, map_onto_ncbi
 
 
 class TreeTests(TestCase):
@@ -16,6 +17,10 @@ class TreeTests(TestCase):
         self.file_nodes_mock = get_data_path('mock_nodes.dmp')
         self.file_mpmarkers = get_data_path('subset_markers_info.txt')
         self.file_mptaxids = get_data_path('subset_taxids_metaphlan.txt')
+        self.file_gg_accessions = \
+            get_data_path('subset_gg_13_5_accessions.txt')
+        self.file_gg_taxids = get_data_path('subset_taxids_gg.txt')
+        self.file_gg_otumap = get_data_path('subset_97_otu_map.txt')
 
     def test_get_lineage(self):
         self.assertEqual(get_lineage(2, self.taxonomy),
@@ -39,14 +44,14 @@ class TreeTests(TestCase):
         with self.assertRaises(KeyError):
             build_ncbi_tree(read_ncbi_nodes(self.file_nodes_head))
 
-    def test_map_metaphlan_onto_ncbi(self):
+    def test_map_onto_ncbi_mp(self):
         tree_ncbi = build_ncbi_tree(read_ncbi_nodes(self.file_nodes_mock))
         clades_metaphlan = read_metaphlan_markers_info(self.file_mpmarkers)
         taxids_metaphlan = read_taxid_list(self.file_mptaxids)
         out = StringIO()
-        tree_mp = map_metaphlan_onto_ncbi(tree_ncbi, clades_metaphlan,
-                                          taxids_metaphlan, verbose=True,
-                                          out=out)
+        tree_mp = map_onto_ncbi(tree_ncbi, clades_metaphlan, taxids_metaphlan,
+                                attribute_name='mp_clades', verbose=True,
+                                out=out)
 
         self.assertEqual(tree_ncbi.count(), 35)
         self.assertEqual(tree_mp.count(), 19)
@@ -71,6 +76,29 @@ class TreeTests(TestCase):
         self.assertIn(("Cannot find taxid 575918 in taxonomy for clade "
                        "'s__Tomato_leaf_curl_Patna_betasatellite'"),
                       out.getvalue().strip())
+
+    def test_map_onto_ncbi_gg(self):
+        tree_ncbi = build_ncbi_tree(read_ncbi_nodes(self.file_nodes_mock))
+
+        gg_ids_accessions = read_gg_accessions(self.file_gg_accessions)
+        gg_taxids = read_taxid_list(self.file_gg_taxids)
+        gg_otumap_97_orig = read_gg_otu_map(self.file_gg_otumap,
+                                            gg_ids_accessions)
+
+        out = StringIO()
+        tree_gg = map_onto_ncbi(tree_ncbi, gg_otumap_97_orig, gg_taxids,
+                                attribute_name='otus', verbose=True,
+                                out=out)
+        otus = set()
+        for node in tree_gg.find_by_func(lambda node:
+                                         hasattr(node, 'otus')):
+            otus |= node.otus
+        self.assertCountEqual({11054, 13988, 243587}, otus)
+        self.assertNotIn('2328237', otus)
+
+        self.assertIn('Starting deep copy (might take 40 seconds): ... done.',
+                      out.getvalue().strip())
+        self.assertNotIn("Cannot find taxid", out.getvalue().strip())
 
 
 if __name__ == '__main__':

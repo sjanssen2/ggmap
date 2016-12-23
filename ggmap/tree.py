@@ -65,19 +65,22 @@ def build_ncbi_tree(nodes, verbose=False, out=sys.stdout):
     return tree
 
 
-def map_metaphlan_onto_ncbi(taxonomy, mp_clades, mp_taxids, verbose=False,
-                            out=sys.stdout):
-    """Subsets a given NCBI taxonomy to those taxIDs that are used by
-       MetaPhlAn (mp_clades).
+def map_onto_ncbi(taxonomy, clusters, cluster_taxids, attribute_name,
+                  verbose=False, out=sys.stdout):
+    """Subsets a given NCBI taxonomy to those taxIDs that are used by clusters.
+
+    Clusters might be either OTUs from GreenGenes or Clades from MetaPhlAn.
 
     Parameters
     ----------
     taxonomy : TreeNode
         The NCBI taxonomy as TreeNode.
-    mp_clades : Dict of dicts of sets
-        Clade name: clade type: accession.
-    mp_taxids : Dict of dicts of taxIDs
-        Clade type: accession: NCBI taxonomy ID
+    clusters : Dict of dicts of sets
+        cluster name: cluster type: accession.
+    cluster_taxids : Dict of dicts of taxIDs
+        Cluster type: accession: NCBI taxonomy ID
+    attribute_name: str
+        Name of the attribute which are added to the tree nodes.
     verbose : Boolean
         Print verbose status information while executing. Default = False
     out : file handle
@@ -86,29 +89,32 @@ def map_metaphlan_onto_ncbi(taxonomy, mp_clades, mp_taxids, verbose=False,
 
     Returns
     -------
-    A subtree of taxonomy, in which nodes are decorated with MetaPhlAn clades
-    that match to those taxids (.mp_clades).
+    A subtree of taxonomy, in which nodes are decorated with either MetaPhlAn
+    clades or GreenGenes OTUs that match to those taxids.
     """
     out.write("Starting deep copy (might take 40 seconds): ...")
     tree = taxonomy.deepcopy()
     out.write(" done.\n")
 
-    for clade in mp_clades:
-        for ctype in mp_clades[clade]:
-            taxids = set(map(lambda accession: mp_taxids[ctype][accession],
-                             mp_clades[clade][ctype]))
+    for cluster in clusters:
+        for ctype in clusters[cluster]:
+            taxids = set(map(lambda accession:
+                             cluster_taxids[ctype][accession],
+                             clusters[cluster][ctype]))
             for taxid in taxids:
                 try:
                     node = tree.find(taxid)
-                    if not hasattr(node, 'mp_clades'):
-                        node.mp_clades = set()
+                    if not hasattr(node, attribute_name):
+                        setattr(node, attribute_name, set())
                         node.isUsed = True
                         for n in node.ancestors():
                             n.isUsed = True
-                    node.mp_clades.add(clade)
+                    attr_set = getattr(node, attribute_name)
+                    attr_set.add(cluster)
+                    setattr(node, attribute_name, attr_set)
                 except MissingNodeError:
                     out.write(("Cannot find taxid %s in taxonomy for "
-                               "clade '%s'\n") % (taxid, clade))
+                               "clade '%s'\n") % (taxid, cluster))
 
     tree.remove_deleted(lambda node: not hasattr(node, 'isUsed'))
 
