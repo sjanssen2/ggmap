@@ -1,0 +1,8 @@
+#MetaPhlAn clade	matching GreenGenes OTUs
+p__Armatimonadetes	243587
+s__Escherichia_phage_vB_EcoP_G7C	11054	13988	243587
+s__Eubacterium_cellulosolvens	13988
+s__Helicobacter_winghamensis	11054
+s__Mycobacterium_phage_Omega	11054	13988	243587
+s__Streptomyces_sp_KhCrAH_244	13988
+s__Sulfolobus_spindle_shaped_virus_2	243587
