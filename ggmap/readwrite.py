@@ -328,3 +328,48 @@ def read_clade2otus_map(filename):
         return map_clade2otu
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def read_metaphlan_profile(filename):
+    """ Read a MetaPhlAn profile file.
+
+    The file starts with a one line header, beginning with #
+    Content is two tab separated fields. First is MetaPhlan taxon, second its
+    accumultative realtive abundance (adds up to 100.0 instead of 1.0)
+    The file is quite reundant, because it stores abundance for each node of
+    the spanned tree, instead of only for the tips.
+    We report only tips, which might be truncated from the suffix
+    '_unclassified' to match the MetaPhlAn clades.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file from which should be read.
+
+    Returns
+    -------
+    A dict, holding for each clade its realtive abundance (un-normalized).
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    tree = {}
+    try:
+        file = open(filename, 'r')
+        file.readline()  # header
+        for line in file:
+            linStr, abundance = line.rstrip().split('\t')
+            for t in tree:
+                if t in linStr:
+                    del tree[t]
+                    break
+            if linStr.endswith('_unclassified'):
+                linStr = linStr[:-len('_unclassified')]
+            tree[linStr] = float(abundance)
+
+        file.close()
+        return tree
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
