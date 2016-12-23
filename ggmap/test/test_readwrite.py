@@ -1,11 +1,14 @@
 from unittest import TestCase, main
+import filecmp
+import tempfile
 
 from skbio.util import get_data_path
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_taxid_list, _read_ncbitaxonomy_file, \
                             read_ncbi_merged, read_gg_accessions, \
-                            read_gg_otu_map
+                            read_gg_otu_map, write_clade2otus_map, \
+                            read_clade2otus_map
 
 
 class ReadWriteTests(TestCase):
@@ -76,6 +79,18 @@ class ReadWriteTests(TestCase):
                                13988: {'Genbank': {'X71860.1'}},
                                2328237: {},
                                11054: {'Genbank': {'ACDO01000013.1'}}}
+        self.true_map = {'s__Helicobacter_winghamensis': {11054},
+                         'p__Armatimonadetes': {243587},
+                         's__Eubacterium_cellulosolvens': {13988},
+                         's__Streptomyces_sp_KhCrAH_244': {13988},
+                         's__Mycobacterium_phage_Omega': {243587, 13988,
+                                                          11054},
+                         's__Sulfolobus_spindle_shaped_virus_2':
+                         {243587},
+                         's__Escherichia_phage_vB_EcoP_G7C': {243587,
+                                                              13988,
+                                                              11054}}
+        self.file_true_map = get_data_path('true_map.txt')
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)
@@ -151,6 +166,15 @@ class ReadWriteTests(TestCase):
 
         with self.assertRaises(ValueError):
             read_gg_otu_map(self.file_names, gg_accessions)
+
+    def test_write_clade2otus_map(self):
+        fh, filename = tempfile.mkstemp()
+        write_clade2otus_map(filename, self.true_map)
+        self.assertTrue(filecmp.cmp(filename, self.file_true_map))
+
+    def test_read_clade2otus_map(self):
+        self.assertCountEqual(read_clade2otus_map(self.file_true_map),
+                              self.true_map)
 
 if __name__ == '__main__':
     main()

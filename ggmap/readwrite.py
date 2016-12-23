@@ -285,7 +285,7 @@ def write_clade2otus_map(filename, map_clade2otu):
     Raises
     ------
     IOError
-        If the file cannot be read.
+        If the file cannot be written.
     """
     try:
         fh = open(filename, 'w')
@@ -297,3 +297,34 @@ def write_clade2otus_map(filename, map_clade2otu):
         fh.close()
     except IOError:
         raise IOError('Cannot write to file "%s"' % filename)
+
+
+def read_clade2otus_map(filename):
+    """ Read a MetaPhlAn clades to GreenGenes OTUs map file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file from which should be read.
+
+    Returns
+    -------
+    The dict holding the information which MetaPhlAn clade maps to which set of
+    GreenGenes OTUs.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    try:
+        map_clade2otu = {}
+        fh = open(filename, 'r')
+        for line in fh.readlines():
+            if not line.startswith('#'):
+                fields = line.rstrip().split('\t')
+                map_clade2otu[fields[0]] = set(map(int, fields[1:]))
+        fh.close()
+        return map_clade2otu
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
