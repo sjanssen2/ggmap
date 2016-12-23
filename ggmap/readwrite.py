@@ -142,7 +142,7 @@ def read_metaphlan_markers_info(filename):
         raise IOError('Cannot read file "%s"' % filename)
 
 
-def read_taxid_list(filename, dict={}):
+def read_taxid_list(filename, dict=None):
     """ Read a taxID list file.
 
     A taxID list file consists of three tab separated columns: 1. ID type,
@@ -170,6 +170,8 @@ def read_taxid_list(filename, dict={}):
     ValueError
         If a line does not contain of exactly three tab delimited fields.
     """
+    if dict is None:
+        dict = {}
     try:
         f = open(filename, 'r')
         f.readline()  # header
@@ -213,11 +215,58 @@ def read_gg_accessions(filename):
         file = open(filename, 'r')
         file.readline()  # header
         for line in file:
-            gg_id, accession_type, accession = line.rstrip().split("\t")
-            if accession_type not in accessions.keys():
-                accessions[accession_type] = {}
-            accessions[accession_type][gg_id] = accession
+            try:
+                gg_id, accession_type, accession = line.rstrip().split("\t")
+                if accession_type not in accessions.keys():
+                    accessions[accession_type] = {}
+                accessions[accession_type][int(gg_id)] = accession
+            except ValueError:
+                file.close()
+                raise ValueError("Wrong number of tab seperated columns.")
         file.close()
         return accessions
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def read_gg_otu_map(filename, accessions):
+    """ Reads a GreenGenes OTU map.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file containing GreenGenes OTU map.
+    accessions :
+        GreenGenes accession list
+
+    Returns
+    -------
+    ...
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    otus = {}
+    try:
+        file = open(filename, 'r')
+        for line in file:
+            fields = line.rstrip().split("\t")
+            otu_repr = int(fields[1])
+            otus[otu_repr] = {}
+            otu_members = list(map(int, fields[1:]))
+            otu_accessions = {}
+            for otu in otu_members:
+                for ctype in accessions:
+                    if otu in accessions[ctype]:
+                        if ctype not in otus[otu_repr]:
+                            otus[otu_repr][ctype] = set()
+                        otus[otu_repr][ctype].add(accessions[ctype][otu])
+        file.close()
+        return otus
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
+    except ValueError:
+        file.close()
+        raise ValueError("wrong file format.")

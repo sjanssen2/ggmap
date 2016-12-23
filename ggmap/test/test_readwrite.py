@@ -4,7 +4,8 @@ from skbio.util import get_data_path
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_taxid_list, _read_ncbitaxonomy_file, \
-                            read_ncbi_merged, read_gg_accessions
+                            read_ncbi_merged, read_gg_accessions, \
+                            read_gg_otu_map
 
 
 class ReadWriteTests(TestCase):
@@ -52,12 +53,29 @@ class ReadWriteTests(TestCase):
                             46: 39, 205879: 74313}
         self.file_accessions = get_data_path('subset_gg_13_5_accessions.txt')
         self.true_accessions = {
-            'IMG': {'4486316': '2517093047', '4486315': '2515154132',
-                    '4486318': '2508501010', '4486317': '2509276016'},
-            'Genbank': {'266930': 'EU509548.1', '336267': 'FJ193781.1',
-                        '13988': 'X71860.1', '4175983': 'JN530275.1',
-                        '4485548': 'NZ_GG661973.1', '2338842': 'JQ941795.1',
-                        '4466933': 'JQ694525.1', '243587': 'AM749780.1'}}
+            'IMG': {4486318: '2508501010', 4485750: '2504756013',
+                    4486315: '2515154132', 4486317: '2509276016',
+                    4486316: '2517093047', 4486300: '2509276007'},
+            'Genbank': {4485548: 'NZ_GG661973.1', 470510: 'ACDO01000013.1',
+                        4175983: 'JN530275.1', 266930: 'EU509548.1',
+                        4466933: 'JQ694525.1', 2338842: 'JQ941795.1',
+                        13988: 'X71860.1', 336267: 'FJ193781.1',
+                        243587: 'AM749780.1'}}
+        self.file_gg_taxids = get_data_path('subset_taxids_gg.txt')
+        self.true_gg_taxids = {
+            'Genbank': {'JQ694525.1': 57045, 'FJ193781.1': 165433,
+                        'EU509548.1': 77133, 'ACDO01000013.1': 556267,
+                        'JQ941795.1': 77133, 'X71860.1': 633697,
+                        'NZ_GG661973.1': 556267, 'AM749780.1': 1303518,
+                        'JN530275.1': 155900},
+            'IMG': {'2504756013': 2157, '2508501120': 443254,
+                    '2515154175': 1122605, '2509601042': 987045,
+                    '2509276007': 633697}}
+        self.file_gg_otumap = get_data_path('subset_97_otu_map.txt')
+        self.true_gg_otumap = {243587: {'Genbank': {'AM749780.1'}},
+                               13988: {'Genbank': {'X71860.1'}},
+                               2328237: {},
+                               11054: {'Genbank': {'ACDO01000013.1'}}}
 
     def test_read_ncbi_nodes(self):
         nodes = read_ncbi_nodes(self.file_nodes)
@@ -91,6 +109,8 @@ class ReadWriteTests(TestCase):
     def test_read_taxid_list(self):
         self.assertEqual(self.true_mptaxids,
                          read_taxid_list(self.file_mptaxids))
+        self.assertEqual(self.true_gg_taxids,
+                         read_taxid_list(self.file_gg_taxids))
 
         with self.assertRaises(IOError):
             read_taxid_list('/tmp/non')
@@ -115,10 +135,22 @@ class ReadWriteTests(TestCase):
                          read_gg_accessions(self.file_accessions))
 
         with self.assertRaises(IOError):
-            read_taxid_list('/tmp/non')
+            read_gg_accessions('/tmp/non')
 
         with self.assertRaises(ValueError):
-            read_taxid_list(self.file_names)
+            read_gg_accessions(self.file_names)
+
+    def test_read_gg_otu_map(self):
+        gg_accessions = read_gg_accessions(self.file_accessions)
+
+        self.assertEqual(self.true_gg_otumap,
+                         read_gg_otu_map(self.file_gg_otumap, gg_accessions))
+
+        with self.assertRaises(IOError):
+            read_gg_otu_map('/tmp/non', gg_accessions)
+
+        with self.assertRaises(ValueError):
+            read_gg_otu_map(self.file_names, gg_accessions)
 
 if __name__ == '__main__':
     main()
