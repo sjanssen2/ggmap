@@ -119,3 +119,119 @@ def map_onto_ncbi(taxonomy, clusters, cluster_taxids, attribute_name,
     tree.remove_deleted(lambda node: not hasattr(node, 'isUsed'))
 
     return tree
+
+
+def match_metaphlan_greengenes(metaphlan_clades, tree_metaphlan,
+                               attr_metaphlan, tree_greengenes,
+                               attr_greengenes):
+    """ Match all MetaPhlAn clades to GreenGenes OTUs.
+
+    Parameters
+    ----------
+    metaphlan_clades : list of str
+        The MetaPhlAn clades for which GreenGenes OTUs shall be found.
+    tree_metaphlan : TreeNode
+        The subtree of the NCBI taxonmy tree with annotated MetaPhlAn clades.
+        Annotation attribute name must match attr_metaphlan.
+    attr_metaphlan : str
+        Name of the nodes attribute that holds the set of MetaPhlAn clade
+        annotations.
+    tree_greengenes : TreeNode
+        The subtree of the NCBI taxonmy tree with annotated GreenGenes OTUs.
+        Annotation attribute name must match attr_greengenes.
+    attr_greengenes : str
+        Name of the nodes attribute that holds the set of GreenGenes OTUs
+        annotations.
+    out : filehandle
+        File handle into verbosity information should be printed.
+        Default = sys.stderr
+
+    Returns
+    -------
+    A dict with MetaPhlAn clades as keys and set of GreenGenes OTUs as values.
+    """
+    clade_to_otu = {}
+    for clade in metaphlan_clades:
+        clade_to_otu[clade] = _get_otus_from_clade(clade, tree_metaphlan,
+                                                   attr_metaphlan,
+                                                   tree_greengenes,
+                                                   attr_greengenes)
+
+    return clade_to_otu
+
+
+def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
+                         tree_greengenes, attr_greengenes, out=sys.stderr):
+    """ Find all GreenGenes OTUs that 'match' to one MetaPhlAn clade.
+
+    The connection between GreenGenes and MetaPhlAn is NCBI taxonomy IDs.
+    All OTU clusters of GreenGenes must be translated into according NCBI
+    taxonomy IDs and mapped onto the full NCBI taxonomy tree (tree_greengenes).
+    Note that one OTU can map to many taxIDs, since it is a cluster of several
+    sequences.
+    Similarily, all MetaPhlAn clades must be translated and mapped onto the
+    same NCBI taxonomy (tree_greengenes). For computational reasons, we are not
+    using one tree, but two significantly smaller ones, because only a small
+    fraction of NCBI taxIDs are used by GreenGenes and MetaPhlAn.
+
+    To obtain the right set of OTUs for a given clade, we first collect all
+    nodes in tree_metaphlan that are annotated with that clade (mp_nodes_clade)
+    . Next we find the lowest common ancestor (mp_lca) for this set of nodes.
+    We than aim to find a node with the same name as mp_lca in the GreenGenes
+    tree. If it exists, we collect all annotated OTUs of this subtree.
+    Sometimes the lca from MetaPhlAn does not exists in GreenGenes or the
+    according subtree does not contain OTUs. In those cases we acend one level
+    from mp_lca and search again. We iterate until we end in the root node.
+
+    Parameters
+    ----------
+    metaphlan_clade : str
+        The MetaPhlAn clade for which GreenGenes OTUs shall be found.
+    tree_metaphlan : TreeNode
+        The subtree of the NCBI taxonmy tree with annotated MetaPhlAn clades.
+        Annotation attribute name must match attr_metaphlan.
+    attr_metaphlan : str
+        Name of the nodes attribute that holds the set of MetaPhlAn clade
+        annotations.
+    tree_greengenes : TreeNode
+        The subtree of the NCBI taxonmy tree with annotated GreenGenes OTUs.
+        Annotation attribute name must match attr_greengenes.
+    attr_greengenes : str
+        Name of the nodes attribute that holds the set of GreenGenes OTUs
+        annotations.
+    out : filehandle
+        File handle into verbosity information should be printed.
+        Default = sys.stderr
+
+    Returns
+    -------
+    The (maybe empty) set of OTUs matching the given clade.
+    """
+    def _has_matching_clade(node):
+        return hasattr(node, attr_metaphlan) and \
+               (metaphlan_clade in getattr(node, attr_metaphlan))
+
+    def _hasOTUs(node):
+        return hasattr(node, attr_greengenes)
+
+    mp_nodes_clade = tree_metaphlan.find_by_func(_has_matching_clade)
+    mp_clade_names = list(map(lambda node: node.name, mp_nodes_clade))
+    mp_lca = tree_metaphlan.lowest_common_ancestor(mp_clade_names)
+
+    otus = []
+    if 131567 in map(lambda node: node.name, mp_lca.ancestors()):
+        c = mp_lca
+        while len(otus) <= 0:
+            otus = []
+            try:
+                gg_lca_match = tree_greengenes.find(c.name)
+                for node in gg_lca_match.find_by_func(_hasOTUs):
+                    otus.extend(getattr(node, attr_greengenes))
+                otus = set(otus)
+            except MissingNodeError:
+                c = c.ancestors()[0]
+
+        return set(otus)
+    else:
+        out.write("'%s' not a cellular organism.\n" % metaphlan_clade)
+        return set()
