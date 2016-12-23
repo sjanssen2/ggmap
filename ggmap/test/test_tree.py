@@ -6,7 +6,8 @@ from skbio.util import get_data_path
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_taxid_list, read_gg_accessions, \
                             read_gg_otu_map
-from ggmap.tree import get_lineage, build_ncbi_tree, map_onto_ncbi
+from ggmap.tree import get_lineage, build_ncbi_tree, map_onto_ncbi, \
+                       match_metaphlan_greengenes, _get_otus_from_clade
 
 
 class TreeTests(TestCase):
@@ -100,6 +101,78 @@ class TreeTests(TestCase):
                       out.getvalue().strip())
         self.assertNotIn("Cannot find taxid", out.getvalue().strip())
 
+    def test__get_otus_from_clade(self):
+        tree_ncbi = build_ncbi_tree(read_ncbi_nodes(self.file_nodes_mock))
+
+        gg_ids_accessions = read_gg_accessions(self.file_gg_accessions)
+        gg_taxids = read_taxid_list(self.file_gg_taxids)
+        gg_otumap_97_orig = read_gg_otu_map(self.file_gg_otumap,
+                                            gg_ids_accessions)
+        tree_gg = map_onto_ncbi(tree_ncbi, gg_otumap_97_orig, gg_taxids,
+                                attribute_name='otus', verbose=False)
+
+        clades_metaphlan = read_metaphlan_markers_info(self.file_mpmarkers)
+        taxids_metaphlan = read_taxid_list(self.file_mptaxids)
+        out = StringIO()
+        tree_mp = map_onto_ncbi(tree_ncbi, clades_metaphlan, taxids_metaphlan,
+                                attribute_name='mp_clades', verbose=False,
+                                out=out)
+
+        clade = 's__Sulfolobus_spindle_shaped_virus_2'
+        self.assertCountEqual(_get_otus_from_clade(clade, tree_mp, 'mp_clades',
+                                                   tree_gg, 'otus'),
+                              {243587})
+
+        clade = 's__Mycobacterium_phage_Omega'
+        self.assertCountEqual(_get_otus_from_clade(clade, tree_mp, 'mp_clades',
+                                                   tree_gg, 'otus'),
+                              {243587, 13988, 11054})
+
+        with self.assertRaises(ValueError):
+            clade = 's__Cypovirus_15'
+            _get_otus_from_clade(clade, tree_mp, 'mp_clades', tree_gg, 'otus')
+
+    def test_match_metaphlan_greengenes(self):
+        tree_ncbi = build_ncbi_tree(read_ncbi_nodes(self.file_nodes_mock))
+
+        gg_ids_accessions = read_gg_accessions(self.file_gg_accessions)
+        gg_taxids = read_taxid_list(self.file_gg_taxids)
+        gg_otumap_97_orig = read_gg_otu_map(self.file_gg_otumap,
+                                            gg_ids_accessions)
+        tree_gg = map_onto_ncbi(tree_ncbi, gg_otumap_97_orig, gg_taxids,
+                                attribute_name='otus', verbose=False)
+
+        clades_metaphlan = read_metaphlan_markers_info(self.file_mpmarkers)
+        taxids_metaphlan = read_taxid_list(self.file_mptaxids)
+        out = StringIO()
+        tree_mp = map_onto_ncbi(tree_ncbi, clades_metaphlan, taxids_metaphlan,
+                                attribute_name='mp_clades', verbose=False,
+                                out=out)
+        self.assertIn("575918", out.getvalue())
+        self.assertIn('s__Tomato_leaf_curl_Patna_betasatellite',
+                      out.getvalue())
+
+        err = StringIO()
+        self.assertCountEqual(match_metaphlan_greengenes(clades_metaphlan,
+                                                         tree_mp, 'mp_clades',
+                                                         tree_gg, 'otus', err),
+                              {'s__Helicobacter_winghamensis': {11054},
+                               'p__Armatimonadetes': {243587},
+                               's__Eubacterium_cellulosolvens': {13988},
+                               's__Streptomyces_sp_KhCrAH_244': {13988},
+                               's__Mycobacterium_phage_Omega': {243587, 13988,
+                                                                11054},
+                               's__Sulfolobus_spindle_shaped_virus_2':
+                               {243587},
+                               's__Escherichia_phage_vB_EcoP_G7C': {243587,
+                                                                    13988,
+                                                                    11054}})
+        self.assertIn("Clade 's__Cypovirus_15' omitted, since it is not",
+                      err.getvalue())
+        self.assertIn("Clade 's__Tomato_leaf_curl_Patna_betasatellite'",
+                      err.getvalue())
+        self.assertIn("Clade 's__Tomato_begomovirus_satellite_DNA_beta'",
+                      err.getvalue())
 
 if __name__ == '__main__':
     main()

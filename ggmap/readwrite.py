@@ -269,3 +269,31 @@ def read_gg_otu_map(filename, accessions):
     except ValueError:
         file.close()
         raise ValueError("wrong file format.")
+
+
+def write_clade2otus_map(filename, map_clade2otu):
+    """ Write MetaPhlAn clades to GreenGenes OTUs map to a file.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the file that shall be created.
+    map_clade2otu : dict
+        The dict holding the information which MetaPhlAn clade maps to which
+        set of GreenGenes OTUs.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    try:
+        fh = open(filename, 'w')
+        fh.write('#MetaPhlAn clade\tmatching GreenGenes OTUs\n')
+        for clade in sorted(map_clade2otu):
+            fh.write('\t'.join([clade] + sorted(map(str,
+                                                    map_clade2otu[clade]))))
+            fh.write("\n")
+        fh.close()
+    except IOError:
+        raise IOError('Cannot write to file "%s"' % filename)

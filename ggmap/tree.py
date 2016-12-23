@@ -92,9 +92,11 @@ def map_onto_ncbi(taxonomy, clusters, cluster_taxids, attribute_name,
     A subtree of taxonomy, in which nodes are decorated with either MetaPhlAn
     clades or GreenGenes OTUs that match to those taxids.
     """
-    out.write("Starting deep copy (might take 40 seconds): ...")
+    if verbose:
+        out.write("Starting deep copy (might take 40 seconds): ...")
     tree = taxonomy.deepcopy()
-    out.write(" done.\n")
+    if verbose:
+        out.write(" done.\n")
 
     for cluster in clusters:
         for ctype in clusters[cluster]:
@@ -123,7 +125,7 @@ def map_onto_ncbi(taxonomy, clusters, cluster_taxids, attribute_name,
 
 def match_metaphlan_greengenes(metaphlan_clades, tree_metaphlan,
                                attr_metaphlan, tree_greengenes,
-                               attr_greengenes):
+                               attr_greengenes, out=sys.stderr):
     """ Match all MetaPhlAn clades to GreenGenes OTUs.
 
     Parameters
@@ -152,10 +154,14 @@ def match_metaphlan_greengenes(metaphlan_clades, tree_metaphlan,
     """
     clade_to_otu = {}
     for clade in metaphlan_clades:
-        clade_to_otu[clade] = _get_otus_from_clade(clade, tree_metaphlan,
-                                                   attr_metaphlan,
-                                                   tree_greengenes,
-                                                   attr_greengenes)
+        try:
+            clade_to_otu[clade] = _get_otus_from_clade(clade, tree_metaphlan,
+                                                       attr_metaphlan,
+                                                       tree_greengenes,
+                                                       attr_greengenes)
+        except ValueError:
+            out.write(("Clade '%s' omitted, since it is not in "
+                       "tree_metaphlan.\n") % clade)
 
     return clade_to_otu
 
@@ -206,6 +212,12 @@ def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
     Returns
     -------
     The (maybe empty) set of OTUs matching the given clade.
+
+    Raises
+    ------
+    ValueError
+        If metaphlan_clade is not in the according tree_metaphlan at all. Thus,
+        a mapping to GreenGenes OTUs cannot be done.
     """
     def _has_matching_clade(node):
         return hasattr(node, attr_metaphlan) and \
@@ -214,24 +226,28 @@ def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
     def _hasOTUs(node):
         return hasattr(node, attr_greengenes)
 
-    mp_nodes_clade = tree_metaphlan.find_by_func(_has_matching_clade)
-    mp_clade_names = list(map(lambda node: node.name, mp_nodes_clade))
-    mp_lca = tree_metaphlan.lowest_common_ancestor(mp_clade_names)
+    mp_nodes_clade = list(tree_metaphlan.find_by_func(_has_matching_clade))
+    if len(mp_nodes_clade) > 0:
+        mp_clade_names = list(map(lambda node: node.name, mp_nodes_clade))
+        mp_lca = tree_metaphlan.lowest_common_ancestor(mp_clade_names)
 
-    otus = []
-    if 131567 in map(lambda node: node.name, mp_lca.ancestors()):
-        c = mp_lca
-        while len(otus) <= 0:
-            otus = []
-            try:
-                gg_lca_match = tree_greengenes.find(c.name)
-                for node in gg_lca_match.find_by_func(_hasOTUs):
-                    otus.extend(getattr(node, attr_greengenes))
-                otus = set(otus)
-            except MissingNodeError:
-                c = c.ancestors()[0]
+        otus = []
+        if 131567 in map(lambda node: node.name, mp_lca.ancestors()):
+            c = mp_lca
+            while len(otus) <= 0:
+                otus = []
+                try:
+                    gg_lca_match = tree_greengenes.find(c.name)
+                    for node in gg_lca_match.find_by_func(_hasOTUs):
+                        otus.extend(getattr(node, attr_greengenes))
+                    otus = set(otus)
+                except MissingNodeError:
+                    c = c.ancestors()[0]
 
-        return set(otus)
+            return set(otus)
+        else:
+            out.write("'%s' not a cellular organism.\n" % metaphlan_clade)
+            return set()
     else:
-        out.write("'%s' not a cellular organism.\n" % metaphlan_clade)
-        return set()
+        raise ValueError("Clade '%s' is not in MetaPhlAn tree." %
+                         metaphlan_clade)
