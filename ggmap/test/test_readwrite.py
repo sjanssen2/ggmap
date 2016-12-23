@@ -243,6 +243,9 @@ class ReadWriteTests(TestCase):
         self.assertCountEqual(read_clade2otus_map(self.file_true_map),
                               self.true_map)
 
+        with self.assertRaises(IOError):
+            read_clade2otus_map('/dev')
+
     def test_read_metaphlan_profile(self):
         res = read_metaphlan_profile(self.file_example_profile)
         self.assertCountEqual(res, self.true_example_profile)
@@ -259,6 +262,8 @@ class ReadWriteTests(TestCase):
         self.assertTrue(s <= 100)
         self.assertTrue(s > 0)
 
+        with self.assertRaises(IOError):
+            read_metaphlan_profile('/dev')
 
 if __name__ == '__main__':
     main()
