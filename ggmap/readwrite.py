@@ -256,7 +256,6 @@ def read_gg_otu_map(filename, accessions):
             otu_repr = int(fields[1])
             otus[otu_repr] = {}
             otu_members = list(map(int, fields[1:]))
-            otu_accessions = {}
             for otu in otu_members:
                 for ctype in accessions:
                     if otu in accessions[ctype]:
