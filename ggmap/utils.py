@@ -71,9 +71,9 @@ def convert_profiles(profile_filenames, map_clade_otu, prefix="",
 
     # for speaking names for columns, we substract the longest common prefix
     # and suffix of each filename.
-    common_prefix = os.path.commonprefix(profile_filenames)
-    common_suffix = os.path.commonprefix(list(map(lambda n: n[::-1],
-                                                  profile_filenames)))[::-1]
+    common_prefix = commonprefix(profile_filenames)
+    common_suffix = commonprefix(list(map(lambda n: n[::-1],
+                                 profile_filenames)))[::-1]
 
     otu_profiles = []
     for filename in profile_filenames:
@@ -147,22 +147,35 @@ def _convert_metaphlan_profile_to_greengenes(profile, map_clade_otu,
 
 # WHAT MUST BE DONE TO CREATE A MAP FROM MP TO GG!
 # def generate_clade2otus_map():
-#     nodes = read_ncbi_nodes('/home/sjanssen///GreenGenes/NCBItaxonomy/nodes.dmp')
-#     merged = read_ncbi_merged('/home/sjanssen///GreenGenes/NCBItaxonomy/merged.dmp')
+#     nodes = read_ncbi_nodes(('/home/sjanssen/GreenGenes/'
+#                              'NCBItaxonomy/nodes.dmp'))
+#     merged = read_ncbi_merged(('/home/sjanssen/GreenGenes/NCBItaxonomy/'
+#                                'merged.dmp'))
 #     tax = build_ncbi_tree(nodes, True)
 #
-#     taxids_metaphlan = read_taxid_list('/home/sjanssen///GreenGenes/Cache/taxids_metaphlan.txt')
+#     taxids_metaphlan = read_taxid_list(('/home/sjanssen/GreenGenes/Cache/'
+#                                         'taxids_metaphlan.txt'))
 #     taxids_metaphlan = update_taxids(taxids_metaphlan, merged)
-#     clades_metaphlan = read_metaphlan_markers_info('/home/sjanssen///GreenGenes/Metaphlan/markers_info.txt')
+#     clades_metaphlan = read_metaphlan_markers_info(('/home/sjanssen/'
+#                                                     'GreenGenes'
+#                                                     '/Metaphlan/markers_info'
+#                                                     '.txt'))
 #
-#     gg_ids_accessions = read_gg_accessions('/home/sjanssen///GreenGenes/gg_13_5_accessions.txt')
-#     gg_taxids = read_taxid_list('/home/sjanssen///GreenGenes/Cache/taxids_greengenes13_5.txt')
+#     gg_ids_accessions = read_gg_accessions(('/home/sjanssen/GreenGenes/'
+#                                             'gg_13_5_accessions.txt'))
+#     gg_taxids = read_taxid_list(('/home/sjanssen/GreenGenes/Cache/'
+#                                  'taxids_greengenes13_5.txt'))
 #     gg_taxids = update_taxids(gg_taxids, merged)
-#     gg_otumap_97_orig = read_gg_otu_map('/home/sjanssen///GreenGenes/gg_13_5_otus/otus/97_otu_map.txt', gg_ids_accessions)
+#     gg_otumap_97_orig = read_gg_otu_map(('/home/sjanssen/GreenGenes/gg_13_5_'
+#                                          'otus/otus/97_otu_map.txt'),
+#                                         gg_ids_accessions)
 #
-#     tree_gg = map_onto_ncbi(tax, gg_otumap_97_orig, gg_taxids, 'otus', verbose=True)
-#     tree_mp = map_onto_ncbi(tax, clades_metaphlan, taxids_metaphlan, 'mp_clades', verbose=True)
+#     tree_gg = map_onto_ncbi(tax, gg_otumap_97_orig, gg_taxids,
+#                             'otus', verbose=True)
+#     tree_mp = map_onto_ncbi(tax, clades_metaphlan, taxids_metaphlan,
+#                             'mp_clades', verbose=True)
 #
-#     resmap = match_metaphlan_greengenes(clades_metaphlan.keys(), tree_mp, 'mp_clades', tree_gg, 'otus')
+#     resmap = match_metaphlan_greengenes(clades_metaphlan.keys(), tree_mp,
+#                                         'mp_clades', tree_gg, 'otus')
 #
 #     return resmap
