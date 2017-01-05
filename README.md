@@ -9,3 +9,5 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
 
 ## Install
 
+## Use
+Open the jupyter notebook convert_profiles.ipynb and execute all cells. It will convert the six MetaPhlAn profiles from the "examples" directory and converts them into one OTU table with the 97% GreenGenes OTU clusters.
