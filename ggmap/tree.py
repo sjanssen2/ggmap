@@ -116,7 +116,7 @@ def map_onto_ncbi(taxonomy, clusters, cluster_taxids, attribute_name,
                     setattr(node, attribute_name, attr_set)
                 except MissingNodeError:
                     out.write(("Cannot find taxid %s in taxonomy for "
-                               "clade '%s'\n") % (taxid, cluster))
+                               "%s '%s'\n") % (taxid, attribute_name, cluster))
 
     tree.remove_deleted(lambda node: not hasattr(node, 'isUsed'))
 
