@@ -74,7 +74,7 @@ class TreeTests(TestCase):
 
         self.assertIn('Starting deep copy (might take 40 seconds): ... done.',
                       out.getvalue().strip())
-        self.assertIn(("Cannot find taxid 575918 in taxonomy for clade "
+        self.assertIn(("Cannot find taxid 575918 in taxonomy for mp_clades "
                        "'s__Tomato_leaf_curl_Patna_betasatellite'"),
                       out.getvalue().strip())
 
