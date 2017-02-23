@@ -54,3 +54,27 @@ def biom2pandas(file_biom, withTaxonomy=False, astype=int):
             return counts
     except IOError:
         raise IOError('Cannot read file "%s"' % file_biom)
+
+
+def pandas2biom(file_biom, table):
+    """ Writes a Pandas.DataFrame into a biom file.
+
+    Parameters
+    ----------
+    file_biom: str
+        The filename of the BIOM file to be created.
+    table: a Pandas.DataFrame
+        The table that should be written as BIOM.
+
+    TODO
+    ----
+        1) also store taxonomy information
+    """
+    try:
+        bt = biom.Table(table.values,
+                        observation_ids=table.index,
+                        sample_ids=table.columns)
+        with biom_open(file_biom, 'w') as f:
+            bt.to_hdf5(f, "example")
+    except IOError:
+        raise IOError('Cannot write to file "%s"' % file_biom)

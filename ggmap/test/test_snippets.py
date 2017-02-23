@@ -1,9 +1,12 @@
 from unittest import TestCase, main
+import pandas as pd
 import warnings
+import tempfile
+import biom
 
 from skbio.util import get_data_path
 
-from ggmap.snippets import biom2pandas
+from ggmap.snippets import biom2pandas, pandas2biom
 
 
 class ReadWriteTests(TestCase):
@@ -134,6 +137,16 @@ class ReadWriteTests(TestCase):
 
         b = biom2pandas(self.filename_float, astype=float)
         self.assertAlmostEqual(b.sum().sum(), 2.69624884712, places=5)
+
+    def test_pandas2biom(self):
+        fh, filename = tempfile.mkstemp()
+        p = pd.read_csv(get_data_path('float.tsv'), sep='\t', index_col=0)
+        with self.assertRaisesRegex(IOError, 'Cannot write to file'):
+            pandas2biom('/dev/', p)
+        pandas2biom(filename, p)
+        b = biom.load_table(filename)
+        self.assertCountEqual(b.ids(), p.columns)
+        self.assertCountEqual(b.ids(axis='observation'), p.index)
 
 if __name__ == '__main__':
     main()
