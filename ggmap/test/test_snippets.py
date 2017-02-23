@@ -3,7 +3,7 @@ import warnings
 
 from skbio.util import get_data_path
 
-from snippets import biom2pandas
+from ggmap.snippets import biom2pandas
 
 
 class ReadWriteTests(TestCase):
