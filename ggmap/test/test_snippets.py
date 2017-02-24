@@ -6,7 +6,7 @@ import biom
 
 from skbio.util import get_data_path
 
-from ggmap.snippets import biom2pandas, pandas2biom
+from ggmap.snippets import biom2pandas, pandas2biom, parse_splitlibrarieslog
 
 
 class ReadWriteTests(TestCase):
@@ -147,6 +147,12 @@ class ReadWriteTests(TestCase):
         b = biom.load_table(filename)
         self.assertCountEqual(b.ids(), p.columns)
         self.assertCountEqual(b.ids(axis='observation'), p.index)
+
+    def test_parse_splitlibrarieslog(self):
+        with self.assertRaisesRegex(IOError, 'Cannot read file'):
+            parse_splitlibrarieslog('/dev/')
+        c = parse_splitlibrarieslog(get_data_path('split_library_log_2p.txt'))
+        self.assertEqual(c['counts'].sum(), 86167277)
 
 if __name__ == '__main__':
     main()

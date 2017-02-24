@@ -66,6 +66,11 @@ def pandas2biom(file_biom, table):
     table: a Pandas.DataFrame
         The table that should be written as BIOM.
 
+    Raises
+    ------
+    IOError
+        If file_biom cannot be written.
+
     TODO
     ----
         1) also store taxonomy information
@@ -78,3 +83,57 @@ def pandas2biom(file_biom, table):
             bt.to_hdf5(f, "example")
     except IOError:
         raise IOError('Cannot write to file "%s"' % file_biom)
+
+
+def parse_splitlibrarieslog(filename):
+    """ Parse the log of a QIIME split_libraries_xxx.py run.
+
+    Especially deal with multiple input files, i.e. several sections in log.
+
+    Parameters
+    ----------
+    filename : str
+        The filename of the log to parse.
+
+    Returns
+    -------
+    A Pandas.DataFrame containing two column with 'counts' and sample name for
+    each sample in the log file.
+    (We might see duplicate sample names from multiple input files, thus we
+     cannot make the sample name the index.)
+
+    Raises
+    ------
+    IOError
+        If filename cannot be read.
+    """
+    try:
+        counts = []
+        f = open(filename, 'r')
+        endOfFile = False
+        while not endOfFile:
+            # find begin of count table
+            while True:
+                line = f.readline()
+                if 'Median sequence length:' in line:
+                    break
+            # collect counts
+            while True:
+                line = f.readline()
+                if line == '\n':
+                    break
+                samplename, count = line.split()
+                counts.append({'sample': samplename, 'counts': count})
+            # check if file contains more blocks
+            while True:
+                line = f.readline()
+                if 'Input file paths' in line:
+                    break
+                if line == '':
+                    endOfFile = True
+                    break
+        return pd.DataFrame(sorted(counts,
+                                   key=lambda x: int(x['counts']),
+                                   reverse=True), dtype=int)
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
