@@ -2,7 +2,6 @@ import pandas as pd
 import biom
 from biom.util import biom_open
 from mpl_toolkits.basemap import Basemap
-import matplotlib.pyplot as plt
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
