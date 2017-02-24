@@ -1,6 +1,8 @@
 import pandas as pd
 import biom
 from biom.util import biom_open
+from mpl_toolkits.basemap import Basemap
+import matplotlib.pyplot as plt
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -137,3 +139,37 @@ def parse_splitlibrarieslog(filename):
                                    reverse=True), dtype=int)
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def drawMap(points, basemap=None):
+    """ Plots coordinates of metadata to a worldmap.
+
+    Parameters
+    ----------
+    points : a special data structure
+    basemap : if not the whole earth, pass the rectangle to be plotted
+
+    Returns
+    -------
+    Nothing
+    """
+    map = basemap
+    if basemap is None:
+        map = Basemap(projection='robin', lon_0=180, resolution='c')
+    # Fill the globe with a blue color
+    map.drawmapboundary(fill_color='lightblue', color='white')
+    # Fill the continents with the land color
+    map.fillcontinents(color='lightgreen', lake_color='lightblue', zorder=1)
+    map.drawcoastlines(color='gray', zorder=1)
+
+    for z, set_of_points in enumerate(points):
+        coords = set_of_points['coords'][['latitude', 'longitude']].dropna()
+        x, y = map(coords.longitude.values, coords.latitude.values)
+        size = 50
+        if 'size' in set_of_points:
+            size = set_of_points['size']
+        alpha = 0.5
+        if 'alpha' in set_of_points:
+            alpha = set_of_points['alpha']
+        map.scatter(x, y, marker='o', color=set_of_points['color'], s=size,
+                    zorder=2+z, alpha=alpha)
