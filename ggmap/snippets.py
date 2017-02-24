@@ -270,7 +270,7 @@ def plotTaxonomy(file_otutable,
                            right_index=True)
     # add columns for each tax rank, such that we can groupby later on
     rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x: x.split("; ")
-                                                      [ranks.index(rank)])
+                                                      [RANKS.index(rank)])
     # sum counts according to the selected rank
     rank_counts = rank_counts.reset_index().groupby(rank).sum()
     # get rid of the old index, i.e. OTU ids, since we have grouped by some
