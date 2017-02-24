@@ -6,7 +6,8 @@ import biom
 
 from skbio.util import get_data_path
 
-from ggmap.snippets import biom2pandas, pandas2biom, parse_splitlibrarieslog
+from ggmap.snippets import biom2pandas, pandas2biom, parse_splitlibrarieslog, \
+                           _repMiddleValues, _shiftLeft
 
 
 class ReadWriteTests(TestCase):
@@ -153,6 +154,15 @@ class ReadWriteTests(TestCase):
             parse_splitlibrarieslog('/dev/')
         c = parse_splitlibrarieslog(get_data_path('split_library_log_2p.txt'))
         self.assertEqual(c['counts'].sum(), 86167277)
+
+    def test__repMiddleValues(self):
+        self.assertEqual([1, 1, 2, 2, 3, 3, 4, 4],
+                         _repMiddleValues([1, 2, 3, 4]))
+        self.assertEqual(['a', 'a', 'b', 'b'],
+                         _repMiddleValues(['a', 'b']))
+
+    def test__shiftLeft(self):
+        self.assertEqual(_shiftLeft([1, 2, 3]), [2, 3, 4])
 
 if __name__ == '__main__':
     main()

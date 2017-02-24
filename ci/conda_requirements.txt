@@ -6,3 +6,6 @@ click>=6.0
 pandas
 biom-format
 basemap
+matplotlib
+seaborn
+numpy
