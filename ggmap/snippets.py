@@ -253,7 +253,9 @@ def plotTaxonomy(file_otutable,
     rawcounts = biom2pandas(file_otutable)
 
     # restrict to those samples for which we have metadata AND counts
-    meta = metadata.loc[set(rawcounts.columns) & set(metadata.index), :]
+    meta = metadata.loc[[idx
+                         for idx in metadata.index
+                         if idx in rawcounts.columns], :]
     counts = rawcounts.loc[:, meta.index]
     if verbose:
         print('%i samples left with metadata and counts.' % meta.shape[0])
