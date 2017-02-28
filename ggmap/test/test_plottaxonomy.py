@@ -1,11 +1,9 @@
 from unittest import TestCase, main
 import warnings
-import matplotlib
 import matplotlib.pyplot as plt
 import tempfile
 import random
 import os
-import subprocess
 import sys
 
 from skbio.util import get_data_path
@@ -14,6 +12,7 @@ import pandas as pd
 from ggmap.snippets import plotTaxonomy
 
 plt.switch_backend('Agg')
+plt.rc('font', family='DejaVu Sans')
 
 
 def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
