@@ -5,6 +5,7 @@ import tempfile
 import random
 import os
 import sys
+import subprocess
 
 from skbio.util import get_data_path
 import pandas as pd
@@ -159,12 +160,15 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'file_taxonomy': taxonomy}}
 
     if not list_existing:
+        sys.stderr.write("Plotting graphs (%i): " % len(configs))
         for name in configs:
+            sys.stderr.write(".")
             f = plotTaxonomy(**configs[name]['params'])
             filename = outdir + name + extension
             f[0].savefig(filename)
             configs[name]['imagefile'] = filename
             plt.close(f[0])
+        sys.stderr.write(" done.\n")
     else:
         for name in configs:
             filename = outdir + name + extension
@@ -206,17 +210,21 @@ class TaxPlotTests(TestCase):
             else:
                 filename_diff_image = "%s.diff.png" % \
                     self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
-                res = os.system("compare -metric AE %s %s %s" %
-                                (plots[name]['imagefile'],
-                                 self.plots_baseline[name]['imagefile'],
-                                 filename_diff_image))
-            if res != 0:
+                res = subprocess.check_output(["compare", "-metric", "AE",
+                                               plots[name]['imagefile'],
+                                               self.plots_baseline[name]
+                                               ['imagefile'],
+                                              filename_diff_image],
+                                              stderr=subprocess.STDOUT)
+            if res != b'0\n':
                 print("Images differ for '%s'. Check differences in %s." %
                       (name, filename_diff_image))
+            else:
+                os.remove(filename_diff_image)
 
             self.assertIn(name, self.plots_baseline)
             self.assertIn('imagefile', self.plots_baseline[name])
-            self.assertEqual(res, 0)
+            self.assertEqual(res, b'0\n')
         print(" OK", file=sys.stderr, end="\n")
 
 if __name__ == '__main__':
