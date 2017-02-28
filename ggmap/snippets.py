@@ -248,6 +248,23 @@ def plotTaxonomy(file_otutable,
 
     NAME_LOW_ABUNDANCE = 'low abundance'
 
+    # Parameter checks: check that grouping fields are in metadata table
+    for i, field in enumerate([group_l0, group_l1, group_l2]):
+        if field is not None:
+            if field not in metadata.columns:
+                raise ValueError(('Column "%s" for grouping level %i is not '
+                                  'in metadata table!') % (field, i))
+
+    # check that rank is a valid taxonomic rank
+    if rank not in RANKS:
+        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
+                         (rank, ", ".join(RANKS)))
+
+    # check that taxonomy file exists
+    if not os.path.exists(file_taxonomy):
+        raise IOError('Taxonomy file not found!')
+
+    # check that biom table can be read
     if not os.path.exists(file_otutable):
         raise IOError('OTU table file not found')
     rawcounts = biom2pandas(file_otutable)

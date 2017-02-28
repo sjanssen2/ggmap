@@ -6,8 +6,8 @@ import biom
 
 from skbio.util import get_data_path
 
-from ggmap.snippets import biom2pandas, pandas2biom, parse_splitlibrarieslog, \
-                           _repMiddleValues, _shiftLeft
+from ggmap.snippets import (biom2pandas, pandas2biom, parse_splitlibrarieslog,
+                            _repMiddleValues, _shiftLeft)
 
 
 class ReadWriteTests(TestCase):

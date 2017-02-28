@@ -227,5 +227,33 @@ class TaxPlotTests(TestCase):
             self.assertEqual(res, b'0\n')
         print(" OK", file=sys.stderr, end="\n")
 
+    def test_parameter_checks(self):
+        field = 'notThere'
+        with self.assertRaisesRegex(ValueError,
+                                    ('Column "%s" for grouping level %i is '
+                                     'not in metadata table!') % (field, 0)):
+            plotTaxonomy(self.filename_biom, self.metadata, group_l0=field)
+
+        field = 'notThere'
+        with self.assertRaisesRegex(ValueError,
+                                    ('Column "%s" for grouping level %i is '
+                                     'not in metadata table!') % (field, 1)):
+            plotTaxonomy(self.filename_biom, self.metadata, group_l1=field)
+
+        field = 'notThere'
+        with self.assertRaisesRegex(ValueError,
+                                    ('Column "%s" for grouping level %i is '
+                                     'not in metadata table!') % (field, 2)):
+            plotTaxonomy(self.filename_biom, self.metadata, group_l2=field)
+
+        with self.assertRaisesRegex(ValueError,
+                                    'is not a valid taxonomic rank. Choose'):
+            plotTaxonomy(self.filename_biom, self.metadata, rank='noRank')
+
+        with self.assertRaisesRegex(IOError, 'Taxonomy file not found!'):
+            plotTaxonomy(self.filename_biom, self.metadata,
+                         file_taxonomy='noFile')
+
+
 if __name__ == '__main__':
     main()
