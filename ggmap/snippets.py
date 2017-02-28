@@ -392,7 +392,7 @@ def plotTaxonomy(file_otutable,
             ax.set_ylabel('relative abundance')
         else:
             ax.set_ylabel("%s\n(n=%i)" % (n0, g0.shape[0]))
-#         ax.set_yticks([])
+        #  ax.set_yticks([])
 
         # print labels on top of the groups
         if len(graphinfo.loc[g0.index, 'group_l1'].unique()) > 1:
