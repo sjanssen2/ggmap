@@ -158,6 +158,17 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l2': 'genspec',
                    'group_l0': 'Q2',
                    'file_taxonomy': taxonomy}}
+    configs['tp_minAbundance'] = {
+        'description': 'There is one more row than expected.',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata[pd.notnull(metadata.Q2)],
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'reorder_samples': True,
+                   'print_sample_labels': False,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'minreadnr': 5000}}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
@@ -202,6 +213,7 @@ class TaxPlotTests(TestCase):
         print("Comparing images (%i): " % len(plots), file=sys.stderr, end="")
         for name in plots:
             print(".", file=sys.stderr, end="")
+            res = None
             if (name not in self.plots_baseline) or \
                ('imagefile' not in self.plots_baseline[name]):
                 print(("Cannot find baseline plot '%s'. Maybe you need to "
