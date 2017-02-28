@@ -222,9 +222,9 @@ class TaxPlotTests(TestCase):
             else:
                 os.remove(filename_diff_image)
 
-            # self.assertIn(name, self.plots_baseline)
-            # self.assertIn('imagefile', self.plots_baseline[name])
-            # self.assertEqual(res, b'0\n')
+            self.assertIn(name, self.plots_baseline)
+            self.assertIn('imagefile', self.plots_baseline[name])
+            self.assertEqual(res, b'0\n')
         print(" OK", file=sys.stderr, end="\n")
 
 if __name__ == '__main__':
