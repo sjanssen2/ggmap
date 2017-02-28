@@ -169,6 +169,17 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'minreadnr': 5000}}
+    configs['tp_None'] = {
+        'description': 'What if nan values are in metadata?',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'reorder_samples': True,
+                   'print_sample_labels': False,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'minreadnr': 5000}}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
