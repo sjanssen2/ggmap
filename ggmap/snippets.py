@@ -2,6 +2,7 @@ import pandas as pd
 import biom
 from biom.util import biom_open
 from mpl_toolkits.basemap import Basemap
+import subprocess
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -172,3 +173,67 @@ def drawMap(points, basemap=None):
             alpha = set_of_points['alpha']
         map.scatter(x, y, marker='o', color=set_of_points['color'], s=size,
                     zorder=2+z, alpha=alpha)
+
+
+def cluster_run(cmds, jobname, result, environment=None,
+                walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
+                qsub='/opt/torque-4.2.8/bin/qsub'):
+    """ Submits a job to the cluster.
+
+    Paramaters
+    ----------
+    cmds : [str]
+        List of commands to be run on the cluster.
+    jobname : str
+        A name for the cluster job.
+    result : path
+        A file or dir holding results of a sucessful run. Don't re-submit if
+        result exists.
+    environment : str
+        Name of a conda environment to activate.
+    walltime : str
+        Format hh:mm:ss maximal CPU time for the job. Default: '4:00:00'.
+    nodes : int
+        Number of nodes onto the job should be distributed. Defaul: 1
+    ppn : int
+        Number of cores within one node onto which the job should be
+        distributed. Default 10.
+    pmem : str
+        Format 'xGB'. Memory requirement per ppn for the job, e.g. if ppn=10
+        and pmem=8GB the node must have at least 80GB free memory.
+        Default: '8GB'.
+    qsub : path
+        Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
+    """
+
+    if jobname is None:
+        raise ValueError("You need to set a jobname!")
+    if len(jobname) <= 1:
+        raise ValueError("You need to set non empty jobname!")
+
+    job_cmd = "hallo"
+
+    # compose qsub specific details
+    pwd = subprocess.check_output(["pwd"]).decode('ascii')
+    ge_cmd = (("%s -k oe -d '%s' -V -l "
+               "walltime=%s:nodes=%i:ppn=%i,pmem=%s -N %s") %
+              (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
+
+    full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
+    env_present = None
+    if environment is not None:
+        # check if environment exists
+        env_present = subprocess.check_output(["conda", "env", "list", "|", "grep", environment, "-c"]).decode('ascii')
+        full_cmd = "source activate %s && %s" % (environment, full_cmd)
+
+    print(full_cmd, env_present)
+
+        #
+        #     job_cmd = "source activate qiime_env && echo '%s' | %s" % (
+        #         cmd, ge_cmd)
+        #
+        #     if not os.path.exists(dir_betadiv + ('/q%i/d%i' % (quality, depth))):
+        #         qid = !$job_cmd
+        #         print('Now wait until %s job finishes.' % qid[0], file=sys.stderr)
+        # else:
+        #     print('q%i d%i already computed' % (quality, depth), file=sys.stderr)
