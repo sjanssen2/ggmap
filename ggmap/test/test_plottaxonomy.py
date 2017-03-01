@@ -19,7 +19,7 @@ plt.rc('font', family='DejaVu Sans')
 def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    list_existing=False):
     if outdir is None:
-        outdir = tempfile.mkdtemp() + "/"
+        outdir = tempfile.mkdtemp(prefix='taxplot_') + "/"
         print("Temdir is %s" % outdir)
 
     random.seed(1634)
@@ -233,6 +233,7 @@ class TaxPlotTests(TestCase):
                                self.taxonomy)
 
         print("Comparing images (%i): " % len(plots), file=sys.stderr, end="")
+        testResults = []
         for name in plots:
             print(".", file=sys.stderr, end="")
             res = None
@@ -245,6 +246,7 @@ class TaxPlotTests(TestCase):
                 filename_diff_image = "%s.diff.png" % \
                     self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
                 res = subprocess.check_output(["compare", "-metric", "AE",
+                                               "-dissimilarity-threshold", "1",
                                                plots[name]['imagefile'],
                                                self.plots_baseline[name]
                                                ['imagefile'],
@@ -256,10 +258,16 @@ class TaxPlotTests(TestCase):
             else:
                 os.remove(filename_diff_image)
 
-            self.assertIn(name, self.plots_baseline)
-            self.assertIn('imagefile', self.plots_baseline[name])
-            self.assertEqual(res, b'0\n')
+            testResults.append({'name': name,
+                                'res': res})
         print(" OK", file=sys.stderr, end="\n")
+
+        for r in testResults:
+            self.assertIn(r['name'], self.plots_baseline)
+            self.assertIn('imagefile', self.plots_baseline[r['name']])
+            self.assertEqual(r['res'], b'0\n')
+
+
 
     def test_parameter_checks(self):
         field = 'notThere'

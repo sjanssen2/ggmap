@@ -340,8 +340,10 @@ def plotTaxonomy(file_otutable,
 
     # collect information about how to plot data
     graphinfo = pd.DataFrame(data=None, index=vals.columns)
-    grps0 = [('all', meta)]
-    if group_l0 is not None:
+    if group_l0 is None:
+        meta['help_plottaxonomy_level_0'] = 'all'
+        grps0 = meta.groupby('help_plottaxonomy_level_0')
+    else:
         grps0 = meta.groupby(group_l0)
     for i0, (n0, g0) in enumerate(grps0):
         graphinfo.loc[g0.index, 'group_l0'] = n0
@@ -378,7 +380,7 @@ def plotTaxonomy(file_otutable,
             colors[taxon] = availColors[len(colors) % len(availColors)]
 
     # plot the actual thing
-    fig, axarr = plt.subplots(len(graphinfo['group_l0'].unique()), 1)
+    fig, axarr = plt.subplots(len(grps0), 1)
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
         if group_l0 is None:
             ax = axarr
