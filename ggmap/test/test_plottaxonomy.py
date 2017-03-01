@@ -193,15 +193,16 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'plottaxa': ['p__Tenericutes', 'p__Deferribacteres']}}
 
     if not list_existing:
-        sys.stderr.write("Plotting graphs (%i): " % len(configs))
+        print("Plotting graphs (%i): " % len(configs), file=sys.stderr,
+              end="", flush=True)
         for name in configs:
-            sys.stderr.write(".")
+            print(".", file=sys.stderr, end="", flush=True)
             f = plotTaxonomy(**configs[name]['params'])
             filename = outdir + name + extension
             f[0].savefig(filename)
             configs[name]['imagefile'] = filename
             plt.close(f[0])
-        sys.stderr.write(" done.\n")
+        print(" done.\n", file=sys.stderr, flush=True)
     else:
         for name in configs:
             filename = outdir + name + extension
@@ -232,16 +233,16 @@ class TaxPlotTests(TestCase):
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
 
-        print("Comparing images (%i): " % len(plots), file=sys.stderr, end="")
+        print("Comparing images (%i): " % len(plots), file=sys.stderr, end="", flush=True)
         testResults = []
         for name in plots:
-            print(".", file=sys.stderr, end="")
+            print(".", file=sys.stderr, end="", flush=True)
             res = None
             if (name not in self.plots_baseline) or \
                ('imagefile' not in self.plots_baseline[name]):
                 print(("Cannot find baseline plot '%s'. Maybe you need to "
                        "generate baseline plots first. Or check the self."
-                       "baselinedir variable.") % name)
+                       "baselinedir variable.") % name, flush=True)
             else:
                 filename_diff_image = "%s.diff.png" % \
                     self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
@@ -260,7 +261,7 @@ class TaxPlotTests(TestCase):
 
             testResults.append({'name': name,
                                 'res': res})
-        print(" OK", file=sys.stderr, end="\n")
+        print(" OK", file=sys.stderr, end="\n", flush=True)
 
         for r in testResults:
             self.assertIn(r['name'], self.plots_baseline)
