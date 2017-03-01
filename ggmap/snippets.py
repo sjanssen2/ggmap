@@ -3,6 +3,8 @@ import biom
 from biom.util import biom_open
 from mpl_toolkits.basemap import Basemap
 import subprocess
+import os
+import sys
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -206,34 +208,48 @@ def cluster_run(cmds, jobname, result, environment=None,
         Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
     """
 
+    if result is None:
+        raise ValueError("You need to specify a result path.")
+    parent_res_dir = "/".join(result.split('/')[:-1])
+    if not os.access(parent_res_dir, os.W_OK):
+        raise ValueError("Parent result directory '%s' is not writable!" %
+                         parent_res_dir)
+    if os.path.exists(result):
+        print("%s already computed" % jobname, file=sys.stderr)
+        return "Result already present!"
     if jobname is None:
         raise ValueError("You need to set a jobname!")
     if len(jobname) <= 1:
         raise ValueError("You need to set non empty jobname!")
 
-    job_cmd = "hallo"
+    if not isinstance(cmds, list):
+        cmds = [cmds]
+    for cmd in cmds:
+        if "'" in cmd:
+            raise ValueError("One of your commands contain a ' char. "
+                             "Please remove!")
+    job_cmd = " && ".join(cmds)
 
     # compose qsub specific details
-    pwd = subprocess.check_output(["pwd"]).decode('ascii')
+    pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
     ge_cmd = (("%s -k oe -d '%s' -V -l "
-               "walltime=%s:nodes=%i:ppn=%i,pmem=%s -N %s") %
+               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N %s") %
               (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
     if environment is not None:
         # check if environment exists
-        env_present = subprocess.check_output(["conda", "env", "list", "|", "grep", environment, "-c"]).decode('ascii')
+        with subprocess.Popen("conda env list | grep %s -c" % environment,
+                              shell=True,
+                              stdout=subprocess.PIPE) as env_present:
+            if (env_present.wait() != 0):
+                raise ValueError("Conda environment '%s' not present." %
+                                 environment)
         full_cmd = "source activate %s && %s" % (environment, full_cmd)
 
-    print(full_cmd, env_present)
-
-        #
-        #     job_cmd = "source activate qiime_env && echo '%s' | %s" % (
-        #         cmd, ge_cmd)
-        #
-        #     if not os.path.exists(dir_betadiv + ('/q%i/d%i' % (quality, depth))):
-        #         qid = !$job_cmd
-        #         print('Now wait until %s job finishes.' % qid[0], file=sys.stderr)
-        # else:
-        #     print('q%i d%i already computed' % (quality, depth), file=sys.stderr)
+    with subprocess.Popen(full_cmd,
+                          shell=True, stdout=subprocess.PIPE) as task_qsub:
+        qid = task_qsub.stdout.read().decode('ascii').rstrip()
+        print("Now wait until %s job finishes." % qid, file=sys.stderr)
+        return qid
