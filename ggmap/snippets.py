@@ -227,7 +227,8 @@ def plotTaxonomy(file_otutable,
                  reorder_samples=False,
                  print_sample_labels=False,
                  minreadnr=50,
-                 plottaxa=None):
+                 plottaxa=None,
+                 fct_aggregate=None):
     """
     Parameters
     ----------
@@ -335,6 +336,28 @@ def plotTaxonomy(file_otutable,
                    if taxon != NAME_LOW_ABUNDANCE] + [NAME_LOW_ABUNDANCE]
     rank_counts = rank_counts.loc[taxaidx, :]
 
+    # aggregate over samples
+    if fct_aggregate is not None:
+        levels = [f for f in [group_l2, group_l1, group_l0] if f is not None]
+        if len(levels) < 1:
+            raise ValueError("Cannot aggregate samples, "
+                             "if no grouping is given!")
+        # return rank_counts, meta, levels, None
+        grs = dict()
+        newmeta = dict()
+        for n, g in meta.groupby(list(reversed(levels))):
+            for sampleid in g.index:
+                grs[sampleid] = "###".join(n) if isinstance(n, tuple) else n
+            if isinstance(n, tuple):
+                x = dict(zip(reversed(levels), n))
+            else:
+                x = {levels[0]: n}
+            x['num'] = g.shape[0]
+            newmeta["###".join(n) if isinstance(n, tuple) else n] = x
+        rank_counts = rank_counts.T.groupby(by=grs).agg(fct_aggregate).T
+        meta = pd.DataFrame(newmeta).T
+        group_l0, group_l1, group_l2 = None, group_l0, group_l1
+
     # prepare abundances for plot
     vals = rank_counts.cumsum()
 
@@ -409,9 +432,22 @@ def plotTaxonomy(file_otutable,
         if print_sample_labels:
             ax.set_xticks(graphinfo.loc[g0.index, :]
                           .sort_values(by='xpos')['xpos']+.5)
-            ax.set_xticklabels(graphinfo.loc[g0.index, :]
-                               .sort_values(by='xpos').index,
-                               rotation='vertical')
+            # determine sample lables, which might be aggregated
+            data = graphinfo[['xpos']]
+            if fct_aggregate is not None:
+                data = graphinfo[['xpos']].merge(meta[['num']],
+                                                 left_index=True,
+                                                 right_index=True)
+            labels = []
+            for idx, row in data.sort_values(by='xpos').iterrows():
+                if '###' in idx:
+                    label = "%s" % idx.split('###')[-1]
+                else:
+                    label = idx
+                if 'num' in row.index:
+                    label += " (n=%i)" % row['num']
+                labels.append(label)
+            ax.set_xticklabels(labels, rotation='vertical')
             ax.xaxis.set_ticks_position("bottom")
         else:
             ax.set_xticks([])
@@ -487,7 +523,10 @@ def plotTaxonomy(file_otutable,
                       bbox_to_anchor=(1.01, 1.05))
             font0 = FontProperties()
             font0.set_weight('bold')
-            ax.get_legend().set_title(title='Rank: %s' % rank, prop=font0)
+            title = 'Rank: %s' % rank
+            if fct_aggregate is not None:
+                title = ('Aggregrated "%s"\n' % fct_aggregate.__name__) + title
+            ax.get_legend().set_title(title=title, prop=font0)
 
     if verbose:
         print("raw counts:", rawcounts.shape[1])

@@ -6,6 +6,7 @@ import random
 import os
 import sys
 import subprocess
+import numpy as np
 
 from skbio.util import get_data_path
 import pandas as pd
@@ -191,6 +192,61 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'plottaxa': ['p__Tenericutes', 'p__Deferribacteres']}}
+    configs['tp_agg_all3'] = {
+        'description': 'Aggregate plot on all three groupings',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'Q2',
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'reorder_samples': True,
+                   'print_sample_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_agg_no1'] = {
+        'description': 'Aggregate plot when group l1 is not set',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'Q2',
+                   'group_l2': 'genspec',
+                   'reorder_samples': True,
+                   'print_sample_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_agg_no0'] = {
+        'description': 'Aggregate plot when group l0 is not set',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'reorder_samples': True,
+                   'print_sample_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_agg_no2'] = {
+        'description': 'Aggregate plot when group l2 is not set',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'Q2',
+                   'group_l1': 'diet_brief',
+                   'reorder_samples': True,
+                   'print_sample_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_agg_only0'] = {
+        'description': 'Aggregate plot when only group l0 is set',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'Q2',
+                   'reorder_samples': True,
+                   'print_sample_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
 
     if not list_existing:
         print("Plotting graphs (%i): " % len(configs), file=sys.stderr,
