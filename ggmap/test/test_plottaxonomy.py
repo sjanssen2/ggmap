@@ -180,6 +180,17 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'minreadnr': 5000}}
+    configs['tp_taxalist'] = {
+        'description': 'Only plot a subset of taxa.',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l1': 'diet_brief',
+                   'group_l0': 'Q2',
+                   'reorder_samples': True,
+                   'print_sample_labels': False,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'plottaxa': ['p__Tenericutes', 'p__Deferribacteres']}}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))

@@ -226,7 +226,8 @@ def plotTaxonomy(file_otutable,
                  verbose=True,
                  reorder_samples=False,
                  print_sample_labels=False,
-                 minreadnr=50):
+                 minreadnr=50,
+                 plottaxa=None):
     """
     Parameters
     ----------
@@ -244,6 +245,9 @@ def plotTaxonomy(file_otutable,
         samples!
     minreadnr : int
         min number of reads a taxon need to have to be plotted
+    plottaxa : [str]
+        Only plot abundances for taxa IDs provided. If None, all taxa are
+        plotted. Default: None
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -298,24 +302,34 @@ def plotTaxonomy(file_otutable,
         print('%i taxa left after collapsing to %s.' % (rank_counts.shape[0],
                                                         rank))
 
+    lowAbundandTaxa = rank_counts[(rank_counts.sum(axis=1) < minreadnr)].index
+    highAbundantTaxa = rank_counts[(rank_counts.sum(axis=1) >=
+                                    minreadnr)].index
+
+    # normalize to 1 in each sample
+    rank_counts /= rank_counts.sum(axis=0)
+
     # filter low abundant taxa
-    numLowAbundandTaxa = sum(rank_counts.sum(axis=1) < minreadnr)
-    if numLowAbundandTaxa > 0:
-        lowReadTaxa = rank_counts[rank_counts.sum(axis=1) < minreadnr].sum()
+    if len(lowAbundandTaxa) > 0:
+        lowReadTaxa = rank_counts.loc[lowAbundandTaxa, :].sum(axis=0)
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
-        rank_counts = rank_counts[rank_counts.sum(axis=1) >= minreadnr]
+        rank_counts = rank_counts.loc[highAbundantTaxa, :]
         rank_counts = rank_counts.append(lowReadTaxa)
         if verbose:
             print('%i taxa left after filtering low abundant.' %
                   (rank_counts.shape[0]-1))
 
-    # normalize to 1 in each sample
-    rank_counts /= rank_counts.sum(axis=0)
+    # restrict to those taxa that are asked for in plottaxa
+    if plottaxa is not None:
+        rank_counts = rank_counts.loc[plottaxa, :]
+        if verbose:
+            print('%i taxa left after restricting to provided list.' %
+                  (rank_counts.shape[0]))
 
     # all for plotting
     # sort taxa according to sum of abundance
     taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
-    if numLowAbundandTaxa > 0:
+    if len(lowAbundandTaxa) > 0:
         taxaidx = [taxon
                    for taxon in taxaidx
                    if taxon != NAME_LOW_ABUNDANCE] + [NAME_LOW_ABUNDANCE]
@@ -402,7 +416,7 @@ def plotTaxonomy(file_otutable,
 
         # crop graph to actually plotted bars
         ax.set_xlim(0, graphinfo.loc[g0.index, 'xpos'].max()+1)
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0, rank_counts.max().max())
         ax.set_axis_bgcolor('white')
 
         if group_l0 is None:
@@ -464,7 +478,7 @@ def plotTaxonomy(file_otutable,
             l_patches = [mpatches.Patch(color=colors[taxon], label=taxon)
                          for taxon in vals.index]
             if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
-                l_patches[-1]._label = "+%i %s taxa" % (numLowAbundandTaxa,
+                l_patches[-1]._label = "+%i %s taxa" % (len(lowAbundandTaxa),
                                                         NAME_LOW_ABUNDANCE)
             ax.legend(handles=l_patches,
                       loc='upper left',
