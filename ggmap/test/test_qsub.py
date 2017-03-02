@@ -1,8 +1,4 @@
 from unittest import TestCase, main
-import pandas as pd
-import warnings
-import tempfile
-import biom
 
 from skbio.util import get_data_path
 
