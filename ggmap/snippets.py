@@ -249,6 +249,11 @@ def plotTaxonomy(file_otutable,
     plottaxa : [str]
         Only plot abundances for taxa IDs provided. If None, all taxa are
         plotted. Default: None
+    rank : str
+        Set taxonomic level to collapse abundances. Use 'raw' to de-activate
+        collapsing.
+    fct_aggregate : function
+        A numpy function to aggregate over several samples.
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -261,12 +266,12 @@ def plotTaxonomy(file_otutable,
                                   'in metadata table!') % (field, i))
 
     # check that rank is a valid taxonomic rank
-    if rank not in RANKS:
+    if rank not in RANKS + ['raw']:
         raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
                          (rank, ", ".join(RANKS)))
 
     # check that taxonomy file exists
-    if not os.path.exists(file_taxonomy):
+    if not os.path.exists(file_taxonomy) and rank != 'raw':
         raise IOError('Taxonomy file not found!')
 
     # check that biom table can be read
@@ -283,25 +288,27 @@ def plotTaxonomy(file_otutable,
         print('%i samples left with metadata and counts.' % meta.shape[0])
 
     # assign taxonomy and collapse at given rank
-    if rank not in RANKS:
-        raise ValueError('rank "%s" is not a valid rank.' % rank)
-    lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
-                           names=['otuID', 'taxonomy'])
-    lineages['otuID'] = lineages['otuID'].astype(str)
-    lineages.set_index('otuID', inplace=True)
-    # add taxonomic lineage information to the counts as column "taxonomy"
-    rank_counts = pd.merge(counts, lineages, how='left', left_index=True,
-                           right_index=True)
-    # add columns for each tax rank, such that we can groupby later on
-    rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x: x.split("; ")
-                                                      [RANKS.index(rank)])
-    # sum counts according to the selected rank
-    rank_counts = rank_counts.reset_index().groupby(rank).sum()
-    # get rid of the old index, i.e. OTU ids, since we have grouped by some
-    # rank
-    if verbose:
-        print('%i taxa left after collapsing to %s.' % (rank_counts.shape[0],
-                                                        rank))
+    if rank != 'raw':
+        lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
+                               names=['otuID', 'taxonomy'])
+        lineages['otuID'] = lineages['otuID'].astype(str)
+        lineages.set_index('otuID', inplace=True)
+        # add taxonomic lineage information to the counts as column "taxonomy"
+        rank_counts = pd.merge(counts, lineages, how='left', left_index=True,
+                               right_index=True)
+        # add columns for each tax rank, such that we can groupby later on
+        rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
+                                                          x.split("; ")
+                                                          [RANKS.index(rank)])
+        # sum counts according to the selected rank
+        rank_counts = rank_counts.reset_index().groupby(rank).sum()
+        # get rid of the old index, i.e. OTU ids, since we have grouped by some
+        # rank
+        if verbose:
+            print('%i taxa left after collapsing to %s.' %
+                  (rank_counts.shape[0], rank))
+    else:
+        rank_counts = counts
 
     lowAbundandTaxa = rank_counts[(rank_counts.sum(axis=1) < minreadnr)].index
     highAbundantTaxa = rank_counts[(rank_counts.sum(axis=1) >=
