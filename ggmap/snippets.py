@@ -356,13 +356,19 @@ def plotTaxonomy(file_otutable,
         newmeta = dict()
         for n, g in meta.groupby(list(reversed(levels))):
             for sampleid in g.index:
-                grs[sampleid] = "###".join(n) if isinstance(n, tuple) else n
+                if isinstance(n, tuple):
+                    grs[sampleid] = "###".join(list(map(str, n)))
+                else:
+                    grs[sampleid] = str(n)
             if isinstance(n, tuple):
                 x = dict(zip(reversed(levels), n))
             else:
                 x = {levels[0]: n}
             x['num'] = g.shape[0]
-            newmeta["###".join(n) if isinstance(n, tuple) else n] = x
+            if isinstance(n, tuple):
+                newmeta["###".join(list(map(str, n)))] = x
+            else:
+                newmeta[str(n)] = x
         rank_counts = rank_counts.T.groupby(by=grs).agg(fct_aggregate).T
         meta = pd.DataFrame(newmeta).T
         group_l0, group_l1, group_l2 = None, group_l0, group_l1
@@ -479,7 +485,7 @@ def plotTaxonomy(file_otutable,
             pos = []
             for n, g in graphinfo.loc[g0.index, :].groupby('group_l1'):
                 pos.append(g['xpos'].mean()+0.5)
-                labels.append(n+"\n(n=%i)" % g.shape[0])
+                labels.append(str(n)+"\n(n=%i)" % g.shape[0])
             ax2.set_xticks(pos)
             ax2.set_xlim(ax.get_xlim())
             ax2.set_xticklabels(labels)
@@ -497,8 +503,8 @@ def plotTaxonomy(file_otutable,
                                                             'group_l2']):
                 pos.append(g.sort_values('xpos').iloc[0, :].loc['xpos'])
                 poslabel.append(g['xpos'].mean())
-                labels.append(g.sort_values('xpos').iloc[0, :]
-                              .loc['group_l2'] + ("\n(n=%i)" % g.shape[0]))
+                labels.append(str(g.sort_values('xpos').iloc[0, :]
+                              .loc['group_l2']) + ("\n(n=%i)" % g.shape[0]))
             ax3.set_xticks(np.array(poslabel)+.5, minor=False)
             ax3.set_xticks(np.array(pos), minor=True)
             ax3.set_xticklabels(labels, rotation='vertical')
