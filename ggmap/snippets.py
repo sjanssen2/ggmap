@@ -407,7 +407,7 @@ def plotTaxonomy(file_otutable,
                                                        offset+len(sample_idxs))
             offset += len(sample_idxs)
             if i1 < len(grps1):
-                offset += int(g0.shape[0]*0.05)
+                offset += max(1, int(g0.shape[0]*0.05))
 
     # define colors for taxons
     availColors = sns.color_palette('Paired', 100)
