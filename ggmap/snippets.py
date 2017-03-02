@@ -179,7 +179,7 @@ def drawMap(points, basemap=None):
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                qsub='/opt/torque-4.2.8/bin/qsub'):
+                qsub='/opt/torque-4.2.8/bin/qsub', dry=True):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -206,6 +206,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         Default: '8GB'.
     qsub : path
         Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
+    dry : bool
+        Only print command instead of executing it. Good for debugging.
+        Default = True
     """
 
     if result is None:
@@ -248,8 +251,12 @@ def cluster_run(cmds, jobname, result, environment=None,
                                  environment)
         full_cmd = "source activate %s && %s" % (environment, full_cmd)
 
-    with subprocess.Popen(full_cmd,
-                          shell=True, stdout=subprocess.PIPE) as task_qsub:
-        qid = task_qsub.stdout.read().decode('ascii').rstrip()
-        print("Now wait until %s job finishes." % qid, file=sys.stderr)
-        return qid
+    if dry is False:
+        with subprocess.Popen(full_cmd,
+                              shell=True, stdout=subprocess.PIPE) as task_qsub:
+            qid = task_qsub.stdout.read().decode('ascii').rstrip()
+            print("Now wait until %s job finishes." % qid, file=sys.stderr)
+            return qid
+    else:
+        print(full_cmd)
+        return None
