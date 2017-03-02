@@ -259,7 +259,6 @@ class ReadWriteTests(TestCase):
         res = read_metaphlan_profile(self.file_mock_profile)
         self.assertCountEqual(res, self.true_mock_profile)
         s = sum(res.values())
-        print("s: %i" % s)
         self.assertTrue(s <= 100)
         self.assertTrue(s > 0)
 
