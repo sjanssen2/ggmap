@@ -24,3 +24,11 @@ data_backup.pkl
 __pycache__/
 ggmap/__pycache__/
 ggmap/test/__pycache__/
+Presentation/
+codeReview.ipynb
+ete3/
+help_all/
+help_part/
+test.newick
+test2.txt
+test_sys.ipynb
