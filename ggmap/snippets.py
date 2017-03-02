@@ -9,6 +9,8 @@ from matplotlib.font_manager import FontProperties
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
+import subprocess
+import sys
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -542,3 +544,88 @@ def plotTaxonomy(file_otutable,
         print("counts with meta:", counts.shape[1])
 
     return fig, rank_counts, graphinfo, vals
+
+
+def cluster_run(cmds, jobname, result, environment=None,
+                walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
+                qsub='/opt/torque-4.2.8/bin/qsub', dry=True):
+    """ Submits a job to the cluster.
+
+    Paramaters
+    ----------
+    cmds : [str]
+        List of commands to be run on the cluster.
+    jobname : str
+        A name for the cluster job.
+    result : path
+        A file or dir holding results of a sucessful run. Don't re-submit if
+        result exists.
+    environment : str
+        Name of a conda environment to activate.
+    walltime : str
+        Format hh:mm:ss maximal CPU time for the job. Default: '4:00:00'.
+    nodes : int
+        Number of nodes onto the job should be distributed. Defaul: 1
+    ppn : int
+        Number of cores within one node onto which the job should be
+        distributed. Default 10.
+    pmem : str
+        Format 'xGB'. Memory requirement per ppn for the job, e.g. if ppn=10
+        and pmem=8GB the node must have at least 80GB free memory.
+        Default: '8GB'.
+    qsub : path
+        Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
+    dry : bool
+        Only print command instead of executing it. Good for debugging.
+        Default = True
+    """
+
+    if result is None:
+        raise ValueError("You need to specify a result path.")
+    parent_res_dir = "/".join(result.split('/')[:-1])
+    if not os.access(parent_res_dir, os.W_OK):
+        raise ValueError("Parent result directory '%s' is not writable!" %
+                         parent_res_dir)
+    if os.path.exists(result):
+        print("%s already computed" % jobname, file=sys.stderr)
+        return "Result already present!"
+    if jobname is None:
+        raise ValueError("You need to set a jobname!")
+    if len(jobname) <= 1:
+        raise ValueError("You need to set non empty jobname!")
+
+    if not isinstance(cmds, list):
+        cmds = [cmds]
+    for cmd in cmds:
+        if "'" in cmd:
+            raise ValueError("One of your commands contain a ' char. "
+                             "Please remove!")
+    job_cmd = " && ".join(cmds)
+
+    # compose qsub specific details
+    pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
+    ge_cmd = (("%s -k oe -d '%s' -V -l "
+               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N %s") %
+              (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
+
+    full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
+    env_present = None
+    if environment is not None:
+        # check if environment exists
+        with subprocess.Popen("conda env list | grep %s -c" % environment,
+                              shell=True,
+                              stdout=subprocess.PIPE) as env_present:
+            if (env_present.wait() != 0):
+                raise ValueError("Conda environment '%s' not present." %
+                                 environment)
+        full_cmd = "source activate %s && %s" % (environment, full_cmd)
+
+    if dry is False:
+        with subprocess.Popen(full_cmd,
+                              shell=True, stdout=subprocess.PIPE) as task_qsub:
+            qid = task_qsub.stdout.read().decode('ascii').rstrip()
+            print("Now wait until %s job finishes." % qid, file=sys.stderr)
+            return qid
+    else:
+        print(full_cmd)
+        return None
