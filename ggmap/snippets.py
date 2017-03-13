@@ -235,8 +235,8 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     # compose qsub specific details
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
-    ge_cmd = (("%s -k oe -d '%s' -V -l "
-               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N %s") %
+    ge_cmd = (("%s oe -d '%s' -V -l "
+               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N cr_%s") %
               (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
