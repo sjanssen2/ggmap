@@ -2,12 +2,14 @@ from unittest import TestCase, main
 from io import StringIO
 
 from skbio.util import get_data_path
+from skbio.tree import TreeNode
 
 from ggmap.readwrite import read_ncbi_nodes, read_metaphlan_markers_info, \
                             read_taxid_list, read_gg_accessions, \
                             read_gg_otu_map
 from ggmap.tree import get_lineage, build_ncbi_tree, map_onto_ncbi, \
-                       match_metaphlan_greengenes, _get_otus_from_clade
+                       match_metaphlan_greengenes, _get_otus_from_clade, \
+                       distance_seppinsertion
 
 
 class TreeTests(TestCase):
@@ -22,6 +24,35 @@ class TreeTests(TestCase):
             get_data_path('subset_gg_13_5_accessions.txt')
         self.file_gg_taxids = get_data_path('subset_taxids_gg.txt')
         self.file_gg_otumap = get_data_path('subset_97_otu_map.txt')
+
+        self.tree_orig = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,(c:1.3,d:1.4)'
+                                         'n7:2.2)n4:2.3,e:2.3)n2:3.1,(((f:1.5,'
+                                         'g:1.6)n8:2.4,h:2.3)n5:2.5,(i:1.7,j:1'
+                                         '.8)n9:2.6)n3:3.2)n1;')])
+        self.tree_reduced = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,d:3.6)n4:2'
+                                            '.3,e:2.3)n2:3.1,(((f:1.5,g:1.6)n8'
+                                            ':2.4,h:2.3)n5:2.5,(i:1.7,j:1.8)n9'
+                                            ':2.6)n3:3.2)n1;')])
+        self.tree_alpha1 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,(c:0.9,d:1.'
+                                           '6):2.0)n4:2.3,e:2.3)n2:3.1,(((f:1.'
+                                           '5,g:1.6)n8:2.4,h:2.3)n5:2.5,(i:1.7'
+                                           ',j:1.8)n9:2.6)n3:3.2)n1;')])
+        self.tree_alpha2 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,d:3.6)n4:2.'
+                                           '3,(c:0.9,e:0.3):2.0)n2:3.1,(((f:1.'
+                                           '5,g:1.6)n8:2.4,h:2.3)n5:2.5,(i:1.7'
+                                           ',j:1.8)n9:2.6)n3:3.2)n1;')])
+        self.tree_alpha3 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,d:3.6)n4:2.'
+                                           '3,e:2.3)n2:3.1,(((f:1.5,g:1.6)n8:2'
+                                           '.4,h:2.3)n5:2.5,(i:1.7,(j:0.8,c:0.'
+                                           '5):1.0)n9:2.6)n3:3.2)n1;')])
+        self.tree_alpha4 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,d:3.6)n4:2.'
+                                           '3,e:2.3)n2:3.1,(c:0.9,(((f:1.5,g:1'
+                                           '.6)n8:2.4,h:2.3)n5:2.5,(i:1.7,j:1.'
+                                           '8)n9:2.6)n3:2.0):1.2)n1;')])
+        self.tree_alpha5 = TreeNode.read([('(((((a:1.1,b:1.2)n6:1.0,c:0.9):1.1'
+                                           ',d:3.6)n4:2.3,e:2.3)n2:3.1,(((f:1.'
+                                           '5,g:1.6)n8:2.4,h:2.3)n5:2.5,(i:1.7'
+                                           ',j:1.8)n9:2.6)n3:3.2)n1;')])
 
     def test_get_lineage(self):
         self.assertEqual(get_lineage(2, self.taxonomy),
@@ -173,6 +204,24 @@ class TreeTests(TestCase):
                       err.getvalue())
         self.assertIn("Clade 's__Tomato_begomovirus_satellite_DNA_beta'",
                       err.getvalue())
+
+    def test_distance_seppinsertion(self):
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha1,
+                                                      'c'), 0.6)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha2,
+                                                      'c'), 8.7)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha3,
+                                                      'c'), 16.2)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha4,
+                                                      'c'), 11.0)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha5,
+                                                      'c'), 5.5)
+
 
 if __name__ == '__main__':
     main()

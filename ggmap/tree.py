@@ -251,3 +251,27 @@ def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
     else:
         raise ValueError("Clade '%s' is not in MetaPhlAn tree." %
                          metaphlan_clade)
+
+
+def distance_seppinsertion(tree_orig, tree_changed, nodename):
+    node_orig = tree_orig.find(nodename)
+    node_changed = tree_changed.find(nodename)
+
+    # the newly created internal node (by SEPP) does not come with a name.
+    # Thus, we need to use its grandparent node as a common reference in both
+    # trees.
+    gparent_orig = node_orig.parent.parent
+    gparent_changed = node_changed.parent.parent
+
+    dist_pp = gparent_orig.distance(tree_orig.find(gparent_changed.name))
+    dist_sub_orig = gparent_orig.distance(node_orig)
+    dist_sub_changed = gparent_changed.distance(node_changed)
+
+    def get_nodenames(nodes):
+        return [node.name for node in nodes]
+
+    if set(get_nodenames(node_orig.siblings())) == \
+       set(get_nodenames(node_changed.siblings())):
+        dist_sub_changed *= -1
+
+    return dist_pp + dist_sub_orig + dist_sub_changed
