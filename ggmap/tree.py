@@ -261,17 +261,31 @@ def distance_seppinsertion(tree_orig, tree_changed, nodename):
     # Thus, we need to use its grandparent node as a common reference in both
     # trees.
     gparent_orig = node_orig.parent.parent
-    gparent_changed = node_changed.parent.parent
+    gparent_changed = node_changed.parent
+    parent_changed = None
+    while gparent_changed.name is None:
+        parent_changed = gparent_changed
+        gparent_changed = gparent_changed.parent
 
     dist_pp = gparent_orig.distance(tree_orig.find(gparent_changed.name))
     dist_sub_orig = gparent_orig.distance(node_orig)
     dist_sub_changed = gparent_changed.distance(node_changed)
 
+    # find edge into which tip(s) have been inserted to later check if it is
+    # the same as the original one
+    parent_orig = node_orig.parent
+    while True:
+        try:
+            tree_changed.find(parent_orig.parent.name)
+            break
+        except MissingNodeError:
+            parent_orig = parent_orig.parent
+
     def get_nodenames(nodes):
         return [node.name for node in nodes]
 
-    if set(get_nodenames(node_orig.siblings())) == \
-       set(get_nodenames(node_changed.siblings())):
+    if set(get_nodenames(parent_orig.tips())) == \
+       set(get_nodenames(parent_changed.tips())):
         dist_sub_changed *= -1
 
     return dist_pp + dist_sub_orig + dist_sub_changed
