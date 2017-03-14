@@ -53,6 +53,14 @@ class TreeTests(TestCase):
                                            ',d:3.6)n4:2.3,e:2.3)n2:3.1,(((f:1.'
                                            '5,g:1.6)n8:2.4,h:2.3)n5:2.5,(i:1.7'
                                            ',j:1.8)n9:2.6)n3:3.2)n1;')])
+        self.tree_alpha6 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,(c:1.3,d:1.'
+                                           '4)n7:2.2)n4:2.3,e:2.3)n2:3.1,((f:0'
+                                           '.5,(g:0.6,h:0.9):0.3):0.4,(i:1.7,j'
+                                           ':1.8)n9:4.0):1.8)n1;')])
+        self.tree_alpha7 = TreeNode.read([('((((a:1.1,b:1.2)n6:2.1,d:3.6)n4:2.'
+                                           '3,e:2.3)n2:3.1,((f:0.5,(g:0.6,(h:0'
+                                           '.7,c:0.9):0.2):0.3):0.4,(i:1.7,j:1'
+                                           '.8)n9:4.0):1.8)n1;')])
 
     def test_get_lineage(self):
         self.assertEqual(get_lineage(2, self.taxonomy),
@@ -221,7 +229,21 @@ class TreeTests(TestCase):
         self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
                                                       self.tree_alpha5,
                                                       'c'), 5.5)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha6,
+                                                      'h'), 4.6)
+        self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
+                                                      self.tree_alpha7,
+                                                      'c'), 12.5)
 
+        for tree in [self.tree_alpha1, self.tree_alpha2, self.tree_alpha3,
+                     self.tree_alpha4, self.tree_alpha5, self.tree_alpha6,
+                     self.tree_alpha7]:
+            for tip in tree.tips():
+                if tip.parent.name is not None:
+                    self.assertEqual(distance_seppinsertion(self.tree_orig,
+                                                            tree,
+                                                            tip.name), 0.0)
 
 if __name__ == '__main__':
     main()
