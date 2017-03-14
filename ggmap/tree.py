@@ -257,6 +257,11 @@ def distance_seppinsertion(tree_orig, tree_changed, nodename):
     node_orig = tree_orig.find(nodename)
     node_changed = tree_changed.find(nodename)
 
+    # the node has not been changed, because it's parent still has a name,
+    # which would not be true if re-inserted via SEPP
+    if node_changed.parent.name is not None:
+        return 0.0
+
     # the newly created internal node (by SEPP) does not come with a name.
     # Thus, we need to use its grandparent node as a common reference in both
     # trees.

@@ -235,10 +235,15 @@ class TreeTests(TestCase):
         self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
                                                       self.tree_alpha7,
                                                       'c'), 12.5)
-        # self.assertAlmostEqual(distance_seppinsertion(self.tree_orig,
-        #                                               self.tree_alpha1,
-        #                                               'a'), 0.0)
 
+        for tree in [self.tree_alpha1, self.tree_alpha2, self.tree_alpha3,
+                     self.tree_alpha4, self.tree_alpha5, self.tree_alpha6,
+                     self.tree_alpha7]:
+            for tip in tree.tips():
+                if tip.parent.name is not None:
+                    self.assertEqual(distance_seppinsertion(self.tree_orig,
+                                                            tree,
+                                                            tip.name), 0.0)
 
 if __name__ == '__main__':
     main()
