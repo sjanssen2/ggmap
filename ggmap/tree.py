@@ -291,6 +291,6 @@ def distance_seppinsertion(tree_orig, tree_changed, nodename):
 
     if set(get_nodenames(parent_orig.tips())) == \
        set(get_nodenames(parent_changed.tips())):
-        dist_sub_changed *= -1
-
-    return dist_pp + dist_sub_orig + dist_sub_changed
+        return dist_pp + abs(dist_sub_orig - dist_sub_changed)
+    else:
+        return dist_pp + dist_sub_orig + dist_sub_changed
