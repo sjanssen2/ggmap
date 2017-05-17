@@ -528,8 +528,8 @@ def plotTaxonomy(file_otutable,
 
         # display a legend
         if ypos == 0:
-            l_patches = [mpatches.Patch(color=colors[taxon], label=taxon)
-                         for taxon in vals.index]
+            l_patches = [mpatches.Patch(color=colors[tax], label=tax)
+                         for tax in vals.index]
             if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
                 l_patches[-1]._label = "+%i %s taxa" % (len(lowAbundandTaxa),
                                                         NAME_LOW_ABUNDANCE)
@@ -593,7 +593,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         raise ValueError("Parent result directory '%s' is not writable!" %
                          parent_res_dir)
     if os.path.exists(result):
-        print("%s already computed" % jobname, file=sys.stderr)
+        sys.stderr.write("%s already computed\n" % jobname)
         return "Result already present!"
     if jobname is None:
         raise ValueError("You need to set a jobname!")
@@ -630,7 +630,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
-            print("Now wait until %s job finishes." % qid, file=sys.stderr)
+            sys.stderr.write("Now wait until %s job finishes.\n" % qid)
             return qid
     else:
         print(full_cmd)
