@@ -554,7 +554,7 @@ def plotTaxonomy(file_otutable,
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                qsub='/opt/torque-4.2.8/bin/qsub', dry=True):
+                qsub='/opt/torque-4.2.8/bin/qsub', dry=True, wait=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -584,6 +584,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     dry : bool
         Only print command instead of executing it. Good for debugging.
         Default = True
+    wait : bool
+        Wait for job completion before qsub's return
     """
 
     if result is None:
@@ -600,6 +602,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     if len(jobname) <= 1:
         raise ValueError("You need to set non empty jobname!")
 
+    wait = 'y' if wait else 'n'
+
     if not isinstance(cmds, list):
         cmds = [cmds]
     for cmd in cmds:
@@ -611,8 +615,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     # compose qsub specific details
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
     ge_cmd = (("%s -k oe -d '%s' -V -l "
-               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N %s") %
-              (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
+               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N %s -sync %s") %
+              (qsub, pwd, walltime, nodes, ppn, pmem, jobname, wait))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
