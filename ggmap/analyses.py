@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 import pandas as pd
+from skbio.stats.distance import DistanceMatrix
 
 from ggmap.snippets import (pandas2biom, cluster_run)
 
@@ -36,7 +37,7 @@ def _parse_alpha(num_iterations, workdir, rarefaction_depth):
 def alpha_diversity(counts, metrics, rarefaction_depth,
                     num_threads=10, num_iterations=10, dry=True,
                     use_grid=True):
-    """ Computes alpha diversity values for given BIOM table.
+    """Computes alpha diversity values for given BIOM table.
 
     Paramaters
     ----------
@@ -123,6 +124,70 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
 
     if results is not None:
         results.index.name = counts.index.name
+        shutil.rmtree(workdir)
+        sys.stderr.write("Was removed.\n")
+
+    return results
+
+
+def beta_diversity(counts, metrics, dry=True, use_grid=True):
+    """Computes beta diversity values for given BIOM table.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    metrics : [str]
+        Beta diversity metrics to be computed.
+    dry : boolean
+        Do NOT run clusterjobs, just print commands. Default: True
+    use_grid : boolean
+        Use grid engine instead of local execution. Default: True
+
+    Returns
+    -------
+    Dict of Pandas.DataFrame, one per metric."""
+
+    # create a temporary working directory
+    workdir = tempfile.mkdtemp(prefix='ana_beta_')
+
+    # store counts as a biom file
+    pandas2biom(workdir+'/input.biom', counts)
+
+    commands = []
+    commands.append(('beta_diversity.py '
+                     '-i %s '                   # input biom file
+                     '-m %s '                   # list of beta div metrics
+                     '-t %s '                   # tree reference file
+                     '-o %s ') % (
+        workdir+'/input.biom',
+        ",".join(metrics),
+        FILE_REFERENCE_TREE,
+        workdir+'/beta'))
+
+    sys.stderr.write("Working directory is '%s'. " % workdir)
+
+    if not use_grid:
+        if dry:
+            sys.stderr.write("\n\n".join(commands))
+            return None
+        with subprocess.Popen("source activate qiime_env && %s" %
+                              " && ".join(commands),
+                              shell=True,
+                              stdout=subprocess.PIPE) as call_x:
+            if (call_x.wait() != 0):
+                raise ValueError("something went wrong")
+    else:
+        cluster_run(commands, 'ana_beta', workdir+'mock', 'qiime_env',
+                    ppn=1, wait=True, dry=dry)
+
+    results = dict()
+    for metric in metrics:
+        results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
+            workdir+'/beta',
+            metric))
+
+    if results is not None:
         shutil.rmtree(workdir)
         sys.stderr.write("Was removed.\n")
 
