@@ -316,14 +316,17 @@ class TaxPlotTests(TestCase):
                                               filename_diff_image],
                                               stderr=subprocess.STDOUT)
             if res != b'0\n':
-                print("Images differ for '%s'. Check differences in %s." %
-                      (name, filename_diff_image))
-                print('==== start file contents (%s) ====' %
-                      plots[name]['imagefile'])
-                f = open(plots[name]['imagefile'], 'rb')
+                sys.stdout.write(
+                    "Images differ for '%s'. Check differences in %s.\n" %
+                    (name, filename_diff_image))
+                sys.stdout.write('\n==== start file contents (%s) ====\n' %
+                                 plots[name]['imagefile'])
                 sys.stdout.flush()
+                f = open(plots[name]['imagefile'], 'rb')
                 sys.stdout.buffer.write(f.read())
-                print('==== end file contents ====')
+                sys.stdout.flush()
+                sys.stdout.write('\n==== end file contents ====')
+                sys.stdout.flush()
             else:
                 os.remove(filename_diff_image)
 
