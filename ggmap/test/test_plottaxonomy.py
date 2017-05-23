@@ -321,10 +321,7 @@ class TaxPlotTests(TestCase):
                     (name, filename_diff_image))
                 sys.stdout.write('\n==== start file contents (%s) ====\n' %
                                  plots[name]['imagefile'])
-                sys.stdout.flush()
-                f = open(plots[name]['imagefile'], 'rb')
-                sys.stdout.buffer.write(f.read())
-                sys.stdout.flush()
+                subprocess.run(["cat", plots[name]['imagefile']])
                 sys.stdout.write('\n==== end file contents ====')
                 sys.stdout.flush()
             else:
