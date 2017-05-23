@@ -288,6 +288,8 @@ class TaxPlotTests(TestCase):
                                              list_existing=not genBaseline)
 
     def test_regression_plots(self):
+        DIFF_THRESHOLD = 1000
+
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
 
@@ -315,7 +317,7 @@ class TaxPlotTests(TestCase):
                                                ['imagefile'],
                                               filename_diff_image],
                                               stderr=subprocess.STDOUT)
-            if res != b'0\n':
+            if int(res.decode().split('\n')[0]) > DIFF_THRESHOLD:
                 sys.stdout.write(
                     "Images differ for '%s'. Check differences in %s.\n" %
                     (name, filename_diff_image))
@@ -332,7 +334,8 @@ class TaxPlotTests(TestCase):
         for r in testResults:
             self.assertIn(r['name'], self.plots_baseline)
             self.assertIn('imagefile', self.plots_baseline[r['name']])
-            self.assertEqual(r['res'], b'0\n')
+            self.assertTrue(int(r['res'].decode().split('\n')[0])
+                            <= DIFF_THRESHOLD)
 
     def test_parameter_checks(self):
         field = 'notThere'
