@@ -288,7 +288,7 @@ class TaxPlotTests(TestCase):
                                              list_existing=not genBaseline)
 
     def test_regression_plots(self):
-        DIFF_THRESHOLD = 800
+        DIFF_THRESHOLD = 850
 
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
@@ -300,6 +300,8 @@ class TaxPlotTests(TestCase):
             sys.stderr.write(".")
             sys.stderr.flush()
             res = None
+            filename_diff_image = "%s.diff.png" % \
+                self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
             if (name not in self.plots_baseline) or \
                ('imagefile' not in self.plots_baseline[name]):
                 sys.stdout.write(
@@ -308,8 +310,6 @@ class TaxPlotTests(TestCase):
                      "baselinedir variable.") % name)
                 sys.stdout.flush()
             else:
-                filename_diff_image = "%s.diff.png" % \
-                    self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
                 res = subprocess.check_output(["compare", "-metric", "AE",
                                                "-dissimilarity-threshold", "1",
                                                plots[name]['imagefile'],
@@ -324,8 +324,8 @@ class TaxPlotTests(TestCase):
                 cmd = ('echo "==== start file contents (%s)"; '
                        'cat %s | base64; '
                        'echo "=== end file contents ==="') % (
-                    plots[name]['imagefile'],
-                    plots[name]['imagefile'])
+                    filename_diff_image,
+                    filename_diff_image)
                 rescmd = subprocess.check_output(
                     cmd, shell=True).decode().split('\n')
                 for line in rescmd:
