@@ -288,7 +288,7 @@ class TaxPlotTests(TestCase):
                                              list_existing=not genBaseline)
 
     def test_regression_plots(self):
-        DIFF_THRESHOLD = 1000
+        DIFF_THRESHOLD = 800
 
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
@@ -321,7 +321,14 @@ class TaxPlotTests(TestCase):
                 sys.stdout.write(
                     "Images differ for '%s'. Check differences in %s.\n" %
                     (name, filename_diff_image))
-                for line in subprocess.check_output('echo "==== start file contents (%s)"; cat %s | base64; echo "=== end file contents ==="' % (plots[name]['imagefile'], plots[name]['imagefile']), shell=True).decode().split('\n'):
+                cmd = ('echo "==== start file contents (%s)"; '
+                       'cat %s | base64; '
+                       'echo "=== end file contents ==="') % (
+                    plots[name]['imagefile'],
+                    plots[name]['imagefile'])
+                rescmd = subprocess.check_output(
+                    cmd, shell=True).decode().split('\n')
+                for line in rescmd:
                     print(line)
             else:
                 os.remove(filename_diff_image)
