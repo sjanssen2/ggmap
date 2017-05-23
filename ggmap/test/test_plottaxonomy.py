@@ -319,11 +319,8 @@ class TaxPlotTests(TestCase):
                 sys.stdout.write(
                     "Images differ for '%s'. Check differences in %s.\n" %
                     (name, filename_diff_image))
-                sys.stdout.write('\n==== start file contents (%s) ====\n' %
-                                 plots[name]['imagefile'])
-                subprocess.run(["cat", plots[name]['imagefile']])
-                sys.stdout.write('\n==== end file contents ====')
-                sys.stdout.flush()
+                for line in subprocess.check_output('echo "==== start file contents (%s)"; cat %s | base64; echo "=== end file contents ==="' % (plots[name]['imagefile'], plots[name]['imagefile']), shell=True).decode().split('\n'):
+                    print(line)
             else:
                 os.remove(filename_diff_image)
 
