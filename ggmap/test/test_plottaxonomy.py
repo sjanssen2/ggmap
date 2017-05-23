@@ -249,16 +249,18 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'fct_aggregate': np.mean}}
 
     if not list_existing:
-        print("Plotting graphs (%i): " % len(configs), file=sys.stderr,
-              end="", flush=True)
+        sys.stderr.write("Plotting graphs (%i): " % len(configs))
+        sys.stderr.flush()
         for name in configs:
-            print(".", file=sys.stderr, end="", flush=True)
+            sys.stderr.write(".")
+            sys.stderr.flush()
             f = plotTaxonomy(**configs[name]['params'])
             filename = outdir + name + extension
             f[0].savefig(filename)
             configs[name]['imagefile'] = filename
             plt.close(f[0])
-        print(" done.\n", file=sys.stderr, flush=True)
+        sys.stderr.write(" done.\n")
+        sys.stderr.flush()
     else:
         for name in configs:
             filename = outdir + name + extension
@@ -286,22 +288,28 @@ class TaxPlotTests(TestCase):
                                              list_existing=not genBaseline)
 
     def test_regression_plots(self):
+        DIFF_THRESHOLD = 900
+
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
 
-        print("Comparing images (%i): " % len(plots), file=sys.stderr, end="", flush=True)
+        sys.stderr.write("Comparing images (%i): " % len(plots))
+        sys.stderr.flush()
         testResults = []
         for name in plots:
-            print(".", file=sys.stderr, end="", flush=True)
+            sys.stderr.write(".")
+            sys.stderr.flush()
             res = None
+            filename_diff_image = "%s.diff.png" % \
+                self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
             if (name not in self.plots_baseline) or \
                ('imagefile' not in self.plots_baseline[name]):
-                print(("Cannot find baseline plot '%s'. Maybe you need to "
-                       "generate baseline plots first. Or check the self."
-                       "baselinedir variable.") % name, flush=True)
+                sys.stdout.write(
+                    ("Cannot find baseline plot '%s'. Maybe you need to "
+                     "generate baseline plots first. Or check the self."
+                     "baselinedir variable.") % name)
+                sys.stdout.flush()
             else:
-                filename_diff_image = "%s.diff.png" % \
-                    self.plots_baseline[name]['imagefile'].split('.')[:-1][0]
                 res = subprocess.check_output(["compare", "-metric", "AE",
                                                "-dissimilarity-threshold", "1",
                                                plots[name]['imagefile'],
@@ -309,22 +317,32 @@ class TaxPlotTests(TestCase):
                                                ['imagefile'],
                                               filename_diff_image],
                                               stderr=subprocess.STDOUT)
-            if res != b'0\n':
-                print("Images differ for '%s'. Check differences in %s." %
-                      (name, filename_diff_image))
+            if int(res.decode().split('\n')[0]) > DIFF_THRESHOLD:
+                sys.stdout.write(
+                    "Images differ for '%s'. Check differences in %s.\n" %
+                    (name, filename_diff_image))
+                cmd = ('echo "==== start file contents (%s)"; '
+                       'cat %s | base64; '
+                       'echo "=== end file contents ==="') % (
+                    filename_diff_image,
+                    filename_diff_image)
+                rescmd = subprocess.check_output(
+                    cmd, shell=True).decode().split('\n')
+                for line in rescmd:
+                    print(line)
             else:
                 os.remove(filename_diff_image)
 
             testResults.append({'name': name,
                                 'res': res})
-        print(" OK", file=sys.stderr, end="\n", flush=True)
+        sys.stderr.write(" OK")
+        sys.stderr.flush()
 
         for r in testResults:
             self.assertIn(r['name'], self.plots_baseline)
             self.assertIn('imagefile', self.plots_baseline[r['name']])
-            self.assertEqual(r['res'], b'0\n')
-
-
+            self.assertLessEqual(int(r['res'].decode().split('\n')[0]),
+                                 DIFF_THRESHOLD)
 
     def test_parameter_checks(self):
         field = 'notThere'
