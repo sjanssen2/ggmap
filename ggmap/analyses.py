@@ -17,6 +17,13 @@ def _get_ref_phylogeny():
     """Use QIIME config to infer location of reference tree."""
     global FILE_REFERENCE_TREE
     if FILE_REFERENCE_TREE is None:
+        cmd = "source activate qiime_env"
+        print("1:", subprocess.check_output(cmd, shell=True))
+        cmd = "source activate qiime_env && print_qiime_config.py"
+        print("2:", subprocess.check_output(cmd, shell=True))
+        cmd = "source activate qiime_env && print_qiime_config.py | grep 'pick_otus_reference_seqs_fp:'"
+        print("3:", subprocess.check_output(cmd, shell=True))
+
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
                                "| grep 'pick_otus_reference_seqs_fp:'" %
