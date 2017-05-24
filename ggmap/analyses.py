@@ -27,6 +27,7 @@ def _get_ref_phylogeny():
             if (call_x.wait() != 0):
                 print('stderr: %s' % err)
                 print('stdout: %s' % out)
+                print('status: %s' % call_x.wait())
                 raise ValueError("_get_ref_phylogeny(): something went wrong")
 
             # convert from b'' to string
