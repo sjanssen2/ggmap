@@ -18,18 +18,21 @@ def _get_ref_phylogeny():
     global FILE_REFERENCE_TREE
     if FILE_REFERENCE_TREE is None:
         cmd = "source activate qiime_env"
-        print("1:", subprocess.check_output(cmd, shell=True))
+        print("1:", subprocess.check_output(cmd, shell=True, executable="bash"))
+        cmd = "source activate qiime_env"
+        print("1:", subprocess.check_output(cmd, shell=True, executable="bash"))
         cmd = "source activate qiime_env && print_qiime_config.py"
-        print("2:", subprocess.check_output(cmd, shell=True))
+        print("2:", subprocess.check_output(cmd, shell=True, executable="bash"))
         cmd = "source activate qiime_env && print_qiime_config.py | grep 'pick_otus_reference_seqs_fp:'"
-        print("3:", subprocess.check_output(cmd, shell=True))
+        print("3:", subprocess.check_output(cmd, shell=True, executable="bash"))
 
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
                                "| grep 'pick_otus_reference_seqs_fp:'" %
                                QIIME_ENV),
                               shell=True,
-                              stdout=subprocess.PIPE) as call_x:
+                              stdout=subprocess.PIPE,
+                              executable="bash") as call_x:
             out, err = call_x.communicate()
             if (call_x.wait() != 0):
                 print('stderr: %s' % err)
@@ -149,7 +152,8 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
         with subprocess.Popen("source activate %s && %s" %
                               (QIIME_ENV, " && ".join(commands)),
                               shell=True,
-                              stdout=subprocess.PIPE) as call_x:
+                              stdout=subprocess.PIPE,
+                              executable="bash") as call_x:
             if (call_x.wait() != 0):
                 raise ValueError("something went wrong")
     else:
@@ -211,7 +215,8 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True):
         with subprocess.Popen("source activate %s && %s" %
                               (QIIME_ENV, " && ".join(commands)),
                               shell=True,
-                              stdout=subprocess.PIPE) as call_x:
+                              stdout=subprocess.PIPE,
+                              executable="bash") as call_x:
             if (call_x.wait() != 0):
                 raise ValueError("something went wrong")
     else:
