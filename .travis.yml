@@ -21,8 +21,8 @@ before_install:
   - conda update -q conda
   # Useful for debugging any issues with conda
   - conda info -a
-  - conda create -n qiime_env python=2.7 qiime matplotlib=1.4.3 mock nose -c bioconda
 install:
+  - conda create -n qiime_env python=2.7 qiime matplotlib=1.4.3 mock nose -c bioconda
   - conda create -n test_env python=$PYVERSION --file ci/conda_requirements.txt
   - source activate test_env
   - pip install -r ci/pip_requirements.txt
