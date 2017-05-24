@@ -9,7 +9,34 @@ from skbio.stats.distance import DistanceMatrix
 from ggmap.snippets import (pandas2biom, cluster_run)
 
 
-FILE_REFERENCE_TREE = '/projects/emp/03-otus/reference/97_otus.tree'
+FILE_REFERENCE_TREE = None
+QIIME_ENV = 'qiime_env'
+
+
+def _get_ref_phylogeny():
+    """Use QIIME config to infer location of reference tree."""
+    global FILE_REFERENCE_TREE
+    if FILE_REFERENCE_TREE is None:
+        with subprocess.Popen(("source activate %s && "
+                               "print_qiime_config.py "
+                               "| grep 'pick_otus_reference_seqs_fp:'" %
+                               QIIME_ENV),
+                              shell=True,
+                              stdout=subprocess.PIPE) as call_x:
+            if (call_x.wait() != 0):
+                raise ValueError("_get_ref_phylogeny(): something went wrong")
+            out, err = call_x.communicate()
+
+            # convert from b'' to string
+            out = out.decode()
+            # split key:\tvalue
+            out = out.split('\t')[1]
+            # remove trailing \n
+            out = out.rstrip()
+            # chop '/rep_set/97_otus.fasta' from found path
+            out = '/'.join(out.split('/')[:-2])
+            FILE_REFERENCE_TREE = out + '/trees/97_otus.tree'
+    return FILE_REFERENCE_TREE
 
 
 def _parse_alpha(num_iterations, workdir, rarefaction_depth):
@@ -100,7 +127,7 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
         workdir+'/rarefactions',
         workdir+'/alpha_div/',
         ",".join(metrics),
-        FILE_REFERENCE_TREE,
+        _get_ref_phylogeny(),
         num_threads))
 
     sys.stderr.write("Working directory is '%s'. " % workdir)
@@ -109,14 +136,14 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
         if dry:
             sys.stderr.write("\n\n".join(commands))
             return None
-        with subprocess.Popen("source activate qiime_env && %s" %
-                              " && ".join(commands),
+        with subprocess.Popen("source activate %s && %s" %
+                              (QIIME_ENV, " && ".join(commands)),
                               shell=True,
                               stdout=subprocess.PIPE) as call_x:
             if (call_x.wait() != 0):
                 raise ValueError("something went wrong")
     else:
-        cluster_run(commands, 'ana_alpha', workdir+'mock', 'qiime_env',
+        cluster_run(commands, 'ana_alpha', workdir+'mock', QIIME_ENV,
                     ppn=num_threads, wait=True, dry=dry)
 
     results = _parse_alpha(num_iterations, workdir+'/alpha_div/',
@@ -162,7 +189,7 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True):
                      '-o %s ') % (
         workdir+'/input.biom',
         ",".join(metrics),
-        FILE_REFERENCE_TREE,
+        _get_ref_phylogeny(),
         workdir+'/beta'))
 
     sys.stderr.write("Working directory is '%s'. " % workdir)
@@ -171,14 +198,14 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True):
         if dry:
             sys.stderr.write("\n\n".join(commands))
             return None
-        with subprocess.Popen("source activate qiime_env && %s" %
-                              " && ".join(commands),
+        with subprocess.Popen("source activate %s && %s" %
+                              (QIIME_ENV, " && ".join(commands)),
                               shell=True,
                               stdout=subprocess.PIPE) as call_x:
             if (call_x.wait() != 0):
                 raise ValueError("something went wrong")
     else:
-        cluster_run(commands, 'ana_beta', workdir+'mock', 'qiime_env',
+        cluster_run(commands, 'ana_beta', workdir+'mock', QIIME_ENV,
                     ppn=1, wait=True, dry=dry)
 
     results = dict()
