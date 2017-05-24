@@ -23,9 +23,10 @@ def _get_ref_phylogeny():
                                QIIME_ENV),
                               shell=True,
                               stdout=subprocess.PIPE) as call_x:
-            if (call_x.wait() != 0):
-                raise ValueError("_get_ref_phylogeny(): something went wrong")
             out, err = call_x.communicate()
+            if (call_x.wait() != 0):
+                print(err)
+                raise ValueError("_get_ref_phylogeny(): something went wrong")
 
             # convert from b'' to string
             out = out.decode()
