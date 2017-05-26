@@ -197,7 +197,7 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
                        sep='\t', index_label='#SampleID')
 
         # create parameter file
-        f = open(workdir+'params.txt', 'w')
+        f = open(workdir+'/params.txt', 'w')
         f.write('alpha_diversity:metrics %s\n' % ",".join(args['metrics']))
         f.close()
 
@@ -219,7 +219,7 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
             workdir+'/input.biom',
             workdir+'/input.meta.tsv',
             workdir+'/rare/',
-            workdir+'params.txt',
+            workdir+'/params.txt',
             _get_ref_phylogeny(),
             ppn,
             args['counts'].sum().min(),
@@ -246,14 +246,15 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
                             ppn=num_threads,
                             nocache=nocache)
 
-    tmp_imagename = 'tmp.png'
-    imagebuffer.seek(0)
-    f = open(tmp_imagename, 'wb')
-    f.write(imagebuffer.read())
-    f.close()
-    res = _display_image_in_actual_size(tmp_imagename)
-    os.remove(tmp_imagename)
-    return res
+    if dry is not True:
+        tmp_imagename = 'tmp.png'
+        imagebuffer.seek(0)
+        f = open(tmp_imagename, 'wb')
+        f.write(imagebuffer.read())
+        f.close()
+        res = _display_image_in_actual_size(tmp_imagename)
+        os.remove(tmp_imagename)
+        return res
 
 
 def alpha_diversity(counts, metrics, rarefaction_depth,
