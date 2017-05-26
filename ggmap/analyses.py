@@ -5,6 +5,8 @@ import sys
 import operator
 import hashlib
 import os
+import pickle
+import io
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -74,16 +76,28 @@ def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     return result
 
 
-def _plot_collateRarefaction(workdir, metadata, metrics, counts):
+def _plot_collateRarefaction(workdir, metrics, counts):
     size = 10
-    fig = plt.figure(figsize=(metadata.shape[1] * size,
+
+    # determine available metadata columns
+    plot_files = os.listdir('%s/rare/alpha_rarefaction_plots/average_plots/' %
+                            workdir)
+    fields = []
+    for file in plot_files:
+        for metric in metrics:
+            if file.startswith(metric):
+                file = file[len(metric):-4]
+                fields.append(file)
+    fields = list(set(fields))
+
+    fig = plt.figure(figsize=(len(fields) * size,
                               (len(metrics)+1) * size))
-    gs = gridspec.GridSpec(len(metrics)+1, metadata.shape[1])
+    gs = gridspec.GridSpec(len(metrics)+1, len(fields))
     _plot_loosing_curve(counts, plt.subplot(gs[0, 0]), plt.subplot(gs[0, 1]))
 
     # compose one huge chart out of all individual rarefaction plots
     for row, metric in enumerate(metrics):
-        for col, field in enumerate(metadata.columns):
+        for col, field in enumerate(fields):
             ax = plt.subplot(gs[row+1, col])
             img = mpimg.imread(
                 '%s/rare/alpha_rarefaction_plots/average_plots/%s%s.png' %
@@ -92,7 +106,9 @@ def _plot_collateRarefaction(workdir, metadata, metrics, counts):
             ax.get_yaxis().set_visible(False)
             plt.imshow(img, aspect='auto')
 
-    return fig
+    buf = io.BytesIO()
+    fig.savefig(buf)
+    return buf
 
 
 def _plot_loosing_curve(counts, ax1, ax2):
@@ -130,7 +146,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
         FuncFormatter(lambda x, p: format(int(x), ',')))
 
 
-def display_image_in_actual_size(filename):
+def _display_image_in_actual_size(filename):
     # from https://stackoverflow.com/questions/28816046/displaying-different-
     #    images-with-actual-size-in-matplotlib-subplot
     dpi = 80
@@ -155,90 +171,85 @@ def display_image_in_actual_size(filename):
 
 
 def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
-                       dry=True, use_grid=True):
-    # caching
-    file_cache = ".anacache/%s.rare.png" % hashlib.md5(
-        str([counts, metadata, metrics, num_steps]).encode()).hexdigest()
-    if os.path.exists(file_cache):
-        return display_image_in_actual_size(file_cache)
+                       dry=True, use_grid=True, nocache=False):
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
 
-    # create a temporary working directory
-    workdir = tempfile.mkdtemp(prefix='ana_rare_')
+        # determine those 5 fields in the metadata information that have highes
+        # variability
+        var = dict()
+        for field in args['metadata'].columns:
+            var[field] = len(args['metadata'][field].unique())
+        top_var_fields = [field[0]
+                          for field
+                          in sorted(var.items(), key=operator.itemgetter(1),
+                                    reverse=True)[:5]]
+        # store top 5 variable fields of metadata as csv file
+        metatop = args['metadata'].loc[:, top_var_fields]
+        metatop.to_csv(workdir+'/input.meta.tsv',
+                       sep='\t', index_label='#SampleID')
 
-    # store counts as a biom file
-    pandas2biom(workdir+'/input.biom', counts)
+        # create parameter file
+        f = open(workdir+'params.txt', 'w')
+        f.write('alpha_diversity:metrics %s\n' % ",".join(args['metrics']))
+        f.close()
 
-    # determine those 5 fields in the metadata information that have highes
-    # variability
-    var = dict()
-    for field in metadata.columns:
-        var[field] = len(metadata[field].unique())
-    top_var_fields = [field[0]
-                      for field
-                      in sorted(var.items(), key=operator.itemgetter(1),
-                                reverse=True)[:5]]
-    # store top 5 variable fields of metadata as csv file
-    metatop = metadata.loc[:, top_var_fields]
-    metatop.to_csv(workdir+'/input.meta.tsv',
-                   sep='\t', index_label='#SampleID')
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append(('xvfb-run alpha_rarefaction.py '
+                         '-i %s '                # input biom file
+                         '-m %s '                # input metadata file
+                         '-o %s '                # output directory
+                         '-p %s '                # input parameter file
+                         '-a '                   # run in parallel
+                         '-t %s '                # tree reference file
+                         '-O %i '                # number parallel jobs
+                         '--min_rare_depth=%i '  # minimal rarefaction depth
+                         '--max_rare_depth=%i '  # maximal rarefaction depth
+                         '--num_steps=%i') % (   # number steps between min max
+            workdir+'/input.biom',
+            workdir+'/input.meta.tsv',
+            workdir+'/rare/',
+            workdir+'params.txt',
+            _get_ref_phylogeny(),
+            ppn,
+            args['counts'].sum().min(),
+            args['counts'].sum().describe()['75%'],
+            args['num_steps']))
+        return commands
 
-    # create parameter file
-    f = open(workdir+'params.txt', 'w')
-    f.write('alpha_diversity:metrics %s\n' % ",".join(metrics))
+    def post_execute(workdir, args):
+        return _plot_collateRarefaction(workdir,
+                                        args['metrics'],
+                                        args['counts'])
+
+    imagebuffer = _executor('rare',
+                            {'counts': counts,
+                             'metadata': metadata,
+                             'metrics': metrics,
+                             'num_steps': num_steps},
+                            pre_execute,
+                            commands,
+                            post_execute,
+                            dry=dry,
+                            use_grid=use_grid,
+                            ppn=num_threads,
+                            nocache=nocache)
+
+    tmp_imagename = 'tmp.png'
+    imagebuffer.seek(0)
+    f = open(tmp_imagename, 'wb')
+    f.write(imagebuffer.read())
     f.close()
-
-    commands = []
-    commands.append(('xvfb-run alpha_rarefaction.py '
-                     '-i %s '                # input biom file
-                     '-m %s '                # input metadata file
-                     '-o %s '                # output directory
-                     '-p %s '                # input parameter file
-                     '-a '                   # run in parallel
-                     '-t %s '                # tree reference file
-                     '-O %i '                # number parallel jobs
-                     '--min_rare_depth=%i '  # minimal rarefaction depth
-                     '--max_rare_depth=%i '  # maximal rarefaction depth
-                     '--num_steps=%i') % (   # number steps between min max
-        workdir+'/input.biom',
-        workdir+'/input.meta.tsv',
-        workdir+'/rare/',
-        workdir+'params.txt',
-        _get_ref_phylogeny(),
-        num_threads,
-        counts.sum().min(),
-        counts.sum().describe()['75%'],
-        num_steps))
-
-    sys.stderr.write("Working directory is '%s'. " % workdir)
-
-    if not use_grid:
-        if dry:
-            sys.stderr.write("\n\n".join(commands))
-            return None
-        with subprocess.Popen("source activate %s && %s" %
-                              (QIIME_ENV, " && ".join(commands)),
-                              shell=True,
-                              stdout=subprocess.PIPE,
-                              executable="bash") as call_x:
-            if (call_x.wait() != 0):
-                raise ValueError("something went wrong")
-    else:
-        cluster_run(commands, 'ana_rare', workdir+'mock', QIIME_ENV,
-                    ppn=num_threads, wait=True, dry=dry)
-
-    results = _plot_collateRarefaction(workdir, metatop, metrics, counts)
-    if results is not None:
-        shutil.rmtree(workdir)
-        sys.stderr.write("Was removed.\n")
-
-    os.makedirs(os.path.dirname(file_cache), exist_ok=True)
-    results.savefig(file_cache)
-    return display_image_in_actual_size(file_cache)
+    res = _display_image_in_actual_size(tmp_imagename)
+    os.remove(tmp_imagename)
+    return res
 
 
 def alpha_diversity(counts, metrics, rarefaction_depth,
                     num_threads=10, num_iterations=10, dry=True,
-                    use_grid=True):
+                    use_grid=True, nocache=False):
     """Computes alpha diversity values for given BIOM table.
 
     Paramaters
@@ -263,77 +274,71 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
-    # create a temporary working directory
-    workdir = tempfile.mkdtemp(prefix='ana_alpha_')
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
 
-    # store counts as a biom file
-    pandas2biom(workdir+'/input.biom', counts)
+        # create a mock metadata file
+        metadata = pd.DataFrame(index=args['counts'].columns)
+        metadata.index.name = '#SampleID'
+        metadata['mock'] = 'foo'
+        metadata.to_csv(workdir+'/metadata.tsv', sep='\t')
 
-    # create a mock metadata file
-    metadata = pd.DataFrame(index=counts.columns)
-    metadata.index.name = '#SampleID'
-    metadata['mock'] = 'foo'
-    metadata.to_csv(workdir+'/metadata.tsv', sep='\t')
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append(('parallel_multiple_rarefactions.py '
+                         '-T '                       # direct polling
+                         '-i %s '                    # input biom file
+                         '-m %i '                    # min rarefaction depth
+                         '-x %i '                    # max rarefaction depth
+                         '-s 1 '                     # depth steps
+                         '-o %s '                    # output directory
+                         '-n %i '                 # number iterations per depth
+                         '--jobs_to_start %i') % (   # number parallel jobs
+            workdir+'/input.biom',
+            args['rarefaction_depth'],
+            args['rarefaction_depth'],
+            workdir+'/rarefactions',
+            args['num_iterations'],
+            ppn))
 
-    commands = []
-    commands.append(('parallel_multiple_rarefactions.py '
-                     '-T '                       # direct polling
-                     '-i %s '                    # input biom file
-                     '-m %i '                    # min rarefaction depth
-                     '-x %i '                    # max rarefaction depth
-                     '-s 1 '                     # depth steps
-                     '-o %s '                    # output directory
-                     '-n %i '                    # number iterations per depth
-                     '--jobs_to_start %i') % (   # number parallel jobs
-        workdir+'/input.biom',
-        rarefaction_depth,
-        rarefaction_depth,
-        workdir+'/rarefactions',
-        num_iterations,
-        num_threads))
+        commands.append(('parallel_alpha_diversity.py '
+                         '-T '                      # direct polling
+                         '-i %s '                   # dir to rarefied tables
+                         '-o %s '                   # output directory
+                         '--metrics %s '            # list of alpha div metrics
+                         '-t %s '                   # tree reference file
+                         '--jobs_to_start %i') % (  # number parallel jobs
+            workdir+'/rarefactions',
+            workdir+'/alpha_div/',
+            ",".join(args['metrics']),
+            _get_ref_phylogeny(),
+            ppn))
+        return commands
 
-    commands.append(('parallel_alpha_diversity.py '
-                     '-T '                      # direct polling
-                     '-i %s '                   # dir to rarefied tables
-                     '-o %s '                   # output directory
-                     '--metrics %s '            # list of alpha div metrics
-                     '-t %s '                   # tree reference file
-                     '--jobs_to_start %i') % (  # number parallel jobs
-        workdir+'/rarefactions',
-        workdir+'/alpha_div/',
-        ",".join(metrics),
-        _get_ref_phylogeny(),
-        num_threads))
+    def post_execute(workdir, args):
+        res = _parse_alpha(args['num_iterations'],
+                           workdir+'/alpha_div/',
+                           args['rarefaction_depth'])
+        if res is not None:
+            res.index.name = args['counts'].index.name
+        return res
 
-    sys.stderr.write("Working directory is '%s'. " % workdir)
-
-    if not use_grid:
-        if dry:
-            sys.stderr.write("\n\n".join(commands))
-            return None
-        with subprocess.Popen("source activate %s && %s" %
-                              (QIIME_ENV, " && ".join(commands)),
-                              shell=True,
-                              stdout=subprocess.PIPE,
-                              executable="bash") as call_x:
-            if (call_x.wait() != 0):
-                raise ValueError("something went wrong")
-    else:
-        cluster_run(commands, 'ana_alpha', workdir+'mock', QIIME_ENV,
-                    ppn=num_threads, wait=True, dry=dry)
-
-    results = _parse_alpha(num_iterations, workdir+'/alpha_div/',
-                           rarefaction_depth)
-
-    if results is not None:
-        results.index.name = counts.index.name
-        shutil.rmtree(workdir)
-        sys.stderr.write("Was removed.\n")
-
-    return results
+    return _executor('adiv',
+                     {'counts': counts,
+                      'metrics': metrics,
+                      'rarefaction_depth': rarefaction_depth,
+                      'num_iterations': num_iterations},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     dry=dry,
+                     use_grid=use_grid,
+                     ppn=num_threads,
+                     nocache=nocache)
 
 
-def beta_diversity(counts, metrics, dry=True, use_grid=True):
+def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -351,48 +356,90 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True):
     -------
     Dict of Pandas.DataFrame, one per metric."""
 
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
+
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append(('beta_diversity.py '
+                         '-i %s '                   # input biom file
+                         '-m %s '                   # list of beta div metrics
+                         '-t %s '                   # tree reference file
+                         '-o %s ') % (
+            workdir+'/input.biom',
+            ",".join(args['metrics']),
+            _get_ref_phylogeny(),
+            workdir+'/beta'))
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        for metric in args['metrics']:
+            results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
+                workdir+'/beta',
+                metric))
+        return results
+
+    return _executor('bdiv',
+                     {'counts': counts,
+                      'metrics': metrics},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     dry=dry,
+                     use_grid=use_grid,
+                     ppn=1,
+                     nocache=nocache)
+
+
+def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
+              dry=True, use_grid=True, ppn=10, nocache=False):
+    # caching
+    file_cache = ".anacache/%s.%s" % (hashlib.md5(
+        str(cache_arguments).encode()).hexdigest(), jobname)
+
+    if os.path.exists(file_cache) and (nocache is not True):
+        sys.stderr.write("Using existing results from '%s'. " % file_cache)
+        f = open(file_cache, 'rb')
+        results = pickle.load(f)
+        f.close()
+        return results
+
     # create a temporary working directory
-    workdir = tempfile.mkdtemp(prefix='ana_beta_')
-
-    # store counts as a biom file
-    pandas2biom(workdir+'/input.biom', counts)
-
-    commands = []
-    commands.append(('beta_diversity.py '
-                     '-i %s '                   # input biom file
-                     '-m %s '                   # list of beta div metrics
-                     '-t %s '                   # tree reference file
-                     '-o %s ') % (
-        workdir+'/input.biom',
-        ",".join(metrics),
-        _get_ref_phylogeny(),
-        workdir+'/beta'))
-
+    workdir = tempfile.mkdtemp(prefix='ana_%s_' % jobname,
+                               dir='/home/sjanssen/TMP/')
     sys.stderr.write("Working directory is '%s'. " % workdir)
 
+    pre_execute(workdir, cache_arguments)
+
+    lst_commands = commands(workdir, ppn, cache_arguments)
     if not use_grid:
         if dry:
-            sys.stderr.write("\n\n".join(commands))
+            sys.stderr.write("\n\n".join(lst_commands))
             return None
         with subprocess.Popen("source activate %s && %s" %
-                              (QIIME_ENV, " && ".join(commands)),
+                              (QIIME_ENV, " && ".join(lst_commands)),
                               shell=True,
                               stdout=subprocess.PIPE,
                               executable="bash") as call_x:
             if (call_x.wait() != 0):
                 raise ValueError("something went wrong")
     else:
-        cluster_run(commands, 'ana_beta', workdir+'mock', QIIME_ENV,
-                    ppn=1, wait=True, dry=dry)
+        cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
+                    QIIME_ENV, ppn=ppn, wait=True, dry=dry)
+        if dry:
+            return None
 
-    results = dict()
-    for metric in metrics:
-        results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
-            workdir+'/beta',
-            metric))
+    results = post_execute(workdir, cache_arguments)
 
     if results is not None:
         shutil.rmtree(workdir)
         sys.stderr.write("Was removed.\n")
+
+    os.makedirs(os.path.dirname(file_cache), exist_ok=True)
+    f = open(file_cache, 'wb')
+    pickle.dump(results, f)
+    f.close()
 
     return results
