@@ -31,6 +31,17 @@ FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
 
 
+def _zoom(pos, factor):
+    """ Zooms in or out of a plt figure. """
+    x0 = pos.x0 + pos.width * (1-factor)
+    y0 = pos.y0 + pos.height * (1-factor)
+    x1 = pos.x1 - pos.width * (1-factor)
+    y1 = pos.y1 - pos.height * (1-factor)
+    width = x1 - x0
+    height = y1 - y0
+    return [x0, y0, width, height]
+
+
 def _get_ref_phylogeny():
     """Use QIIME config to infer location of reference tree."""
     global FILE_REFERENCE_TREE
@@ -85,7 +96,8 @@ def _plot_collateRarefaction(workdir, metrics, counts, metadata):
 
     fig = plt.figure(figsize=(metadata.shape[1] * size,
                               (len(metrics)+1) * size))
-    gs = gridspec.GridSpec(len(metrics)+1, metadata.shape[1])
+    gs = gridspec.GridSpec(len(metrics)+1, metadata.shape[1],
+                           wspace=0, hspace=0)
     _plot_loosing_curve(counts, plt.subplot(gs[0, 0]), plt.subplot(gs[0, 1]))
 
     # compose one huge chart out of all individual rarefaction plots
@@ -100,7 +112,7 @@ def _plot_collateRarefaction(workdir, metrics, counts, metadata):
             plt.imshow(img, aspect='auto')
 
     buf = io.BytesIO()
-    fig.savefig(buf)
+    fig.savefig(buf, bbox_inches='tight', pad_inches=0)
     return buf
 
 
@@ -115,6 +127,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     x.index.name = 'readcounts'
 
     # loosing samples
+    ax1.set_position(_zoom(ax1.get_position(), 0.9))
     plt.sca(ax1)
     plt.plot(x.index, x['remaining'], label='remaining')
     plt.plot(x.index, x['lost'], label='lost')
@@ -129,6 +142,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     #p = ax.set_xscale("log", nonposx='clip')
 
     # read count histogram
+    ax2.set_position(_zoom(ax2.get_position(), 0.9))
     plt.sca(ax2)
     sns.distplot(reads_per_sample, kde=False)
     ax2.set_title('Read count distribution across samples')
