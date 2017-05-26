@@ -1,5 +1,3 @@
-# TODO: squb scheint nicht zu warten
-
 import tempfile
 import shutil
 import subprocess
