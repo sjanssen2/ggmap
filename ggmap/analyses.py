@@ -1,3 +1,6 @@
+# TODO: cache funktioniert nicht bei rare
+# TODO: squb scheint nicht zu warten
+
 import tempfile
 import shutil
 import subprocess
@@ -399,6 +402,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     file_cache = ".anacache/%s.%s" % (hashlib.md5(
         str(cache_arguments).encode()).hexdigest(), jobname)
 
+    sys.stderr.write("\nCache present: " + str(os.path.exists(file_cache)))
+    sys.stderr.write("\nCache off: " + str(nocache is not True))
+    sys.stderr.write("\nCache filename: %s\n" % file_cache)
+
     if os.path.exists(file_cache) and (nocache is not True):
         sys.stderr.write("Using existing results from '%s'. " % file_cache)
         f = open(file_cache, 'rb')
@@ -407,8 +414,12 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         return results
 
     # create a temporary working directory
-    workdir = tempfile.mkdtemp(prefix='ana_%s_' % jobname,
-                               dir='/home/sjanssen/TMP/')
+    prefix = 'ana_%s_' % jobname
+    workdir = None
+    if use_grid:
+        workdir = tempfile.mkdtemp(prefix=prefix, dir='/home/sjanssen/TMP/')
+    else:
+        workdir = tempfile.mkdtemp(prefix=prefix)
     sys.stderr.write("Working directory is '%s'. " % workdir)
 
     pre_execute(workdir, cache_arguments)
