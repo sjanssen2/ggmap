@@ -1,5 +1,4 @@
 # TODO: squb scheint nicht zu warten
-# TODO: zu viel Rand bei rare plots
 
 import tempfile
 import shutil
@@ -156,7 +155,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
 def _display_image_in_actual_size(filename):
     # from https://stackoverflow.com/questions/28816046/displaying-different-
     #    images-with-actual-size-in-matplotlib-subplot
-    dpi = 80
+    dpi = 70
     im_data = plt.imread(filename)
     height, width, depth = im_data.shape
 
