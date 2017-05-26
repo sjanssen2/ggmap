@@ -1,5 +1,5 @@
-# TODO: cache funktioniert nicht bei rare
 # TODO: squb scheint nicht zu warten
+# TODO: zu viel Rand bei rare plots
 
 import tempfile
 import shutil
@@ -10,6 +10,7 @@ import hashlib
 import os
 import pickle
 import io
+import collections
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -79,28 +80,17 @@ def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     return result
 
 
-def _plot_collateRarefaction(workdir, metrics, counts):
+def _plot_collateRarefaction(workdir, metrics, counts, metadata):
     size = 10
 
-    # determine available metadata columns
-    plot_files = os.listdir('%s/rare/alpha_rarefaction_plots/average_plots/' %
-                            workdir)
-    fields = []
-    for file in plot_files:
-        for metric in metrics:
-            if file.startswith(metric):
-                file = file[len(metric):-4]
-                fields.append(file)
-    fields = list(set(fields))
-
-    fig = plt.figure(figsize=(len(fields) * size,
+    fig = plt.figure(figsize=(metadata.shape[1] * size,
                               (len(metrics)+1) * size))
-    gs = gridspec.GridSpec(len(metrics)+1, len(fields))
+    gs = gridspec.GridSpec(len(metrics)+1, metadata.shape[1])
     _plot_loosing_curve(counts, plt.subplot(gs[0, 0]), plt.subplot(gs[0, 1]))
 
     # compose one huge chart out of all individual rarefaction plots
     for row, metric in enumerate(metrics):
-        for col, field in enumerate(fields):
+        for col, field in enumerate(metadata.columns):
             ax = plt.subplot(gs[row+1, col])
             img = mpimg.imread(
                 '%s/rare/alpha_rarefaction_plots/average_plots/%s%s.png' %
@@ -198,6 +188,8 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
         f.write('alpha_diversity:metrics %s\n' % ",".join(args['metrics']))
         f.close()
 
+        return {'metatop': metatop}
+
     def commands(workdir, ppn, args):
         commands = []
         commands.append(('xvfb-run alpha_rarefaction.py '
@@ -222,10 +214,11 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
             args['num_steps']))
         return commands
 
-    def post_execute(workdir, args):
+    def post_execute(workdir, args, pre_data):
         return _plot_collateRarefaction(workdir,
                                         args['metrics'],
-                                        args['counts'])
+                                        args['counts'],
+                                        pre_data['metatop'])
 
     imagebuffer = _executor('rare',
                             {'counts': counts,
@@ -319,7 +312,7 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
             ppn))
         return commands
 
-    def post_execute(workdir, args):
+    def post_execute(workdir, args, pre_data):
         res = _parse_alpha(args['num_iterations'],
                            workdir+'/alpha_div/',
                            args['rarefaction_depth'])
@@ -376,7 +369,7 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
             workdir+'/beta'))
         return commands
 
-    def post_execute(workdir, args):
+    def post_execute(workdir, args, pre_data):
         results = dict()
         for metric in args['metrics']:
             results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
@@ -399,12 +392,9 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               dry=True, use_grid=True, ppn=10, nocache=False):
     # caching
+    _input = collections.OrderedDict(sorted(cache_arguments.items()))
     file_cache = ".anacache/%s.%s" % (hashlib.md5(
-        str(cache_arguments).encode()).hexdigest(), jobname)
-
-    sys.stderr.write("\nCache present: " + str(os.path.exists(file_cache)))
-    sys.stderr.write("\nCache off: " + str(nocache is not True))
-    sys.stderr.write("\nCache filename: %s\n" % file_cache)
+        str(_input).encode()).hexdigest(), jobname)
 
     if os.path.exists(file_cache) and (nocache is not True):
         sys.stderr.write("Using existing results from '%s'. " % file_cache)
@@ -422,7 +412,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         workdir = tempfile.mkdtemp(prefix=prefix)
     sys.stderr.write("Working directory is '%s'. " % workdir)
 
-    pre_execute(workdir, cache_arguments)
+    pre_data = pre_execute(workdir, cache_arguments)
 
     lst_commands = commands(workdir, ppn, cache_arguments)
     if not use_grid:
@@ -442,7 +432,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if dry:
             return None
 
-    results = post_execute(workdir, cache_arguments)
+    results = post_execute(workdir, cache_arguments, pre_data)
 
     if results is not None:
         shutil.rmtree(workdir)
