@@ -11,6 +11,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import subprocess
 import sys
+import time
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -554,7 +555,7 @@ def plotTaxonomy(file_otutable,
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                qsub='/opt/torque-4.2.8/bin/qsub', dry=True, wait=False):
+                gebin='/opt/torque-4.2.8/bin', dry=True, wait=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -579,8 +580,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         Format 'xGB'. Memory requirement per ppn for the job, e.g. if ppn=10
         and pmem=8GB the node must have at least 80GB free memory.
         Default: '8GB'.
-    qsub : path
-        Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
+    gebin : path
+        Path to the dir holding SGE binaries.
+        Default: /opt/torque-4.2.8/bin
     dry : bool
         Only print command instead of executing it. Good for debugging.
         Default = True
@@ -602,8 +604,6 @@ def cluster_run(cmds, jobname, result, environment=None,
     if len(jobname) <= 1:
         raise ValueError("You need to set non empty jobname!")
 
-    wait = 'y' if wait else 'n'
-
     if not isinstance(cmds, list):
         cmds = [cmds]
     for cmd in cmds:
@@ -614,9 +614,9 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     # compose qsub specific details
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
-    ge_cmd = (("%s -d '%s' -V -l "
-               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N cr_%s -sync %s") %
-              (qsub, pwd, walltime, nodes, ppn, pmem, jobname, wait))
+    ge_cmd = (("%s/qsub -d '%s' -V -l "
+               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N cr_%s") %
+              (gebin, pwd, walltime, nodes, ppn, pmem, jobname))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
@@ -634,7 +634,19 @@ def cluster_run(cmds, jobname, result, environment=None,
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
-            sys.stderr.write("Now wait until %s job finishes.\n" % qid)
+            if wait:
+                sys.stderr.write(
+                    "\nWaiting for cluster job %s to complete: " % qid)
+                while True:
+                    poll_status = subprocess.call("%s/qstat %s" % (gebin, qid),
+                                                  shell=True)
+                    if (poll_status != 0):
+                        sys.stderr.write(' finished.')
+                        break
+                    sys.stderr.write('.')
+                    time.sleep(10)
+            else:
+                sys.stderr.write("Now wait until %s job finishes.\n" % qid)
             return qid
     else:
         print(full_cmd)
