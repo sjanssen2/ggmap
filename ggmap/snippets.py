@@ -11,6 +11,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import subprocess
 import sys
+from itertools import combinations
+from skbio.stats.distance import permanova
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -635,3 +637,68 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         print(full_cmd)
         return None
+
+
+def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
+                          num_permutations=999):
+    """Given metadata field, test for sig. group differences in beta distances.
+
+    Parameters
+    ----------
+    beta_dm : skbio.stats.distance._base.DistanceMatrix
+        The beta diversity distance matrix for the samples
+    metric_name : str
+        Please provide the metric name used to create beta_dm. This is only
+        for visualization purposes.
+    groupings : pandas.core.series.Series
+        A group label per sample.
+    min_group_size : int
+        A minimal group size to be considered. Smaller group labels will be
+        ignored. Default: 5.
+    num_permutations : int
+        Number of permutations to use for permanova test.
+
+    Returns
+    -------
+    dict with following keys:
+        network :          a dict of dicts to list for every pair of group
+                           labels its 'p-value' and 'avgdist'
+        n_per_group :      a pandas.core.series.Series reporting the remaining
+                           number of samples per group
+        min_group_size :   passes min_group_size
+        num_permutations : passes num_permutations
+        metric_name :      passes metric_name
+    """
+
+    # remove samples whose grouping in NaN
+    groupings = groupings.dropna()
+
+    # remove samples not in the distance matrix
+    groupings = groupings.loc[list(beta_dm.ids)]
+
+    # remove groups with less than minNum samples per group
+    groups = [name
+              for name, counts
+              in groupings.value_counts().iteritems()
+              if counts >= min_group_size]
+
+    network = dict()
+    for a, b in combinations(groups, 2):
+        group = groupings[groupings.isin([a, b])]
+        group_dm = beta_dm.filter(group.index)
+        res = permanova(group_dm, group, permutations=num_permutations)
+
+        if a not in network:
+            network[a] = dict()
+        network[a][b] = {'p-value': res["p-value"],
+                         'avgdist':
+                         np.mean([group_dm[x, y]
+                                  for x in group[group == a].index
+                                  for y in group[group == b].index])}
+
+    ns = groupings.value_counts()
+    return ({'network': network,
+             'n_per_group': ns[ns.index.isin(groups)],
+             'min_group_size': min_group_size,
+             'num_permutations': num_permutations,
+             'metric_name': metric_name})
