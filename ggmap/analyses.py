@@ -18,7 +18,7 @@ import matplotlib.gridspec as gridspec
 from skbio.stats.distance import DistanceMatrix
 import seaborn as sns
 
-from ggmap.snippets import (pandas2biom, cluster_run)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
 
 
 plt.switch_backend('Agg')
@@ -39,9 +39,12 @@ def _zoom(pos, factor):
     return [x0, y0, width, height]
 
 
-def _get_ref_phylogeny():
-    """Use QIIME config to infer location of reference tree."""
+def _get_ref_phylogeny(file_tree=None):
+    """Use QIIME config to infer location of reference tree or pass given tree.
+    """
     global FILE_REFERENCE_TREE
+    if file_tree is not None:
+        return file_tree
     if FILE_REFERENCE_TREE is None:
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
@@ -174,8 +177,11 @@ def _display_image_in_actual_size(filename):
     return fig
 
 
-def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
-                       dry=True, use_grid=True, nocache=False):
+def rarefaction_curves(counts, metadata,
+                       metrics=["PD_whole_tree", "shannon", "observed_otus"],
+                       num_steps=20, num_threads=10,
+                       dry=True, use_grid=True, nocache=False,
+                       reference_tree=None, max_depth=None, workdir=None):
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
@@ -202,6 +208,9 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
         return {'metatop': metatop}
 
     def commands(workdir, ppn, args):
+        max_rare_depth = args['counts'].sum().describe()['75%']
+        if args['max_depth'] is not None:
+            max_rare_depth = args['max_depth']
         commands = []
         commands.append(('xvfb-run alpha_rarefaction.py '
                          '-i %s '                # input biom file
@@ -218,10 +227,10 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
             workdir+'/input.meta.tsv',
             workdir+'/rare/',
             workdir+'/params.txt',
-            _get_ref_phylogeny(),
+            _get_ref_phylogeny(reference_tree),
             ppn,
             args['counts'].sum().min(),
-            args['counts'].sum().describe()['75%'],
+            max_rare_depth,  # args['counts'].sum().describe()['75%'],
             args['num_steps']))
         return commands
 
@@ -235,14 +244,16 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
                             {'counts': counts,
                              'metadata': metadata,
                              'metrics': metrics,
-                             'num_steps': num_steps},
+                             'num_steps': num_steps,
+                             'max_depth': max_depth},
                             pre_execute,
                             commands,
                             post_execute,
                             dry=dry,
                             use_grid=use_grid,
                             ppn=num_threads,
-                            nocache=nocache)
+                            nocache=nocache,
+                            workdir=workdir)
 
     if dry is not True:
         tmp_imagename = 'tmp.png'
@@ -255,19 +266,82 @@ def rarefaction_curves(counts, metadata, metrics, num_steps=20, num_threads=10,
         return res
 
 
-def alpha_diversity(counts, metrics, rarefaction_depth,
+def rarefy(counts, rarefaction_depth,
+           dry=True, use_grid=True, nocache=False, workdir=None):
+    """Rarefies a given OTU table to a given depth. This depth should be
+       determined by looking at rarefaction curves.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    rarefaction_depth : int
+        Rarefaction depth that must be applied to counts.
+    dry : boolean
+        Do NOT run clusterjobs, just print commands. Default: True
+    use_grid : boolean
+        Use grid engine instead of local execution. Default: True
+    nocache : boolean
+        Don't use cache to retrieve results for previously computed inputs.
+    workdir : str
+        Path to the working dir of an unfinished previous computation.
+
+    Returns
+    -------
+    Pandas.DataFrame: Rarefied OTU table."""
+
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
+
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append(('multiple_rarefactions.py '
+                         '-i %s '                    # input biom file
+                         '-m %i '                    # min rarefaction depth
+                         '-x %i '                    # max rarefaction depth
+                         '-s 1 '                     # depth steps
+                         '-o %s '                    # output directory
+                         '-n 1 '                  # number iterations per depth
+                         ) % (   # number parallel jobs
+            workdir+'/input.biom',
+            args['rarefaction_depth'],
+            args['rarefaction_depth'],
+            workdir+'/rarefactions'))
+
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        return biom2pandas(workdir+'/rarefactions/rarefaction_%i_0.biom' %
+                           args['rarefaction_depth'])
+
+    return _executor('rarefy',
+                     {'counts': counts,
+                      'rarefaction_depth': rarefaction_depth},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     dry=dry,
+                     use_grid=use_grid,
+                     ppn=1,
+                     nocache=nocache)
+
+
+def alpha_diversity(counts, rarefaction_depth,
+                    metrics=["PD_whole_tree", "shannon", "observed_otus"],
                     num_threads=10, num_iterations=10, dry=True,
-                    use_grid=True, nocache=False):
+                    use_grid=True, nocache=False, workdir=None,
+                    reference_tree=None):
     """Computes alpha diversity values for given BIOM table.
 
     Paramaters
     ----------
     counts : Pandas.DataFrame
         OTU counts
-    metrics : [str]
-        Alpha diversity metrics to be computed.
     rarefaction_depth : int
         Rarefaction depth that must be applied to counts.
+    metrics : [str]
+        Alpha diversity metrics to be computed.
     num_threads : int
         Number of parallel threads. Default: 10.
     num_iterations : int
@@ -276,6 +350,8 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
         Do NOT run clusterjobs, just print commands. Default: True
     use_grid : boolean
         Use grid engine instead of local execution. Default: True
+    reference_tree : str
+        Reference tree file name for phylogenetic metics like unifrac.
 
     Returns
     -------
@@ -320,7 +396,7 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
             workdir+'/rarefactions',
             workdir+'/alpha_div/',
             ",".join(args['metrics']),
-            _get_ref_phylogeny(),
+            _get_ref_phylogeny(args['reference_tree']),
             ppn))
         return commands
 
@@ -336,17 +412,24 @@ def alpha_diversity(counts, metrics, rarefaction_depth,
                      {'counts': counts,
                       'metrics': metrics,
                       'rarefaction_depth': rarefaction_depth,
-                      'num_iterations': num_iterations},
+                      'num_iterations': num_iterations,
+                      'reference_tree': reference_tree},
                      pre_execute,
                      commands,
                      post_execute,
                      dry=dry,
                      use_grid=use_grid,
                      ppn=num_threads,
-                     nocache=nocache)
+                     nocache=nocache,
+                     workdir=workdir)
 
 
-def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
+def beta_diversity(counts,
+                   metrics=["unweighted_unifrac",
+                            "weighted_unifrac",
+                            "bray_curtis"],
+                   dry=True, use_grid=True, nocache=False,
+                   reference_tree=None):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -359,6 +442,8 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
         Do NOT run clusterjobs, just print commands. Default: True
     use_grid : boolean
         Use grid engine instead of local execution. Default: True
+    reference_tree : str
+        Reference tree file name for phylogenetic metics like unifrac.
 
     Returns
     -------
@@ -377,7 +462,7 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
                          '-o %s ') % (
             workdir+'/input.biom',
             ",".join(args['metrics']),
-            _get_ref_phylogeny(),
+            _get_ref_phylogeny(reference_tree),
             workdir+'/beta'))
         return commands
 
@@ -402,53 +487,67 @@ def beta_diversity(counts, metrics, dry=True, use_grid=True, nocache=False):
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
-              dry=True, use_grid=True, ppn=10, nocache=False):
+              dry=True, use_grid=True, ppn=10, nocache=False, workdir=None):
+    """
+
+    Parameters
+    ----------
+    workdir : str
+        Dir path name. Default is None, i.e. new results need to be computed.
+        If a dir is given, we assume the same call has been already run - at
+        least partially and we want to resume from this point, i.e. collect
+        results.
+    """
     # caching
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     file_cache = ".anacache/%s.%s" % (hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
 
     if os.path.exists(file_cache) and (nocache is not True):
-        sys.stderr.write("Using existing results from '%s'. " % file_cache)
+        sys.stderr.write("Using existing results from '%s'. \n" % file_cache)
         f = open(file_cache, 'rb')
         results = pickle.load(f)
         f.close()
         return results
 
     # create a temporary working directory
-    prefix = 'ana_%s_' % jobname
-    workdir = None
-    if use_grid:
-        workdir = tempfile.mkdtemp(prefix=prefix, dir='/home/sjanssen/TMP/')
-    else:
-        workdir = tempfile.mkdtemp(prefix=prefix)
-    sys.stderr.write("Working directory is '%s'. " % workdir)
+    pre_data = None
+    if workdir is None:
+        prefix = 'ana_%s_' % jobname
+        if use_grid:
+            workdir = tempfile.mkdtemp(prefix=prefix,
+                                       dir='/home/sjanssen/TMP/')
+        else:
+            workdir = tempfile.mkdtemp(prefix=prefix)
+        sys.stderr.write("Working directory is '%s'. " % workdir)
 
-    pre_data = pre_execute(workdir, cache_arguments)
+        pre_data = pre_execute(workdir, cache_arguments)
 
-    lst_commands = commands(workdir, ppn, cache_arguments)
-    if not use_grid:
-        if dry:
-            sys.stderr.write("\n\n".join(lst_commands))
-            return None
-        with subprocess.Popen("source activate %s && %s" %
-                              (QIIME_ENV, " && ".join(lst_commands)),
-                              shell=True,
-                              stdout=subprocess.PIPE,
-                              executable="bash") as call_x:
-            if (call_x.wait() != 0):
-                raise ValueError("something went wrong")
+        lst_commands = commands(workdir, ppn, cache_arguments)
+        if not use_grid:
+            if dry:
+                sys.stderr.write("\n\n".join(lst_commands))
+                return None
+            with subprocess.Popen("source activate %s && %s" %
+                                  (QIIME_ENV, " && ".join(lst_commands)),
+                                  shell=True,
+                                  stdout=subprocess.PIPE,
+                                  executable="bash") as call_x:
+                if (call_x.wait() != 0):
+                    raise ValueError("something went wrong")
+        else:
+            cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
+                        QIIME_ENV, ppn=ppn, wait=True, dry=dry)
+            if dry:
+                return None
     else:
-        cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
-                    QIIME_ENV, ppn=ppn, wait=True, dry=dry)
-        if dry:
-            return None
+        pre_data = pre_execute(workdir, cache_arguments)
 
     results = post_execute(workdir, cache_arguments, pre_data)
 
     if results is not None:
         shutil.rmtree(workdir)
-        sys.stderr.write("Was removed.\n")
+        sys.stderr.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(file_cache), exist_ok=True)
     f = open(file_cache, 'wb')
