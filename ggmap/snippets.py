@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import subprocess
 import sys
 from itertools import combinations
-from skbio.stats.distance import DistanceMatrix, permanova
+from skbio.stats.distance import permanova
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
