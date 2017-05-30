@@ -636,15 +636,20 @@ def cluster_run(cmds, jobname, result, environment=None,
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
+            job_ever_seen = False
             if wait:
                 sys.stderr.write(
                     "\nWaiting for cluster job %s to complete: " % qid)
                 while True:
                     poll_status = subprocess.call("%s/qstat %s" % (gebin, qid),
                                                   shell=True)
-                    if (poll_status != 0):
+                    # sys.stderr.write('poll_status: %i, job_ever_seen %s\n" %
+                    #                  (poll_status, job_ever_seen))
+                    if (poll_status != 0) and job_ever_seen:
                         sys.stderr.write(' finished.')
                         break
+                    elif (poll_status == 0) and (not job_ever_seen):
+                        job_ever_seen = True
                     sys.stderr.write('.')
                     time.sleep(10)
             else:
