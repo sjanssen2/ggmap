@@ -40,8 +40,8 @@ class TreeTests(TestCase):
     def test_alpha(self):
         obs_alpha = alpha_diversity(
             self.counts,
-            self.metrics_alpha,
             20000,
+            self.metrics_alpha,
             dry=False,
             use_grid=False,
             nocache=True)
