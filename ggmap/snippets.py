@@ -294,7 +294,8 @@ def plotTaxonomy(file_otutable,
     # assign taxonomy and collapse at given rank
     if rank != 'raw':
         lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
-                               names=['otuID', 'taxonomy'])
+                               names=['otuID', 'taxonomy'],
+                               usecols=[0, 1])  # only parse two first columns
         lineages['otuID'] = lineages['otuID'].astype(str)
         lineages.set_index('otuID', inplace=True)
         # add taxonomic lineage information to the counts as column "taxonomy"
