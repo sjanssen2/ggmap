@@ -294,16 +294,24 @@ def plotTaxonomy(file_otutable,
     # assign taxonomy and collapse at given rank
     if rank != 'raw':
         lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
-                               names=['otuID', 'taxonomy'])
+                               names=['otuID', 'taxonomy'],
+                               usecols=[0, 1])  # only parse two first columns
         lineages['otuID'] = lineages['otuID'].astype(str)
         lineages.set_index('otuID', inplace=True)
         # add taxonomic lineage information to the counts as column "taxonomy"
         rank_counts = pd.merge(counts, lineages, how='left', left_index=True,
                                right_index=True)
+
+        # split lineage string into individual taxa names on ';' and remove
+        # surrounding whitespaces. If rank does not exist return r+'__' instead
+        def _splitranks(x, rank):
+            try:
+                return [t.strip() for t in x.split(";")][RANKS.index(rank)]
+            except IndexError:
+                return RANKS[RANKS.index(rank)].lower()[0] + "__"
         # add columns for each tax rank, such that we can groupby later on
         rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
-                                                          x.split("; ")
-                                                          [RANKS.index(rank)])
+                                                          _splitranks(x, rank))
         # sum counts according to the selected rank
         rank_counts = rank_counts.reset_index().groupby(rank).sum()
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
