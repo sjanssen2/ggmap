@@ -10,6 +10,7 @@ import io
 import collections
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 import matplotlib.image as mpimg
@@ -72,10 +73,14 @@ def _get_ref_phylogeny(file_tree=None):
 def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     coll = dict()
     for iteration in range(num_iterations):
-        x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
-            workdir,
-            rarefaction_depth,
-            iteration), sep='\t', index_col=0)
+        try:
+            x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
+                workdir,
+                rarefaction_depth,
+                iteration), sep='\t', index_col=0)
+        except EmptyDataError as e:
+            raise EmptyDataError(str(e) +
+                                 "\nMaybe your reference tree is wrong?!")
         if iteration == 0:
             for metric in x.columns:
                 coll[metric] = pd.DataFrame(data=x[metric])
