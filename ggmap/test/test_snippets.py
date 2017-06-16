@@ -164,5 +164,6 @@ class ReadWriteTests(TestCase):
     def test__shiftLeft(self):
         self.assertEqual(_shiftLeft([1, 2, 3]), [2, 3, 4])
 
+
 if __name__ == '__main__':
     main()
