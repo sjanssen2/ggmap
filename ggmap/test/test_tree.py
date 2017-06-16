@@ -245,5 +245,6 @@ class TreeTests(TestCase):
                                                             tree,
                                                             tip.name), 0.0)
 
+
 if __name__ == '__main__':
     main()

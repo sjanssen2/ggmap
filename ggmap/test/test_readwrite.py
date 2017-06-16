@@ -265,5 +265,6 @@ class ReadWriteTests(TestCase):
         with self.assertRaises(IOError):
             read_metaphlan_profile('/dev')
 
+
 if __name__ == '__main__':
     main()
