@@ -11,8 +11,13 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import subprocess
 import sys
+import time
 from itertools import combinations
 from skbio.stats.distance import permanova
+from scipy.stats import mannwhitneyu
+import networkx as nx
+import warnings
+import matplotlib.cbook
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -564,7 +569,7 @@ def plotTaxonomy(file_otutable,
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                qsub='/opt/torque-4.2.8/bin/qsub', dry=True):
+                gebin='/opt/torque-4.2.8/bin', dry=True, wait=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -589,11 +594,14 @@ def cluster_run(cmds, jobname, result, environment=None,
         Format 'xGB'. Memory requirement per ppn for the job, e.g. if ppn=10
         and pmem=8GB the node must have at least 80GB free memory.
         Default: '8GB'.
-    qsub : path
-        Path to the qsub binary. Default: /opt/torque-4.2.8/bin/qsub
+    gebin : path
+        Path to the dir holding SGE binaries.
+        Default: /opt/torque-4.2.8/bin
     dry : bool
         Only print command instead of executing it. Good for debugging.
         Default = True
+    wait : bool
+        Wait for job completion before qsub's return
     """
 
     if result is None:
@@ -620,9 +628,9 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     # compose qsub specific details
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
-    ge_cmd = (("%s -d '%s' -V -l "
+    ge_cmd = (("%s/qsub -d '%s' -V -l "
                "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N cr_%s") %
-              (qsub, pwd, walltime, nodes, ppn, pmem, jobname))
+              (gebin, pwd, walltime, nodes, ppn, pmem, jobname))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
@@ -640,11 +648,86 @@ def cluster_run(cmds, jobname, result, environment=None,
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
-            sys.stderr.write("Now wait until %s job finishes.\n" % qid)
+            job_ever_seen = False
+            if wait:
+                sys.stderr.write(
+                    "\nWaiting for cluster job %s to complete: " % qid)
+                while True:
+                    poll_status = subprocess.call("%s/qstat %s" % (gebin, qid),
+                                                  shell=True)
+                    # sys.stderr.write('poll_status: %i, job_ever_seen %s\n" %
+                    #                  (poll_status, job_ever_seen))
+                    if (poll_status != 0) and job_ever_seen:
+                        sys.stderr.write(' finished.')
+                        break
+                    elif (poll_status == 0) and (not job_ever_seen):
+                        job_ever_seen = True
+                    sys.stderr.write('.')
+                    time.sleep(10)
+            else:
+                sys.stderr.write("Now wait until %s job finishes.\n" % qid)
             return qid
     else:
         print(full_cmd)
         return None
+
+
+def detect_distant_groups_alpha(alpha, groupings,
+                                min_group_size=21):
+    """Given metadata field, test for sig. group differences in alpha
+       distances.
+
+    Parameters
+    ----------
+    alpha : pandas.core.series.Series
+        The alpha diversities for the samples
+    groupings : pandas.core.series.Series
+        A group label per sample.
+    min_group_size : int
+        A minimal group size to be considered. Smaller group labels will be
+        ignored. Default: 21.
+
+    Returns
+    -------
+    dict with following keys:
+        network :          a dict of dicts to list for every pair of group
+                           labels its 'p-value' and 'avgdist'
+        n_per_group :      a pandas.core.series.Series reporting the remaining
+                           number of samples per group
+        min_group_size :   passes min_group_size
+        num_permutations : None
+        metric_name :      passes metric_name
+        group_name :       passes the name of the grouping
+    """
+    # remove samples whose grouping in NaN
+    groupings = groupings.dropna()
+
+    # remove samples for which we don't have alpha div measures
+    groupings = groupings.loc[list(alpha.index)]
+
+    # remove groups with less than minNum samples per group
+    groups = [name
+              for name, counts
+              in groupings.value_counts().iteritems()
+              if counts >= min_group_size]
+
+    network = dict()
+    for a, b in combinations(groups, 2):
+        res = mannwhitneyu(alpha.loc[groupings[groupings == a].index],
+                           alpha.loc[groupings[groupings == b].index],
+                           alternative='two-sided')
+
+        if a not in network:
+            network[a] = dict()
+        network[a][b] = {'p-value': res.pvalue}
+
+    ns = groupings.value_counts()
+    return ({'network': network,
+             'n_per_group': ns[ns.index.isin(groups)],
+             'min_group_size': min_group_size,
+             'num_permutations': None,
+             'metric_name': alpha.name,
+             'group_name': groupings.name})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -676,6 +759,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
         min_group_size :   passes min_group_size
         num_permutations : passes num_permutations
         metric_name :      passes metric_name
+        group_name :       passes the name of the grouping
     """
 
     # remove samples whose grouping in NaN
@@ -709,4 +793,240 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
              'n_per_group': ns[ns.index.isin(groups)],
              'min_group_size': min_group_size,
              'num_permutations': num_permutations,
-             'metric_name': metric_name})
+             'metric_name': metric_name,
+             'group_name': groupings.name})
+
+
+def _getfirstsigdigit(number):
+    """Given a float between < 1, determine the position of first non-zero
+       digit.
+    """
+    num_digits = 1
+    while ('%f' % number).split('.')[1][num_digits-1] == '0':
+        num_digits += 1
+    return num_digits
+
+
+def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
+                       metric_name, group_name, pthresh=0.05, _type='beta',
+                       draw_edgelabel=False, ax=None):
+    """Plots pairwise beta diversity group relations (obtained by
+       'detect_distant_groups')
+
+    Parameters
+    ----------
+    Most parameters are direct outputs of detect_distant_groups, thus you can
+    pass **res = detect_distant_groups(...) here
+    network : dict
+        a dict of dicts to list for every pair of group labels its 'p-value'
+        and 'avgdist'
+    n_per_group : pandas.core.series.Series
+        reporting the remaining number of samples per group
+    min_group_size : int
+        The minimal group size that was considered.
+    num_permutations : int
+        Number of permutations used for permanova test.
+    metric_name : str
+        The beta diversity metric name used.
+    group_name : str
+        A label for the grouping criterion.
+    pthresh : float
+        The maximal p-value of a group difference to be considered significant.
+        It will be corrected for multiple hypothesis testing in a naive way,
+        i.e. by dividing with number of all pairwise groups.
+    _type : str
+        Default: 'beta'. Choose from 'beta' or 'alpha'. Determines the type of
+        diversity that was considered for testing significant group
+        differences.
+    draw_edgelabel : boolean
+        If true, draw p-values as edge labels.
+    ax : plt axis
+        If not none, use this axis to plot on.
+
+    Returns
+    -------
+    A matplotlib figure.
+    """
+    LINEWIDTH_SIG = 2.0
+    LINEWIDTH_NONSIG = 0.2
+    NODECOLOR = {'alpha': 'lightblue', 'beta': 'lightgreen'}
+
+    # initialize empty graph
+    G = nx.Graph()
+    # add node for every group to the graph
+    G.add_nodes_from(network.keys())
+
+    numComp = len(list(combinations(n_per_group.keys(), 2)))
+
+    # add edges between all nodes to the graph
+    for a in network.keys():
+        for b in network[a].keys():
+            weight = LINEWIDTH_NONSIG
+            # naive FDR by just dividing p-value by number of groups-pairs
+            if network[a][b]['p-value'] <= pthresh / numComp:
+                weight = LINEWIDTH_SIG
+            G.add_edge(a, b,
+                       pvalue="%.2f" % network[a][b]['p-value'],
+                       weight=weight)
+
+    # ignore warnings of matplotlib due to outdated networkx calls
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",
+                                category=matplotlib.cbook.mplDeprecation)
+        warnings.filterwarnings("ignore",
+                                category=UserWarning,
+                                module="matplotlib")
+
+        if ax is None:
+            fig, ax = plt.subplots(1, 1)
+
+        # use circular graph layout. Spring layout did not really work here.
+        pos = nx.circular_layout(G)
+        weights = [G[u][v]['weight'] for u, v in G.edges()]
+        nx.draw(G, with_labels=False, pos=pos, width=weights,
+                node_color=NODECOLOR[_type],
+                edge_color='gray',
+                ax=ax)
+
+        # draw labels for nodes instead of pure names
+        for node in G:
+            nx.draw_networkx_labels(
+                G, pos,
+                labels={node: "%s\nn=%i" % (node, n_per_group.loc[node])},
+                font_color='black', font_weight='bold',
+                ax=ax)
+
+        # draw edge labels
+        if draw_edgelabel:
+            edge_labels = dict([((a, b,), data['pvalue'])
+                                for a, b, data
+                                in G.edges(data=True)])
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
+                                         ax=ax, label_pos=0.25)
+            #, label_pos=0.5, font_size=10, font_color='k',
+            # font_family='sans-serif', font_weight='normal', alpha=1.0,
+            # bbox=None, ax=None, rotate=True, **kwds)
+
+        # plot title
+        ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
+        text = ''
+        if _type == 'beta':
+            text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
+                                                       metric_name)
+        elif _type == 'alpha':
+            text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
+        ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center', va='top')
+
+        # plot legend
+        ax.plot([0], [0], 'gray',
+                label=u'p ≤ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                linewidth=LINEWIDTH_SIG)
+        ax.plot([0], [0], 'gray',
+                label='p > %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                linewidth=LINEWIDTH_NONSIG)
+        ax.legend(title='FDR corrected')
+
+    return ax
+
+
+def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
+    """Plots alpha diversity histograms for grouped data.
+
+    Parameters
+    ----------
+    alpha : pandas.core.series.Series
+        The alpha diversities for the samples
+    groupings : pandas.core.series.Series
+        A group label per sample.
+    min_group_size : int
+        A minimal group size to be considered. Smaller group labels will be
+        ignored. Default: 21.
+    ax : plt axis
+        The axis to plot on. If none, create a new plt figure and return.
+
+    Returns
+    -------
+    A plt axis with histograms for each group.
+    """
+    # remove samples whose grouping in NaN
+    groupings = groupings.dropna()
+
+    # remove samples for which we don't have alpha div measures
+    groupings = groupings.loc[list(alpha.index)]
+
+    # remove groups with less than minNum samples per group
+    groups = [name
+              for name, counts
+              in groupings.value_counts().iteritems()
+              if counts >= min_group_size]
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    for group in groups:
+        sns.distplot(alpha.loc[groupings[groupings == group].index],
+                     hist=False, label=group, ax=ax, rug=True)
+
+    return ax
+
+
+def plotGroup_permanovas(beta, groupings,
+                         network, n_per_group, min_group_size,
+                         num_permutations, metric_name, group_name,
+                         ax=None):
+    # remove samples whose grouping in NaN
+    groupings = groupings.dropna()
+
+    # remove samples for which we don't have alpha div measures
+    groupings = groupings.loc[list(beta.ids)]
+
+    # remove groups with less than minNum samples per group
+    groups = [name
+              for name, counts
+              in groupings.value_counts().iteritems()
+              if counts >= min_group_size]
+
+    data = []
+    name_left = 'left'
+    name_right = 'right'
+    name_inter = 'between'
+    for a, b in combinations(groups, 2):
+        edgename = 'left:%s\np: %.*f\nright:%s' % (
+            a,
+            _getfirstsigdigit(network[a][b]['p-value']),
+            network[a][b]['p-value'],
+            b)
+        dists = dict()
+        # intra group distances
+        dists[name_left] = [beta[x, y]
+                            for x, y in
+                            combinations(groupings[groupings == a].index, 2)]
+        dists[name_right] = [beta[x, y]
+                             for x, y in
+                             combinations(groupings[groupings == b].index, 2)]
+        # inter group distances
+        dists[name_inter] = [beta[x, y]
+                             for x in
+                             groupings[groupings == a].index
+                             for y in
+                             groupings[groupings == b].index]
+
+        for _type in dists.keys():
+            for d in dists[_type]:
+                data.append({'edge': edgename, '_type': _type, metric_name: d})
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
+    sns.boxplot(data=pd.DataFrame(data),
+                x='edge',
+                y=metric_name,
+                hue='_type',
+                hue_order=[name_left, name_inter, name_right],
+                ax=ax,
+                palette=sns.xkcd_palette(colors))
+    ax.legend(bbox_to_anchor=(1.05, 1))
+    ax.xaxis.label.set_visible(False)
+
+    return ax
