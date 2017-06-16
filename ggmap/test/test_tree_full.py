@@ -57,5 +57,6 @@ class TreeFullTests(TestCase):
         self.assertCountEqual({4457889}, res)
         self.assertEqual("", out.getvalue())
 
+
 if __name__ == '__main__':
     main()

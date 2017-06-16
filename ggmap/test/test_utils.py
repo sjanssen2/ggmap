@@ -80,5 +80,6 @@ class UtilsTests(TestCase):
                                prefix='test_')
         self.assertCountEqual(['test_mock', 'test_example'], res.columns)
 
+
 if __name__ == '__main__':
     main()
