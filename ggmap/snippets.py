@@ -178,6 +178,7 @@ def drawMap(points, basemap=None):
     map.fillcontinents(color='lightgreen', lake_color='lightblue', zorder=1)
     map.drawcoastlines(color='gray', zorder=1)
 
+    l_patches = []
     for z, set_of_points in enumerate(points):
         coords = set_of_points['coords'][['latitude', 'longitude']].dropna()
         x, y = map(coords.longitude.values, coords.latitude.values)
@@ -189,6 +190,10 @@ def drawMap(points, basemap=None):
             alpha = set_of_points['alpha']
         map.scatter(x, y, marker='o', color=set_of_points['color'], s=size,
                     zorder=2+z, alpha=alpha)
+        l_patches.append(mpatches.Patch(color=set_of_points['color'],
+                                        label=set_of_points['label']))
+
+    plt.legend(handles=l_patches, loc='upper left', bbox_to_anchor=(1.01, 1))
 
 
 def _repMiddleValues(values):
@@ -237,7 +242,8 @@ def plotTaxonomy(file_otutable,
                  print_sample_labels=False,
                  minreadnr=50,
                  plottaxa=None,
-                 fct_aggregate=None):
+                 fct_aggregate=None,
+                 print_group_labels=True):
     """
     Parameters
     ----------
@@ -263,6 +269,8 @@ def plotTaxonomy(file_otutable,
         collapsing.
     fct_aggregate : function
         A numpy function to aggregate over several samples.
+    print_group_labels : Bool
+        If false, print no group labels on top of the bars.
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -494,18 +502,19 @@ def plotTaxonomy(file_otutable,
         #  ax.set_yticks([])
 
         # print labels on top of the groups
-        if len(graphinfo.loc[g0.index, 'group_l1'].unique()) > 1:
-            ax2 = ax.twiny()
-            labels = []
-            pos = []
-            for n, g in graphinfo.loc[g0.index, :].groupby('group_l1'):
-                pos.append(g['xpos'].mean()+0.5)
-                labels.append(str(n)+"\n(n=%i)" % g.shape[0])
-            ax2.set_xticks(pos)
-            ax2.set_xlim(ax.get_xlim())
-            ax2.set_xticklabels(labels)
-            ax2.xaxis.set_ticks_position("top")
-            ax2.xaxis.grid()
+        if print_group_labels:
+            if len(graphinfo.loc[g0.index, 'group_l1'].unique()) > 1:
+                ax2 = ax.twiny()
+                labels = []
+                pos = []
+                for n, g in graphinfo.loc[g0.index, :].groupby('group_l1'):
+                    pos.append(g['xpos'].mean()+0.5)
+                    labels.append(str(n)+"\n(n=%i)" % g.shape[0])
+                ax2.set_xticks(pos)
+                ax2.set_xlim(ax.get_xlim())
+                ax2.set_xticklabels(labels)
+                ax2.xaxis.set_ticks_position("top")
+                ax2.xaxis.grid()
 
         # print labels for group level 2
         if group_l2 is not None:
@@ -569,7 +578,8 @@ def plotTaxonomy(file_otutable,
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                gebin='/opt/torque-4.2.8/bin', dry=True, wait=False):
+                gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
+                file_qid=None):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -602,6 +612,13 @@ def cluster_run(cmds, jobname, result, environment=None,
         Default = True
     wait : bool
         Wait for job completion before qsub's return
+    file_qid : str
+        Default None. Create a file containing the qid of the submitted job.
+        This will ease identification of TMP working directories.
+
+    Returns
+    -------
+    Cluster job ID as str.
     """
 
     if result is None:
@@ -610,6 +627,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     if not os.access(parent_res_dir, os.W_OK):
         raise ValueError("Parent result directory '%s' is not writable!" %
                          parent_res_dir)
+    if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
+        raise ValueError("Cannot write qid file '%s'." % file_qid)
     if os.path.exists(result):
         sys.stderr.write("%s already computed\n" % jobname)
         return "Result already present!"
@@ -628,9 +647,13 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     # compose qsub specific details
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
+    # switch to high mem queue if memory requirement exeeds 250 GB
+    highmem = ''
+    if ppn * int(pmem[:-2]) > 250:
+        highmem = ':highmem'
     ge_cmd = (("%s/qsub -d '%s' -V -l "
-               "walltime=%s,nodes=%i:ppn=%i,pmem=%s -N cr_%s") %
-              (gebin, pwd, walltime, nodes, ppn, pmem, jobname))
+               "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
+              (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
 
     full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
@@ -648,6 +671,10 @@ def cluster_run(cmds, jobname, result, environment=None,
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
+            if file_qid is not None:
+                f = open(file_qid, 'w')
+                f.write('Cluster job ID is:\n%s\n' % qid)
+                f.close()
             job_ever_seen = False
             if wait:
                 sys.stderr.write(
@@ -854,7 +881,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     # initialize empty graph
     G = nx.Graph()
     # add node for every group to the graph
-    G.add_nodes_from(network.keys())
+    G.add_nodes_from(list(n_per_group.index))
 
     numComp = len(list(combinations(n_per_group.keys(), 2)))
 
@@ -900,7 +927,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         if draw_edgelabel:
             edge_labels = dict([((a, b,), data['pvalue'])
                                 for a, b, data
-                                in G.edges(data=True)])
+                                in G.edges(data=True) if (float(data['pvalue']) < pthresh / numComp) or (len(network.keys()) < 8)])
             nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
                                          ax=ax, label_pos=0.25)
             #, label_pos=0.5, font_size=10, font_color='k',
@@ -986,6 +1013,17 @@ def plotGroup_permanovas(beta, groupings,
               in groupings.value_counts().iteritems()
               if counts >= min_group_size]
 
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    if n_per_group.shape[0] < 2:
+        ax.text(0.5, 0.5,
+                'only %i group:\n"%s"' % (n_per_group.shape[0],
+                                          ", ".join(list(n_per_group.index))),
+                ha='center', va='center', fontsize=15)
+        ax.axis('off')
+        return ax
+
     data = []
     name_left = 'left'
     name_right = 'right'
@@ -1014,9 +1052,6 @@ def plotGroup_permanovas(beta, groupings,
         for _type in dists.keys():
             for d in dists[_type]:
                 data.append({'edge': edgename, '_type': _type, metric_name: d})
-
-    if ax is None:
-        fig, ax = plt.subplots(1, 1)
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
