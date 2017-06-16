@@ -28,7 +28,6 @@ class TaxPlotTests(TestCase):
                              threshold=0)
         self.assertTrue(obs[0] is not True)
         self.assertEqual(obs[1], 8)
-        #self.assertTrue(obs)
 
         # ... but are considered equal if threshold is raised
         obs = compare_images(self.file_img_orig, self.file_img_similar,
