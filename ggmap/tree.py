@@ -289,6 +289,13 @@ def distance_seppinsertion(tree_orig, tree_changed, nodename):
     def get_nodenames(nodes):
         return [node.name for node in nodes]
 
+    # I am not sure which version was the right one. My guess is the later, but
+    # I keep this for reference as a comment.
+    # if set(get_nodenames(parent_orig.tips())) == \
+    #   set(get_nodenames(parent_changed.tips())):
+    # 	dist_sub_changed *= -1
+    # return dist_pp + dist_sub_orig + dist_sub_changed
+
     if set(get_nodenames(parent_orig.tips())) == \
        set(get_nodenames(parent_changed.tips())):
         return dist_pp + abs(dist_sub_orig - dist_sub_changed)
