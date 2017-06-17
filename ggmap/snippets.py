@@ -926,12 +926,15 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
 
         # draw edge labels
         if draw_edgelabel:
-            edge_labels = dict([((a, b,), data['pvalue'])
-                                for a, b, data
-                                in G.edges(data=True) if (float(data['pvalue']) < pthresh / numComp) or (len(network.keys()) < 8)])
+            edge_labels = \
+                dict([((a, b,), data['pvalue'])
+                      for a, b, data
+                      in G.edges(data=True)
+                      if (float(data['pvalue']) < pthresh / numComp) or
+                      (len(network.keys()) < 8)])
             nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
                                          ax=ax, label_pos=0.25)
-            #, label_pos=0.5, font_size=10, font_color='k',
+            # , label_pos=0.5, font_size=10, font_color='k',
             # font_family='sans-serif', font_weight='normal', alpha=1.0,
             # bbox=None, ax=None, rotate=True, **kwds)
 
