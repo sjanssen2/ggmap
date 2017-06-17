@@ -82,5 +82,6 @@ class NetworkTests(TestCase):
                 self.assertAlmostEqual(self.exp_pvalues_alpha[a][b],
                                        obs_pvalues[a][b], 1)
 
+
 if __name__ == '__main__':
     main()
