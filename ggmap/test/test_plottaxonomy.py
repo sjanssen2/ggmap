@@ -5,7 +5,6 @@ import tempfile
 import random
 import os
 import sys
-import subprocess
 import numpy as np
 
 from skbio.util import get_data_path
@@ -368,8 +367,7 @@ class TaxPlotTests(TestCase):
                 res = compare_images(plots[name]['imagefile'],
                                      self.plots_baseline[name]['imagefile'],
                                      file_image_diff=filename_diff_image,
-                                     threshold=
-                                     plots[name]['threshold']+1,
+                                     threshold=plots[name]['threshold']+1,
                                      name=name)
             testResults.append({'name': name,
                                 'res': res,
