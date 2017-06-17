@@ -144,7 +144,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     lostHalf = abs(x['remaining'] - x['lost'])
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
     ax1.set_xlim(0, lostHalf * 1.1)
-    #p = ax.set_xscale("log", nonposx='clip')
+    # p = ax.set_xscale("log", nonposx='clip')
 
     # read count histogram
     ax2.set_position(_zoom(ax2.get_position(), 0.9))
@@ -153,7 +153,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     ax2.set_title('Read count distribution across samples')
     ax2.set_xlabel("read counts")
     ax2.set_ylabel("# samples")
-    #p = ax.set_xscale("log", nonposx='clip')
+    # p = ax.set_xscale("log", nonposx='clip')
     ax2.get_xaxis().set_major_formatter(
         FuncFormatter(lambda x, p: format(int(x), ',')))
 
