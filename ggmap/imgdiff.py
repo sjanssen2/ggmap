@@ -19,7 +19,7 @@ def compare_images(file_image_a, file_image_b, threshold=0,
     threshold : int
         The allowed pixel threshold for images A vs. B to be considered equal.
         Default is 0, i.e. images needs to be exactly identical.
-    file_image_idff : Filepath
+    file_image_diff : Filepath
         Optional. Filepath for the differences images for manual visual
         inspection.
         Will be deleted if images are equal (up to given threshold).

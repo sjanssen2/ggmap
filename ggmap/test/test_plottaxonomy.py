@@ -5,13 +5,13 @@ import tempfile
 import random
 import os
 import sys
-import subprocess
 import numpy as np
 
 from skbio.util import get_data_path
 import pandas as pd
 
 from ggmap.snippets import plotTaxonomy
+from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
@@ -30,7 +30,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
         'params': {'file_otutable': biomfile,
                    'metadata': metadata,
                    'verbose': False,
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 900}
     configs['tp_reorder'] = {
         'description': ('Check if samples are re-ordered according to most '
                         'abundant taxa.'),
@@ -38,14 +39,16 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'metadata': metadata,
                    'verbose': False,
                    'reorder_samples': True,
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 900}
     configs['tp_samplenames'] = {
         'description': 'Can we plot sample names on the X-axis?',
         'params': {'file_otutable': biomfile,
                    'metadata': metadata,
                    'verbose': False,
                    'print_sample_labels': True,
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 13388}
     configs['tp_reorder_samplenames'] = {
         'description': ('Get the sample names on the X-axis re-ordered '
                         'properly?'),
@@ -54,7 +57,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'print_sample_labels': True,
                    'reorder_samples': True,
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 14168}
     configs['tp_groupl1'] = {
         'description': 'Four l1 groups',
         'params': {'file_otutable': biomfile,
@@ -63,7 +67,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'reorder_samples': True,
                    'group_l1': 'diet_brief',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 900}
     configs['tp_groupl1_sampellables'] = {
         'description': 'Do we have sample labels, if group l1 is given?',
         'params': {'file_otutable': biomfile,
@@ -72,7 +77,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'reorder_samples': True,
                    'group_l1': 'diet_brief',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 13060}
     configs['tp_groupl2'] = {
         'description': 'Can we further subdivide g1 into g2?',
         'params': {'file_otutable': biomfile,
@@ -82,7 +88,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'reorder_samples': True,
                    'group_l1': 'diet_brief',
                    'group_l2': 'genspec',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 1079}
     configs['tp_groupl2_samplelabels'] = {
         'description': ('Do we get the clash with sample labels if l2 group '
                         'is present?'),
@@ -93,7 +100,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'reorder_samples': True,
                    'group_l1': 'diet_brief',
                    'group_l2': 'genspec',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 12421}
     configs['tp_groupl0'] = {
         'description': 'Also sub-group into Q2 geography.',
         'params': {'file_otutable': biomfile,
@@ -104,7 +112,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l1': 'diet_brief',
                    'group_l2': 'genspec',
                    'group_l0': 'Q2',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 2366}
     configs['tp_species'] = {
         'description': 'Collapse on Species instead of Phylum',
         'params': {'file_otutable': biomfile,
@@ -116,7 +125,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l2': 'genspec',
                    'group_l0': 'Q2',
                    'rank': 'Species',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 2318}
     configs['tp_minreads'] = {
         'description': 'Stricter read threshold',
         'params': {'file_otutable': biomfile,
@@ -129,7 +139,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l0': 'Q2',
                    'rank': 'Species',
                    'minreadnr': 10000,
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 2314}
     configs['tp_onlyg1'] = {
         'description': ('Can we have vertical lines for l2, even if no l1 is'
                         ' defined?'),
@@ -139,7 +150,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'reorder_samples': True,
                    'group_l2': 'genspec',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 900}
     configs['tp_onlyg0'] = {
         'description': 'Can we have rows if no l1 or l2 is defined?',
         'params': {'file_otutable': biomfile,
@@ -148,7 +160,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'reorder_samples': True,
                    'group_l0': 'Q2',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 900}
     configs['tp_nog1'] = {
         'description': 'Several rows and vertical lines, but no l1 defined.',
         'params': {'file_otutable': biomfile,
@@ -158,7 +171,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'reorder_samples': True,
                    'group_l2': 'genspec',
                    'group_l0': 'Q2',
-                   'file_taxonomy': taxonomy}}
+                   'file_taxonomy': taxonomy},
+        'threshold': 1684}
     configs['tp_minAbundance'] = {
         'description': 'There is one more row than expected.',
         'params': {'file_otutable': biomfile,
@@ -169,7 +183,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'minreadnr': 5000}}
+                   'minreadnr': 5000},
+        'threshold': 900}
     configs['tp_None'] = {
         'description': 'What if nan values are in metadata?',
         'params': {'file_otutable': biomfile,
@@ -180,7 +195,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'minreadnr': 5000}}
+                   'minreadnr': 5000},
+        'threshold': 1078}
     configs['tp_taxalist'] = {
         'description': 'Only plot a subset of taxa.',
         'params': {'file_otutable': biomfile,
@@ -191,7 +207,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': False,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'plottaxa': ['p__Tenericutes', 'p__Deferribacteres']}}
+                   'plottaxa': ['p__Tenericutes', 'p__Deferribacteres']},
+        'threshold': 1568}
     configs['tp_agg_all3'] = {
         'description': 'Aggregate plot on all three groupings',
         'params': {'file_otutable': biomfile,
@@ -203,7 +220,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'fct_aggregate': np.mean}}
+                   'fct_aggregate': np.mean},
+        'threshold': 1717}
     configs['tp_agg_no1'] = {
         'description': 'Aggregate plot when group l1 is not set',
         'params': {'file_otutable': biomfile,
@@ -214,7 +232,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'fct_aggregate': np.mean}}
+                   'fct_aggregate': np.mean},
+        'threshold': 1276}
     configs['tp_agg_no0'] = {
         'description': 'Aggregate plot when group l0 is not set',
         'params': {'file_otutable': biomfile,
@@ -225,7 +244,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'fct_aggregate': np.mean}}
+                   'fct_aggregate': np.mean},
+        'threshold': 1156}
     configs['tp_agg_no2'] = {
         'description': 'Aggregate plot when group l2 is not set',
         'params': {'file_otutable': biomfile,
@@ -236,7 +256,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'fct_aggregate': np.mean}}
+                   'fct_aggregate': np.mean},
+        'threshold': 1336}
     configs['tp_agg_only0'] = {
         'description': 'Aggregate plot when only group l0 is set',
         'params': {'file_otutable': biomfile,
@@ -246,7 +267,42 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'print_sample_labels': True,
                    'verbose': False,
                    'file_taxonomy': taxonomy,
-                   'fct_aggregate': np.mean}}
+                   'fct_aggregate': np.mean},
+        'threshold': 900}
+    configs['tp_notop_1'] = {
+        'description': 'Check that labels above bars are printed; agg all 3.',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean},
+        'threshold': 1102}
+    configs['tp_notop_2'] = {
+        'description': 'Check that labels above bars are printed; agg 0, 2',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean},
+        'threshold': 900}
+    configs['tp_notop_3'] = {
+        'description': 'Check that labels above bars are printed, all 3',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy},
+        'threshold': 2525}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
@@ -288,8 +344,6 @@ class TaxPlotTests(TestCase):
                                              list_existing=not genBaseline)
 
     def test_regression_plots(self):
-        DIFF_THRESHOLD = 900
-
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
 
@@ -310,39 +364,21 @@ class TaxPlotTests(TestCase):
                      "baselinedir variable.") % name)
                 sys.stdout.flush()
             else:
-                res = subprocess.check_output(["compare", "-metric", "AE",
-                                               "-dissimilarity-threshold", "1",
-                                               plots[name]['imagefile'],
-                                               self.plots_baseline[name]
-                                               ['imagefile'],
-                                              filename_diff_image],
-                                              stderr=subprocess.STDOUT)
-            if int(res.decode().split('\n')[0]) > DIFF_THRESHOLD:
-                sys.stdout.write(
-                    "Images differ for '%s'. Check differences in %s.\n" %
-                    (name, filename_diff_image))
-                cmd = ('echo "==== start file contents (%s)"; '
-                       'cat %s | base64; '
-                       'echo "=== end file contents ==="') % (
-                    filename_diff_image,
-                    filename_diff_image)
-                rescmd = subprocess.check_output(
-                    cmd, shell=True).decode().split('\n')
-                for line in rescmd:
-                    print(line)
-            else:
-                os.remove(filename_diff_image)
-
+                res = compare_images(plots[name]['imagefile'],
+                                     self.plots_baseline[name]['imagefile'],
+                                     file_image_diff=filename_diff_image,
+                                     threshold=plots[name]['threshold']+1,
+                                     name=name)
             testResults.append({'name': name,
-                                'res': res})
+                                'res': res,
+                                'threshold': plots[name]['threshold']})
         sys.stderr.write(" OK")
         sys.stderr.flush()
 
         for r in testResults:
             self.assertIn(r['name'], self.plots_baseline)
             self.assertIn('imagefile', self.plots_baseline[r['name']])
-            self.assertLessEqual(int(r['res'].decode().split('\n')[0]),
-                                 DIFF_THRESHOLD)
+            self.assertLessEqual(r['res'][1], r['threshold'])
 
     def test_parameter_checks(self):
         field = 'notThere'

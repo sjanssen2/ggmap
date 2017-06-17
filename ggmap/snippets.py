@@ -243,7 +243,7 @@ def plotTaxonomy(file_otutable,
                  minreadnr=50,
                  plottaxa=None,
                  fct_aggregate=None,
-                 print_group_labels=True):
+                 no_top_labels=False):
     """
     Parameters
     ----------
@@ -269,8 +269,8 @@ def plotTaxonomy(file_otutable,
         collapsing.
     fct_aggregate : function
         A numpy function to aggregate over several samples.
-    print_group_labels : Bool
-        If false, print no group labels on top of the bars.
+    no_top_labels : Bool
+        If True, print no labels on top of the bars. Default is False.
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -502,7 +502,7 @@ def plotTaxonomy(file_otutable,
         #  ax.set_yticks([])
 
         # print labels on top of the groups
-        if print_group_labels:
+        if not no_top_labels:
             if len(graphinfo.loc[g0.index, 'group_l1'].unique()) > 1:
                 ax2 = ax.twiny()
                 labels = []
