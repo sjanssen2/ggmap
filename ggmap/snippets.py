@@ -627,8 +627,9 @@ def cluster_run(cmds, jobname, result, environment=None,
     if not os.access(parent_res_dir, os.W_OK):
         raise ValueError("Parent result directory '%s' is not writable!" %
                          parent_res_dir)
-    if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
-        raise ValueError("Cannot write qid file '%s'." % file_qid)
+    if file_qid is not None:
+        if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
+            raise ValueError("Cannot write qid file '%s'." % file_qid)
     if os.path.exists(result):
         sys.stderr.write("%s already computed\n" % jobname)
         return "Result already present!"
