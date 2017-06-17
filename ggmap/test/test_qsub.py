@@ -28,5 +28,6 @@ class QsubTests(TestCase):
         res = cluster_run([], "jobname", get_data_path("float.tsv"))
         self.assertEqual(res, 'Result already present!')
 
+
 if __name__ == '__main__':
     main()
