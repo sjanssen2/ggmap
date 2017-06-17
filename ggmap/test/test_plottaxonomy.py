@@ -369,11 +369,11 @@ class TaxPlotTests(TestCase):
                                      self.plots_baseline[name]['imagefile'],
                                      file_image_diff=filename_diff_image,
                                      threshold=
-                                     self.configs[name]['threshold']+1,
+                                     plots[name]['threshold']+1,
                                      name=name)
             testResults.append({'name': name,
                                 'res': res,
-                                'threshold': self.configs[name]['threshold']})
+                                'threshold': plots[name]['threshold']})
         sys.stderr.write(" OK")
         sys.stderr.flush()
 
