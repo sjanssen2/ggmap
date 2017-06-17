@@ -11,3 +11,4 @@ seaborn
 numpy
 xlrd
 pillow
+networkx
