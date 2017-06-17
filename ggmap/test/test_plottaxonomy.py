@@ -247,6 +247,37 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean}}
+    configs['tp_notop_1'] = {
+        'description': 'Check that labels above bars are printed; agg all 3.',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_notop_2'] = {
+        'description': 'Check that labels above bars are printed; agg 0, 2',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'fct_aggregate': np.mean}}
+    configs['tp_notop_3'] = {
+        'description': 'Check that labels above bars are printed, all 3',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'group_l0': 'AGE',
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'no_top_labels': True,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy}}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
