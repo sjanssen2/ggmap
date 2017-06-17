@@ -10,6 +10,7 @@ import io
 import collections
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 import matplotlib.image as mpimg
@@ -72,10 +73,14 @@ def _get_ref_phylogeny(file_tree=None):
 def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     coll = dict()
     for iteration in range(num_iterations):
-        x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
-            workdir,
-            rarefaction_depth,
-            iteration), sep='\t', index_col=0)
+        try:
+            x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
+                workdir,
+                rarefaction_depth,
+                iteration), sep='\t', index_col=0)
+        except EmptyDataError as e:
+            raise EmptyDataError(str(e) +
+                                 "\nMaybe your reference tree is wrong?!")
         if iteration == 0:
             for metric in x.columns:
                 coll[metric] = pd.DataFrame(data=x[metric])
@@ -139,7 +144,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     lostHalf = abs(x['remaining'] - x['lost'])
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
     ax1.set_xlim(0, lostHalf * 1.1)
-    #p = ax.set_xscale("log", nonposx='clip')
+    # p = ax.set_xscale("log", nonposx='clip')
 
     # read count histogram
     ax2.set_position(_zoom(ax2.get_position(), 0.9))
@@ -148,7 +153,7 @@ def _plot_loosing_curve(counts, ax1, ax2):
     ax2.set_title('Read count distribution across samples')
     ax2.set_xlabel("read counts")
     ax2.set_ylabel("# samples")
-    #p = ax.set_xscale("log", nonposx='clip')
+    # p = ax.set_xscale("log", nonposx='clip')
     ax2.get_xaxis().set_major_formatter(
         FuncFormatter(lambda x, p: format(int(x), ',')))
 
