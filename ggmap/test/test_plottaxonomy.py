@@ -12,6 +12,7 @@ from skbio.util import get_data_path
 import pandas as pd
 
 from ggmap.snippets import plotTaxonomy
+from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
@@ -341,29 +342,11 @@ class TaxPlotTests(TestCase):
                      "baselinedir variable.") % name)
                 sys.stdout.flush()
             else:
-                res = subprocess.check_output(["compare", "-metric", "AE",
-                                               "-dissimilarity-threshold", "1",
-                                               plots[name]['imagefile'],
-                                               self.plots_baseline[name]
-                                               ['imagefile'],
-                                              filename_diff_image],
-                                              stderr=subprocess.STDOUT)
-            if int(res.decode().split('\n')[0]) > DIFF_THRESHOLD:
-                sys.stdout.write(
-                    "Images differ for '%s'. Check differences in %s.\n" %
-                    (name, filename_diff_image))
-                cmd = ('echo "==== start file contents (%s)"; '
-                       'cat %s | base64; '
-                       'echo "=== end file contents ==="') % (
-                    filename_diff_image,
-                    filename_diff_image)
-                rescmd = subprocess.check_output(
-                    cmd, shell=True).decode().split('\n')
-                for line in rescmd:
-                    print(line)
-            else:
-                os.remove(filename_diff_image)
-
+                res = compare_images(plots[name]['imagefile'],
+                                     self.plots_baseline[name]['imagefile'],
+                                     file_image_diff=filename_diff_image,
+                                     threshold=DIFF_THRESHOLD,
+                                     name=name)
             testResults.append({'name': name,
                                 'res': res})
         sys.stderr.write(" OK")
@@ -372,8 +355,7 @@ class TaxPlotTests(TestCase):
         for r in testResults:
             self.assertIn(r['name'], self.plots_baseline)
             self.assertIn('imagefile', self.plots_baseline[r['name']])
-            self.assertLessEqual(int(r['res'].decode().split('\n')[0]),
-                                 DIFF_THRESHOLD)
+            self.assertLessEqual(r['res'][1], DIFF_THRESHOLD)
 
     def test_parameter_checks(self):
         field = 'notThere'
