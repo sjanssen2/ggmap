@@ -2,6 +2,7 @@ from unittest import TestCase, main
 import pandas as pd
 from tempfile import mkstemp
 import numpy as np
+from os import remove
 
 from mpl_toolkits.basemap import Basemap
 import matplotlib.pyplot as plt
@@ -40,6 +41,8 @@ class ReadWriteTests(TestCase):
                              file_dummy,
                              file_image_diff='./diff.'+file_plotname)
         self.assertTrue(res[0])
+        if res[0] is True:
+            remove(file_dummy)
 
     def test_drawMap_alaska(self):
         # create plot
