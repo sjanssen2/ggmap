@@ -12,3 +12,4 @@ numpy
 xlrd
 pillow
 networkx
+basemap
