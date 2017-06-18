@@ -157,21 +157,56 @@ def parse_splitlibrarieslog(filename):
         raise IOError('Cannot read file "%s"' % filename)
 
 
-def drawMap(points, basemap=None):
+def drawMap(points, basemap=None, ax=None, no_legend=False):
     """ Plots coordinates of metadata to a worldmap.
 
     Parameters
     ----------
-    points : a special data structure
-    basemap : if not the whole earth, pass the rectangle to be plotted
+    points : a set if dicts, with mandatory key
+        'coords', which itself needs to be a Pandas DataFrame with columns
+            'latitude' and
+            'longitude'.
+        Optional keys are:
+        'color' = color of points drawn onto the map (defaults to 'red'),
+        'size' = diameter of drawn points (defaults to 50),
+        'alpha' = transparency of points (defaults to 0.5)
+        'label' = a name for the group of points, useful if more than one dict
+                  is supplied
+    basemap : Default is None, i.e. the whole world is plotted. By providing a
+        basemap object, you can restrict the plotted map to a specific
+        rectangle, e.g. to Alaska region with:
+            Basemap(llcrnrlat=43.,
+                    llcrnrlon=168.,
+                    urcrnrlat=63.,
+                    urcrnrlon=-110,
+                    resolution='i',
+                    projection='cass',
+                    lat_0 = 90.,
+                    lon_0 = -155.
+    ax : plt.axis
+        Default is none, i.e. create a new figure. Otherwise, provide axis onto
+        which shall be drawn.
+    no_legend : bool
+        Default is False. Set to True to suppress drawing a legend.
 
     Returns
     -------
-    Nothing
+    plt.axis onto which was plotted.
+
+    Raises
+    ------
+    ValueError if provided list of dicts do not contain keys 'coords' or
+    coords DataFrame is lacking columns 'latitude' or 'longitude'.
     """
-    map = basemap
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+
+    map = None
     if basemap is None:
-        map = Basemap(projection='robin', lon_0=180, resolution='c')
+        map = Basemap(projection='robin', lon_0=180, resolution='c', ax=ax)
+    else:
+        map = basemap
+
     # Fill the globe with a blue color
     map.drawmapboundary(fill_color='lightblue', color='white')
     # Fill the continents with the land color
@@ -180,6 +215,13 @@ def drawMap(points, basemap=None):
 
     l_patches = []
     for z, set_of_points in enumerate(points):
+        if 'coords' not in set_of_points:
+            raise ValueError('You need to provide key'
+                             ' "coords" for every dict!')
+        if 'latitude' not in set_of_points['coords'].columns:
+            raise ValueError('Given "coords" need to have column "latitude"')
+        if 'longitude' not in set_of_points['coords'].columns:
+            raise ValueError('Given "coords" need to have column "longitude"')
         coords = set_of_points['coords'][['latitude', 'longitude']].dropna()
         x, y = map(coords.longitude.values, coords.latitude.values)
         size = 50
@@ -188,12 +230,20 @@ def drawMap(points, basemap=None):
         alpha = 0.5
         if 'alpha' in set_of_points:
             alpha = set_of_points['alpha']
-        map.scatter(x, y, marker='o', color=set_of_points['color'], s=size,
+        color = 'red'
+        if 'color' in set_of_points:
+            color = set_of_points['color']
+        map.scatter(x, y, marker='o', color=color, s=size,
                     zorder=2+z, alpha=alpha)
-        l_patches.append(mpatches.Patch(color=set_of_points['color'],
-                                        label=set_of_points['label']))
+        if 'label' in set_of_points:
+            l_patches.append(mpatches.Patch(color=color,
+                                            label=set_of_points['label']))
 
-    plt.legend(handles=l_patches, loc='upper left', bbox_to_anchor=(1.01, 1))
+    if (len(l_patches) > 0) & (no_legend is not True):
+        ax.legend(handles=l_patches, loc='upper left',
+                  bbox_to_anchor=(1.01, 1))
+
+    return ax
 
 
 def _repMiddleValues(values):
