@@ -13,3 +13,4 @@ xlrd
 pillow
 networkx
 basemap
+proj.4
