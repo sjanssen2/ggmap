@@ -75,13 +75,13 @@ class ReadWriteTests(TestCase):
             l = [
                 {'label': 'summer, with data',
                  'color': 'red',
-                 'coords': g[(g['q1_season'] == 'summer')
-                             & (g['hasData'] == np.True_)],
+                 'coords': g[(g['q1_season'] == 'summer') &
+                             (g['hasData'] == np.True_)],
                  'alpha': 1},
                 {'label': 'winter, with data',
                  'color': 'blue',
-                 'coords': g[(g['q1_season'] == 'winter')
-                             & (g['hasData'] == np.True_)],
+                 'coords': g[(g['q1_season'] == 'winter') &
+                             (g['hasData'] == np.True_)],
                  'alpha': 1},
             ]
             l.append(
@@ -98,11 +98,11 @@ class ReadWriteTests(TestCase):
             axarr[pn].set_title("%s %s (winter n=%i->%i, summer n=%i->%i)" % (
                                 " | ".join(g.smj_genus.unique()),
                                 " | ".join(g.smj_species.unique()),
-                                l[1]['coords'].shape[0]
-                                + l[3]['coords'].shape[0],
+                                l[1]['coords'].shape[0] +
+                                l[3]['coords'].shape[0],
                                 l[1]['coords'].shape[0],
-                                l[0]['coords'].shape[0]
-                                + l[2]['coords'].shape[0],
+                                l[0]['coords'].shape[0] +
+                                l[2]['coords'].shape[0],
                                 l[0]['coords'].shape[0]))
 
         # compare image
