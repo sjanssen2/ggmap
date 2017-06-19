@@ -2,6 +2,7 @@ from unittest import TestCase, main
 import pandas as pd
 from tempfile import mkstemp
 import numpy as np
+from os import remove
 
 from mpl_toolkits.basemap import Basemap
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ class ReadWriteTests(TestCase):
             get_data_path('drawMap/basemap.meta.migration.tsv'),
             sep='\t', index_col=0)
 
-    def drawmap_test(self, name):
+    def help_compare_drawmap(self, name):
         """ Helper function to compare drawMap images """
         file_plotname = 'basemap.%s.png' % name
         file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
@@ -39,7 +40,9 @@ class ReadWriteTests(TestCase):
         res = compare_images(get_data_path('drawMap/'+file_plotname),
                              file_dummy,
                              file_image_diff='./diff.'+file_plotname)
-        self.assertTrue(res[0])
+        if res[0] is True:
+            remove(file_dummy)
+        return res[0]
 
     def test_drawMap_alaska(self):
         # create plot
@@ -64,7 +67,7 @@ class ReadWriteTests(TestCase):
         drawMap(l, basemap=self.basemap_alaska)
 
         # compare image
-        self.drawmap_test('alaska')
+        self.assertTrue(self.help_compare_drawmap('alaska'))
 
     def test_drawMap_migration(self):
         pn = 0
@@ -106,36 +109,36 @@ class ReadWriteTests(TestCase):
                                 l[0]['coords'].shape[0]))
 
         # compare image
-        self.drawmap_test('migration')
+        self.assertTrue(self.help_compare_drawmap('migration'))
 
     def test_drawMap_default(self):
         l = [{'coords': self.meta_basemap_migration}]
         drawMap(l)
-        self.drawmap_test('default')
+        self.assertTrue(self.help_compare_drawmap('default'))
 
     def test_drawMap_color(self):
         l = [{'coords': self.meta_basemap_migration,
               'color': 'black'}]
         drawMap(l)
-        self.drawmap_test('color')
+        self.assertTrue(self.help_compare_drawmap('color'))
 
     def test_drawMap_size(self):
         l = [{'coords': self.meta_basemap_migration,
               'size': 200}]
         drawMap(l)
-        self.drawmap_test('size')
+        self.assertTrue(self.help_compare_drawmap('size'))
 
     def test_drawMap_alpha(self):
         l = [{'coords': self.meta_basemap_migration,
               'alpha': 0.1}]
         drawMap(l)
-        self.drawmap_test('alpha')
+        self.assertTrue(self.help_compare_drawmap('alpha'))
 
     def test_drawMap_label(self):
         l = [{'coords': self.meta_basemap_migration,
               'label': 'Voegel'}]
         drawMap(l)
-        self.drawmap_test('label')
+        self.assertTrue(self.help_compare_drawmap('label'))
 
     def test_missing_coords(self):
         allcols = set(self.meta_basemap_migration.columns)
