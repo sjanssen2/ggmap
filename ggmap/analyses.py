@@ -7,6 +7,7 @@ import hashlib
 import os
 import pickle
 import io
+from io import StringIO
 import collections
 
 import pandas as pd
@@ -17,6 +18,7 @@ import matplotlib.image as mpimg
 import matplotlib.gridspec as gridspec
 
 from skbio.stats.distance import DistanceMatrix
+from skbio.tree import TreeNode
 import seaborn as sns
 
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
@@ -72,6 +74,15 @@ def _get_ref_phylogeny(file_tree=None):
 
 def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     coll = dict()
+    if rarefaction_depth is None:
+        try:
+            x = pd.read_csv('%s/alpha_input.txt' % (
+                workdir), sep='\t', index_col=0)
+            return x
+        except EmptyDataError as e:
+            raise EmptyDataError(str(e) +
+                                 "\nMaybe your reference tree is wrong?!")
+
     for iteration in range(num_iterations):
         try:
             x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
@@ -187,6 +198,46 @@ def rarefaction_curves(counts, metadata,
                        num_steps=20, num_threads=10,
                        dry=True, use_grid=True, nocache=False,
                        reference_tree=None, max_depth=None, workdir=None):
+    """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        The raw read counts. Columns are samples, rows are features.
+    metadata : Pandas.DataFrame
+        Metadata for samples, from which 5 most informative columns will be
+        selected for plotting against alpha diversity.
+    metrics : [str]
+        List of alpha diversity metrics to use.
+        Default is ["PD_whole_tree", "shannon", "observed_otus"]
+    num_steps : int
+        Number of different rarefaction steps to test. The higher the slower.
+        Default is 20.
+    num_threads : int
+        Number of cores to use for parallelization. Default is 10.
+    dry : bool
+        If True: only prepare working directory and create necessary input
+        files and print the command that would be executed in a non dry run.
+        For debugging. Workdir is not deleted.
+        "pre_execute" is called, but not "post_execute".
+        Default is True.
+    use_grid : bool
+        If True, use qsub to schedule as a grid job, otherwise run locally.
+        Default is True.
+    nocache : bool
+        Normally, successful results are cached in .anacache directory to be
+        retrieved when called a second time. You can deactivate this feature
+        (useful for testing) by setting "nocache" to False.
+    reference_tree : str
+        Filepath to a newick tree file, which will be the phylogeny for unifrac
+        alpha diversity distances. By default, qiime's GreenGenes tree is used.
+    max_depth : int
+        Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
+        used.
+    workdir : str
+        Filepath to an existing temporary working directory. This will only
+        call post_execute to parse results.
+    """
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
@@ -329,7 +380,8 @@ def rarefy(counts, rarefaction_depth,
                      dry=dry,
                      use_grid=use_grid,
                      ppn=1,
-                     nocache=nocache)
+                     nocache=nocache,
+                     workdir=workdir)
 
 
 def alpha_diversity(counts, rarefaction_depth,
@@ -375,22 +427,26 @@ def alpha_diversity(counts, rarefaction_depth,
 
     def commands(workdir, ppn, args):
         commands = []
-        commands.append(('parallel_multiple_rarefactions.py '
-                         '-T '                       # direct polling
-                         '-i %s '                    # input biom file
-                         '-m %i '                    # min rarefaction depth
-                         '-x %i '                    # max rarefaction depth
-                         '-s 1 '                     # depth steps
-                         '-o %s '                    # output directory
-                         '-n %i '                 # number iterations per depth
-                         '--jobs_to_start %i') % (   # number parallel jobs
-            workdir+'/input.biom',
-            args['rarefaction_depth'],
-            args['rarefaction_depth'],
-            workdir+'/rarefactions',
-            args['num_iterations'],
-            ppn))
+        if args['rarefaction_depth'] is not None:
+            commands.append(('parallel_multiple_rarefactions.py '
+                             '-T '      # direct polling
+                             '-i %s '   # input biom file
+                             '-m %i '   # min rarefaction depth
+                             '-x %i '   # max rarefaction depth
+                             '-s 1 '    # depth steps
+                             '-o %s '   # output directory
+                             '-n %i '   # number iterations per depth
+                             '--jobs_to_start %i') % (   # number parallel jobs
+                workdir+'/input.biom',
+                args['rarefaction_depth'],
+                args['rarefaction_depth'],
+                workdir+'/rarefactions',
+                args['num_iterations'],
+                ppn))
 
+        dir_bioms = workdir+'/rarefactions'
+        if args['rarefaction_depth'] is None:
+            dir_bioms = workdir
         commands.append(('parallel_alpha_diversity.py '
                          '-T '                      # direct polling
                          '-i %s '                   # dir to rarefied tables
@@ -398,7 +454,7 @@ def alpha_diversity(counts, rarefaction_depth,
                          '--metrics %s '            # list of alpha div metrics
                          '-t %s '                   # tree reference file
                          '--jobs_to_start %i') % (  # number parallel jobs
-            workdir+'/rarefactions',
+            dir_bioms,
             workdir+'/alpha_div/',
             ",".join(args['metrics']),
             _get_ref_phylogeny(args['reference_tree']),
@@ -434,7 +490,7 @@ def beta_diversity(counts,
                             "weighted_unifrac",
                             "bray_curtis"],
                    dry=True, use_grid=True, nocache=False,
-                   reference_tree=None):
+                   reference_tree=None, workdir=None):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -488,11 +544,108 @@ def beta_diversity(counts,
                      dry=dry,
                      use_grid=use_grid,
                      ppn=1,
-                     nocache=nocache)
+                     nocache=nocache,
+                     workdir=workdir)
+
+
+def sepp(counts,
+         dry=True, use_grid=True, nocache=False, workdir=None,
+         ppn=10, pmem='10GB'):
+    """Tip insertion of deblur sequences into GreenGenes backbone tree.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    dry : bool
+        If True: only prepare working directory and create necessary input
+        files and print the command that would be executed in a non dry run.
+        For debugging. Workdir is not deleted.
+        "pre_execute" is called, but not "post_execute".
+        Default is True.
+    use_grid : bool
+        If True, use qsub to schedule as a grid job, otherwise run locally.
+        Default is True.
+    nocache : bool
+        Normally, successful results are cached in .anacache directory to be
+        retrieved when called a second time. You can deactivate this feature
+        (useful for testing) by setting "nocache" to False.
+    workdir : str
+        Filepath to an existing temporary working directory. This will only
+        call post_execute to parse results.
+
+    Returns
+    -------
+    ???"""
+    def pre_execute(workdir, args):
+        # write all deblur sequences into one file
+        file_fragments = workdir + '/sequences.mfa'
+        f = open(file_fragments, 'w')
+        for sequence in args['seqs']:
+            f.write('>%s\n%s\n' % (sequence, sequence))
+        f.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append('cd %s' % workdir)
+        commands.append('%srun-sepp.sh "%s" res' % (
+            '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
+            workdir+'/sequences.mfa'))
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        # read the resuling insertion tree as an skbio TreeNode object
+        tree = TreeNode.read(workdir+'/res_placement.tog.relabelled.tre')
+
+        # use the phylogeny to determine tips lineage
+        lineages = []
+        features = []
+        for i, tip in enumerate(tree.tips()):
+            if tip.name.isdigit():
+                continue
+
+            lineage = []
+            for ancestor in tip.ancestors():
+                try:
+                    float(ancestor.name)
+                except TypeError:
+                    pass
+                except ValueError:
+                    lineage.append(ancestor.name)
+
+            lineages.append("; ".join(reversed(lineage)))
+            features.append(tip.name)
+
+        # storing tree as newick string is necessary since large trees would
+        # result in too many recursions for the python heap :-/
+        newick = StringIO()
+        tree.write(newick)
+        return {'taxonomy': pd.DataFrame(data=lineages,
+                                         index=features,
+                                         columns=['taxonomy']),
+                'tree': newick.getvalue()}
+
+    res = _executor('sepp',
+                    {'seqs': sorted(counts.index)},
+                    pre_execute,
+                    commands,
+                    post_execute,
+                    dry=dry,
+                    use_grid=use_grid,
+                    ppn=ppn,
+                    pmem=pmem,
+                    nocache=nocache,
+                    walltime='12:00:00',
+                    environment='seppGG_py3',
+                    workdir=workdir)
+
+    res['tree'] = TreeNode.read(StringIO(res['tree']))
+    return res
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
-              dry=True, use_grid=True, ppn=10, nocache=False, workdir=None):
+              dry=True, use_grid=True, ppn=10, nocache=False, workdir=None,
+              pmem='8GB', environment=QIIME_ENV, walltime='4:00:00'):
     """
 
     Parameters
@@ -534,7 +687,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 sys.stderr.write("\n\n".join(lst_commands))
                 return None
             with subprocess.Popen("source activate %s && %s" %
-                                  (QIIME_ENV, " && ".join(lst_commands)),
+                                  (environment, " && ".join(lst_commands)),
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
@@ -542,7 +695,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                     raise ValueError("something went wrong")
         else:
             cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
-                        QIIME_ENV, ppn=ppn, wait=True, dry=dry)
+                        QIIME_ENV, ppn=ppn, wait=True, dry=dry, pmem=pmem,
+                        walltime=walltime)
             if dry:
                 return None
     else:
