@@ -23,8 +23,6 @@ class SnippetTests(TestCase):
         self.fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
                        'norm_q2_genpop', 'Q2', 'sample substance', 'seasons',
                        'sex', 'smj_genusspecies', 'weight_log']
-        self.my_dpi = 96
-        self.figsize = (800/self.my_dpi, 550/self.my_dpi)
 
         self.exp_alpha = dict()
 
@@ -537,47 +535,51 @@ class SnippetTests(TestCase):
     #         self.assertTrue(res)
 
     def test_plotDistant_groups(self):
-        for field in ['Q2']: #self.fields:
-            print(field)
-            fig, ax = plt.subplots(figsize=self.figsize, dpi=self.my_dpi)
+        for field in self.fields:
+            fig, ax = plt.subplots()
             obs = plotDistant_groups(**(self.exp_alpha[field]),
                                      pthresh=0.05,
                                      _type='alpha', draw_edgelabel=True, ax=ax)
-            file_plotname = 'alpha_network_.%s.png' % field
+            file_plotname = 'alpha_network_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
             plt.savefig(file_dummy)
             res = compare_images(
-                get_data_path('detectGroups/Alpha/network_%s.png' % field),
+                get_data_path('detectGroups/Alpha/alpha_network_%s.png' %
+                              field),
                 file_dummy,
                 file_image_diff='./diff.'+file_plotname)
             if res[0] is True:
                 remove(file_dummy)
+            else:
+                print(res)
             self.assertTrue(res[0])
 
-    # def test_plotGroup_histograms(self):
-    #     for field in ['Q2']: #self.fields:
-    #         print(field)
-    #         fig, ax = plt.subplots(figsize=self.figsize, dpi=self.my_dpi)
-    #         alpha = pd.read_csv(get_data_path(
-    #             'detectGroups/Alpha/alpha_%s.tsv' % field),
-    #             sep="\t", header=None, index_col=0).iloc[:, 0]
-    #         alpha.name = 'PD_whole_tree'
-    #         meta = pd.read_csv(get_data_path(
-    #             'detectGroups/meta_%s.tsv' % field),
-    #             sep="\t", header=None, index_col=0,
-    #             names=['index', field], dtype=str).loc[:, field]
-    #
-    #         obs = plotGroup_histograms(alpha, meta, ax=ax)
-    #         file_plotname = 'alpha_histogram_.%s.png' % field
-    #         file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-    #         plt.savefig(file_dummy)
-    #         res = compare_images(
-    #             get_data_path('detectGroups/Alpha/histogram_%s.png' % field),
-    #             file_dummy,
-    #             file_image_diff='./diff.'+file_plotname)
-    #         if res[0] is True:
-    #             remove(file_dummy)
-    #         self.assertTrue(res[0])
+    def test_plotGroup_histograms(self):
+        for field in self.fields:
+            fig, ax = plt.subplots()
+            alpha = pd.read_csv(get_data_path(
+                'detectGroups/Alpha/alpha_%s.tsv' % field),
+                sep="\t", header=None, index_col=0).iloc[:, 0]
+            alpha.name = 'PD_whole_tree'
+            meta = pd.read_csv(get_data_path(
+                'detectGroups/meta_%s.tsv' % field),
+                sep="\t", header=None, index_col=0,
+                names=['index', field], dtype=str).loc[:, field]
+
+            obs = plotGroup_histograms(alpha, meta, ax=ax)
+            file_plotname = 'alpha_histogram_%s.png' % field
+            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+            plt.savefig(file_dummy)
+            res = compare_images(
+                get_data_path('detectGroups/Alpha/alpha_histogram_%s.png' %
+                              field),
+                file_dummy,
+                file_image_diff='./diff.'+file_plotname)
+            if res[0] is True:
+                remove(file_dummy)
+            else:
+                print(res)
+            self.assertTrue(res[0])
 
 
 if __name__ == '__main__':
