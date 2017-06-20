@@ -784,10 +784,10 @@ def detect_distant_groups_alpha(alpha, groupings,
     groupings = groupings.loc[list(alpha.index)]
 
     # remove groups with less than minNum samples per group
-    groups = [name
-              for name, counts
-              in groupings.value_counts().iteritems()
-              if counts >= min_group_size]
+    groups = sorted([name
+                     for name, counts
+                     in groupings.value_counts().iteritems()
+                     if counts >= min_group_size])
 
     network = dict()
     for a, b in combinations(groups, 2):
@@ -847,10 +847,10 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
     groupings = groupings.loc[list(beta_dm.ids)]
 
     # remove groups with less than minNum samples per group
-    groups = [name
-              for name, counts
-              in groupings.value_counts().iteritems()
-              if counts >= min_group_size]
+    groups = sorted([name
+                     for name, counts
+                     in groupings.value_counts().iteritems()
+                     if counts >= min_group_size])
 
     network = dict()
     for a, b in combinations(groups, 2):
@@ -932,7 +932,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     # initialize empty graph
     G = nx.Graph()
     # add node for every group to the graph
-    G.add_nodes_from(sorted(list(n_per_group.index)))
+    G.add_nodes_from(list(n_per_group.index))
 
     numComp = len(list(combinations(n_per_group.keys(), 2)))
 
@@ -960,8 +960,15 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
 
         # use circular graph layout. Spring layout did not really work here.
         pos = nx.circular_layout(G)
+        # nodes are randomly assigned to fixed positions, here I re assigned
+        # positions by sorted node names to make images determined.
+        new_pos = dict()
+        l_pos = sorted(list(pos.values()), key=lambda i: i[0] + i[1])
+        l_nodes = list(sorted(pos.keys()))
+        for (key, value) in zip(l_nodes, l_pos):
+            new_pos[key] = value
         weights = [G[u][v]['weight'] for u, v in G.edges()]
-        nx.draw(G, with_labels=False, pos=pos, width=weights,
+        nx.draw(G, with_labels=False, pos=new_pos, width=weights,
                 node_color=NODECOLOR[_type],
                 edge_color='gray',
                 ax=ax)
@@ -969,20 +976,22 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         # draw labels for nodes instead of pure names
         for node in G:
             nx.draw_networkx_labels(
-                G, pos,
+                G, new_pos,
                 labels={node: "%s\nn=%i" % (node, n_per_group.loc[node])},
                 font_color='black', font_weight='bold',
                 ax=ax)
 
         # draw edge labels
         if draw_edgelabel:
+            # ensure that edges are addressed in the same way, i.e. (a, b)
+            # is not (b, a): tuple(sorted(...))
             edge_labels = \
-                dict([((a, b,), data['pvalue'])
+                dict([(tuple(sorted((a, b,))), data['pvalue'])
                       for a, b, data
                       in G.edges(data=True)
                       if (float(data['pvalue']) < pthresh / numComp) or
                       (len(network.keys()) < 8)])
-            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels,
+            nx.draw_networkx_edge_labels(G, new_pos, edge_labels=edge_labels,
                                          ax=ax, label_pos=0.25)
             # , label_pos=0.5, font_size=10, font_color='k',
             # font_family='sans-serif', font_weight='normal', alpha=1.0,
