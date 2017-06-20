@@ -548,9 +548,9 @@ class SnippetTests(TestCase):
     def test_plotDistant_groups(self):
         for field in self.fields:
             fig, ax = plt.subplots()
-            obs = plotDistant_groups(**(self.exp_alpha[field]),
-                                     pthresh=0.05,
-                                     _type='alpha', draw_edgelabel=True, ax=ax)
+            plotDistant_groups(**(self.exp_alpha[field]),
+                               pthresh=0.05,
+                               _type='alpha', draw_edgelabel=True, ax=ax)
             file_plotname = 'alpha_network_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
             plt.savefig(file_dummy)
@@ -578,7 +578,7 @@ class SnippetTests(TestCase):
                 sep="\t", header=None, index_col=0,
                 names=['index', field], dtype=str).loc[:, field]
 
-            obs = plotGroup_histograms(alpha, meta, ax=ax)
+            plotGroup_histograms(alpha, meta, ax=ax)
             file_plotname = 'alpha_histogram_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
             plt.savefig(file_dummy)
