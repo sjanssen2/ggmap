@@ -963,7 +963,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         # nodes are randomly assigned to fixed positions, here I re assigned
         # positions by sorted node names to make images determined.
         new_pos = dict()
-        l_pos = sorted(list(pos.values()), key=lambda i: i[0] + i[1])
+        l_pos = sorted(list(pos.values()), key=lambda i: i[0] + 1000 * i[1])
         l_nodes = list(sorted(pos.keys()))
         for (key, value) in zip(l_nodes, l_pos):
             new_pos[key] = value
