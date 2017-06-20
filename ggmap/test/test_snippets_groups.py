@@ -545,7 +545,7 @@ class SnippetTests(TestCase):
             res = self.compareNetworks(obs, self.exp_beta[field])
             self.assertTrue(res)
 
-    def test_plotDistant_groups(self):
+    def test_plotDistant_groups_alpha(self):
         for field in self.fields:
             fig, ax = plt.subplots()
             plotDistant_groups(**(self.exp_alpha[field]),
@@ -560,6 +560,28 @@ class SnippetTests(TestCase):
                               field),
                 file_dummy,
                 file_image_diff='./diff.'+file_plotname, threshold=10)
+            if res[0] is True:
+                remove(file_dummy)
+            else:
+                print(res)
+            self.assertTrue(res[0])
+
+    def test_plotDistant_groups_beta(self):
+        for field in self.fields:
+            fig, ax = plt.subplots()
+            plotDistant_groups(**(self.exp_beta[field]),
+                               pthresh=0.05,
+                               _type='beta', draw_edgelabel=True, ax=ax)
+            file_plotname = 'beta_network_%s.png' % field
+            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+            plt.savefig(file_dummy)
+            plt.close()
+            res = compare_images(
+                get_data_path('detectGroups/Beta/beta_network_%s.png' %
+                              field),
+                file_dummy,
+                file_image_diff='./diff.'+file_plotname,
+                threshold=300)  # threshold accounts for crossing labels
             if res[0] is True:
                 remove(file_dummy)
             else:
