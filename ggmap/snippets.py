@@ -932,7 +932,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     # initialize empty graph
     G = nx.Graph()
     # add node for every group to the graph
-    G.add_nodes_from(list(n_per_group.index))
+    G.add_nodes_from(sorted(list(n_per_group.index)))
 
     numComp = len(list(combinations(n_per_group.keys(), 2)))
 
