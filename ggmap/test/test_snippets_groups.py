@@ -11,7 +11,8 @@ from skbio.stats.distance import DistanceMatrix
 from ggmap.snippets import (detect_distant_groups_alpha,
                             detect_distant_groups,
                             plotDistant_groups,
-                            plotGroup_histograms)
+                            plotGroup_histograms,
+                            plotGroup_permanovas)
 from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
@@ -607,6 +608,32 @@ class SnippetTests(TestCase):
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_histogram_%s.png' %
+                              field),
+                file_dummy,
+                file_image_diff='./diff.'+file_plotname)
+            if res[0] is True:
+                remove(file_dummy)
+            else:
+                print(res)
+            self.assertTrue(res[0])
+
+    def test_plotGroup_permanovas(self):
+        for field in self.fields:
+            fig, ax = plt.subplots()
+            beta = DistanceMatrix.read(
+                get_data_path('detectGroups/Beta/beta_%s.dm' % field))
+            meta = pd.read_csv(get_data_path(
+                'detectGroups/meta_%s.tsv' % field),
+                sep="\t", header=None, index_col=0,
+                names=['index', field], dtype=str).loc[:, field]
+
+            plotGroup_permanovas(beta, meta, **(self.exp_beta[field]), ax=ax)
+            file_plotname = 'beta_permanova_%s.png' % field
+            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+            plt.savefig(file_dummy)
+            plt.close()
+            res = compare_images(
+                get_data_path('detectGroups/Beta/beta_permanova_%s.png' %
                               field),
                 file_dummy,
                 file_image_diff='./diff.'+file_plotname)
