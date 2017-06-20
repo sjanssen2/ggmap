@@ -1,20 +1,31 @@
 from unittest import TestCase, main
 import pandas as pd
 from math import isclose
+from tempfile import mkstemp
+from os import remove
 
 import matplotlib.pyplot as plt
 from skbio.util import get_data_path
 from skbio.stats.distance import DistanceMatrix
 
 from ggmap.snippets import (detect_distant_groups_alpha,
-                            detect_distant_groups)
+                            detect_distant_groups,
+                            plotDistant_groups,
+                            plotGroup_histograms)
+from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
 
 
-class ReadWriteTests(TestCase):
+class SnippetTests(TestCase):
     def setUp(self):
+        self.fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
+                       'norm_q2_genpop', 'Q2', 'sample substance', 'seasons',
+                       'sex', 'smj_genusspecies', 'weight_log']
+        self.my_dpi = 96
+        self.figsize = (800/self.my_dpi, 550/self.my_dpi)
+
         self.exp_alpha = dict()
 
         self.exp_alpha['AGE'] = {
@@ -467,73 +478,106 @@ class ReadWriteTests(TestCase):
         for key in a.keys():
             if key == 'network':
                 for gr_x in a[key].keys():
-                    if (gr_x not in a[key]) | (gr_x not in b[key]):
-                        return False
+                    self.assertIn(gr_x, a[key])
+                    self.assertIn(gr_x, b[key])
                     for gr_y in a[key][gr_x].keys():
-                        if (gr_y not in a[key][gr_x]) |\
-                           (gr_y not in b[key][gr_x]):
-                            return False
+                        self.assertIn(gr_y, a[key][gr_x])
+                        self.assertIn(gr_y, b[key][gr_x])
                         for field in a[key][gr_x][gr_y].keys():
                             if field == 'p-value':
                                 continue
-                            if field == 'avgdist':
-                                if isclose(a[key][gr_x][gr_y][field],
-                                           b[key][gr_x][gr_y][field],
-                                           rel_tol=1e-4) is False:
-                                    return False
-                            if a[key][gr_x][gr_y][field] !=\
-                               b[key][gr_x][gr_y][field]:
-                                return False
-                continue
-            if key == 'n_per_group':
-                if a[key].sort_index().equals(b[key].sort_index()) is False:
-                    return False
-                continue
-            if a[key] != b[key]:
-                return False
+                            elif field == 'avgdist':
+                                self.assertTrue(
+                                    isclose(a[key][gr_x][gr_y][field],
+                                            b[key][gr_x][gr_y][field],
+                                            rel_tol=1e-4))
+                            else:
+                                self.assertEqual(a[key][gr_x][gr_y][field],
+                                                 b[key][gr_x][gr_y][field])
+            elif key == 'n_per_group':
+                sorted_a = a[key].sort_index()
+                sorted_b = b[key].sort_index()
+                self.assertTrue(sorted_a.equals(sorted_b))
+            else:
+                self.assertEqual(a[key], b[key])
 
         return True
 
-    def test_detect_distant_groups_alpha(self):
-        fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
-                  'norm_q2_genpop', 'Q2', 'sample substance', 'seasons',
-                  'sex', 'smj_genusspecies', 'weight_log']
+    # def test_detect_distant_groups_alpha(self):
+    #     for field in self.fields:
+    #         alpha = pd.read_csv(get_data_path(
+    #             'detectGroups/Alpha/alpha_%s.tsv' % field),
+    #             sep="\t", header=None, index_col=0).iloc[:, 0]
+    #         alpha.name = 'PD_whole_tree'
+    #         meta = pd.read_csv(get_data_path(
+    #             'detectGroups/meta_%s.tsv' % field),
+    #             sep="\t", header=None, index_col=0,
+    #             names=['index', field], dtype=str).loc[:, field]
+    #         obs = detect_distant_groups_alpha(alpha, meta)
+    #
+    #         res = self.compareNetworks(obs, self.exp_alpha[field])
+    #         self.assertTrue(res)
+    #
+    # def test_detect_distant_groups(self):
+    #     for field in self.fields:
+    #         beta = DistanceMatrix.read(
+    #             get_data_path('detectGroups/Beta/beta_%s.dm' % field))
+    #         meta = pd.read_csv(get_data_path(
+    #             'detectGroups/meta_%s.tsv' % field),
+    #             sep="\t", header=None, index_col=0,
+    #             names=['index', field], dtype=str).loc[:, field]
+    #         min_group_size = 5
+    #         if field == 'coll_year':
+    #             min_group_size = 10
+    #         obs = detect_distant_groups(beta, 'unweighted_unifrac', meta,
+    #                                     num_permutations=99,
+    #                                     min_group_size=min_group_size)
+    #
+    #         res = self.compareNetworks(obs, self.exp_beta[field])
+    #         self.assertTrue(res)
 
-        for field in fields:
-            alpha = pd.read_csv(get_data_path(
-                'detectGroups/Alpha/alpha_%s.tsv' % field),
-                sep="\t", header=None, index_col=0).iloc[:, 0]
-            alpha.name = 'PD_whole_tree'
-            meta = pd.read_csv(get_data_path(
-                'detectGroups/meta_%s.tsv' % field),
-                sep="\t", header=None, index_col=0,
-                names=['index', field], dtype=str).loc[:, field]
-            obs = detect_distant_groups_alpha(alpha, meta)
+    def test_plotDistant_groups(self):
+        for field in ['Q2']: #self.fields:
+            print(field)
+            fig, ax = plt.subplots(figsize=self.figsize, dpi=self.my_dpi)
+            obs = plotDistant_groups(**(self.exp_alpha[field]),
+                                     pthresh=0.05,
+                                     _type='alpha', draw_edgelabel=True, ax=ax)
+            file_plotname = 'alpha_network_.%s.png' % field
+            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+            plt.savefig(file_dummy)
+            res = compare_images(
+                get_data_path('detectGroups/Alpha/network_%s.png' % field),
+                file_dummy,
+                file_image_diff='./diff.'+file_plotname)
+            if res[0] is True:
+                remove(file_dummy)
+            self.assertTrue(res[0])
 
-            res = self.compareNetworks(obs, self.exp_alpha[field])
-            self.assertTrue(res)
-
-    def test_detect_distant_groups(self):
-        fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
-                  'norm_q2_genpop', 'Q2', 'sample substance', 'seasons',
-                  'sex', 'smj_genusspecies', 'weight_log']
-
-        for field in fields:
-            beta = DistanceMatrix.read(
-                get_data_path('detectGroups/Beta/beta_%s.dm' % field))
-            meta = pd.read_csv(get_data_path(
-                'detectGroups/meta_%s.tsv' % field),
-                sep="\t", header=None, index_col=0,
-                names=['index', field], dtype=str).loc[:, field]
-            min_group_size = 5
-            if field == 'coll_year':
-                min_group_size = 10
-            obs = detect_distant_groups(beta, 'unweighted_unifrac', meta,
-                                        num_permutations=99,
-                                        min_group_size=min_group_size)
-
-            res = self.compareNetworks(obs, self.exp_beta[field])
-            self.assertTrue(res)
+    # def test_plotGroup_histograms(self):
+    #     for field in ['Q2']: #self.fields:
+    #         print(field)
+    #         fig, ax = plt.subplots(figsize=self.figsize, dpi=self.my_dpi)
+    #         alpha = pd.read_csv(get_data_path(
+    #             'detectGroups/Alpha/alpha_%s.tsv' % field),
+    #             sep="\t", header=None, index_col=0).iloc[:, 0]
+    #         alpha.name = 'PD_whole_tree'
+    #         meta = pd.read_csv(get_data_path(
+    #             'detectGroups/meta_%s.tsv' % field),
+    #             sep="\t", header=None, index_col=0,
+    #             names=['index', field], dtype=str).loc[:, field]
+    #
+    #         obs = plotGroup_histograms(alpha, meta, ax=ax)
+    #         file_plotname = 'alpha_histogram_.%s.png' % field
+    #         file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+    #         plt.savefig(file_dummy)
+    #         res = compare_images(
+    #             get_data_path('detectGroups/Alpha/histogram_%s.png' % field),
+    #             file_dummy,
+    #             file_image_diff='./diff.'+file_plotname)
+    #         if res[0] is True:
+    #             remove(file_dummy)
+    #         self.assertTrue(res[0])
 
 
 if __name__ == '__main__':
