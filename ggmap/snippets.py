@@ -1071,10 +1071,10 @@ def plotGroup_permanovas(beta, groupings,
     groupings = groupings.loc[list(beta.ids)]
 
     # remove groups with less than minNum samples per group
-    groups = [name
-              for name, counts
-              in groupings.value_counts().iteritems()
-              if counts >= min_group_size]
+    groups = sorted([name
+                     for name, counts
+                     in groupings.value_counts().iteritems()
+                     if counts >= min_group_size])
 
     if ax is None:
         fig, ax = plt.subplots(1, 1)
@@ -1092,10 +1092,18 @@ def plotGroup_permanovas(beta, groupings,
     name_right = 'right'
     name_inter = 'between'
     for a, b in combinations(groups, 2):
+        nw = None
+        if a in network:
+            if b in network[a]:
+                nw = network[a][b]
+        if (nw is None) & (b in network):
+            if a in network[b]:
+                nw = network[b][a]
+
         edgename = 'left:%s\np: %.*f\nright:%s' % (
             a,
-            _getfirstsigdigit(network[a][b]['p-value']),
-            network[a][b]['p-value'],
+            _getfirstsigdigit(nw['p-value']),
+            nw['p-value'],
             b)
         dists = dict()
         # intra group distances
