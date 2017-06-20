@@ -21,7 +21,7 @@ plt.rc('font', family='DejaVu Sans')
 class SnippetTests(TestCase):
     def setUp(self):
         self.fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
-                       'norm_q2_genpop', 'Q2', 'sample substance', 'seasons',
+                       'norm_q2_genpop', 'Q2', 'sample_substance', 'seasons',
                        'sex', 'smj_genusspecies', 'weight_log']
 
         self.exp_alpha = dict()
@@ -102,13 +102,13 @@ class SnippetTests(TestCase):
             'metric_name': 'PD_whole_tree',
             'num_permutations': None}
 
-        self.exp_alpha['sample substance'] = {
+        self.exp_alpha['sample_substance'] = {
             'min_group_size': 21,
             'n_per_group':
             pd.Series(data=[105, 57],
                       index=['G', 'P'],
-                      name='sample substance'),
-            'group_name': 'sample substance',
+                      name='sample_substance'),
+            'group_name': 'sample_substance',
             'network': {'G': {'P': {'p-value': 0.39602006721574157}}},
             'metric_name': 'PD_whole_tree',
             'num_permutations': None}
@@ -321,13 +321,13 @@ class SnippetTests(TestCase):
             'metric_name': 'unweighted_unifrac',
             'num_permutations': 99}
 
-        self.exp_beta['sample substance'] = {
+        self.exp_beta['sample_substance'] = {
             'min_group_size': 5,
             'n_per_group':
             pd.Series(data=[105, 57, 13],
                       index=['G', 'P', 'P/G'],
-                      name='sample substance'),
-            'group_name': 'sample substance',
+                      name='sample_substance'),
+            'group_name': 'sample_substance',
             'network':
             {'G': {'P/G': {'avgdist': 0.83669917714891728,
                            'p-value': 0.55359999999999998},
@@ -475,23 +475,34 @@ class SnippetTests(TestCase):
     def compareNetworks(self, a, b):
         for key in a.keys():
             if key == 'network':
-                for gr_x in a[key].keys():
-                    self.assertIn(gr_x, a[key])
-                    self.assertIn(gr_x, b[key])
-                    for gr_y in a[key][gr_x].keys():
-                        self.assertIn(gr_y, a[key][gr_x])
-                        self.assertIn(gr_y, b[key][gr_x])
-                        for field in a[key][gr_x][gr_y].keys():
+                elems_a = set().union(a['network'].keys(),
+                                      *a['network'].values())
+                elems_b = set().union(b['network'].keys(),
+                                      *b['network'].values())
+                self.assertCountEqual(elems_a, elems_b)
+
+                for a_x in a['network'].keys():
+                    for a_y in a['network'][a_x].keys():
+                        b_x, b_y = None, None
+                        if a_x in b['network']:
+                            if a_y in b['network'][a_x]:
+                                b_x, b_y = a_x, a_y
+                        if b_x is None:
+                            for i in b['network'].keys():
+                                if a_x in b['network'][i]:
+                                    b_x, b_y = a_y, a_x
+
+                        for field in a['network'][a_x][a_y].keys():
                             if field == 'p-value':
                                 continue
                             elif field == 'avgdist':
                                 self.assertTrue(
-                                    isclose(a[key][gr_x][gr_y][field],
-                                            b[key][gr_x][gr_y][field],
+                                    isclose(a['network'][a_x][a_y][field],
+                                            b['network'][b_x][b_y][field],
                                             rel_tol=1e-4))
                             else:
-                                self.assertEqual(a[key][gr_x][gr_y][field],
-                                                 b[key][gr_x][gr_y][field])
+                                self.assertEqual(a['network'][a_x][a_y][field],
+                                                 b['network'][b_x][b_y][field])
             elif key == 'n_per_group':
                 sorted_a = a[key].sort_index()
                 sorted_b = b[key].sort_index()
@@ -501,38 +512,38 @@ class SnippetTests(TestCase):
 
         return True
 
-    # def test_detect_distant_groups_alpha(self):
-    #     for field in self.fields:
-    #         alpha = pd.read_csv(get_data_path(
-    #             'detectGroups/Alpha/alpha_%s.tsv' % field),
-    #             sep="\t", header=None, index_col=0).iloc[:, 0]
-    #         alpha.name = 'PD_whole_tree'
-    #         meta = pd.read_csv(get_data_path(
-    #             'detectGroups/meta_%s.tsv' % field),
-    #             sep="\t", header=None, index_col=0,
-    #             names=['index', field], dtype=str).loc[:, field]
-    #         obs = detect_distant_groups_alpha(alpha, meta)
-    #
-    #         res = self.compareNetworks(obs, self.exp_alpha[field])
-    #         self.assertTrue(res)
-    #
-    # def test_detect_distant_groups(self):
-    #     for field in self.fields:
-    #         beta = DistanceMatrix.read(
-    #             get_data_path('detectGroups/Beta/beta_%s.dm' % field))
-    #         meta = pd.read_csv(get_data_path(
-    #             'detectGroups/meta_%s.tsv' % field),
-    #             sep="\t", header=None, index_col=0,
-    #             names=['index', field], dtype=str).loc[:, field]
-    #         min_group_size = 5
-    #         if field == 'coll_year':
-    #             min_group_size = 10
-    #         obs = detect_distant_groups(beta, 'unweighted_unifrac', meta,
-    #                                     num_permutations=99,
-    #                                     min_group_size=min_group_size)
-    #
-    #         res = self.compareNetworks(obs, self.exp_beta[field])
-    #         self.assertTrue(res)
+    def test_detect_distant_groups_alpha(self):
+        for field in self.fields:
+            alpha = pd.read_csv(get_data_path(
+                'detectGroups/Alpha/alpha_%s.tsv' % field),
+                sep="\t", header=None, index_col=0).iloc[:, 0]
+            alpha.name = 'PD_whole_tree'
+            meta = pd.read_csv(get_data_path(
+                'detectGroups/meta_%s.tsv' % field),
+                sep="\t", header=None, index_col=0,
+                names=['index', field], dtype=str).loc[:, field]
+            obs = detect_distant_groups_alpha(alpha, meta)
+
+            res = self.compareNetworks(obs, self.exp_alpha[field])
+            self.assertTrue(res)
+
+    def test_detect_distant_groups(self):
+        for field in self.fields:
+            beta = DistanceMatrix.read(
+                get_data_path('detectGroups/Beta/beta_%s.dm' % field))
+            meta = pd.read_csv(get_data_path(
+                'detectGroups/meta_%s.tsv' % field),
+                sep="\t", header=None, index_col=0,
+                names=['index', field], dtype=str).loc[:, field]
+            min_group_size = 5
+            if field == 'coll_year':
+                min_group_size = 10
+            obs = detect_distant_groups(beta, 'unweighted_unifrac', meta,
+                                        num_permutations=99,
+                                        min_group_size=min_group_size)
+
+            res = self.compareNetworks(obs, self.exp_beta[field])
+            self.assertTrue(res)
 
     def test_plotDistant_groups(self):
         for field in self.fields:
@@ -543,11 +554,12 @@ class SnippetTests(TestCase):
             file_plotname = 'alpha_network_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
             plt.savefig(file_dummy)
+            plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_network_%s.png' %
                               field),
                 file_dummy,
-                file_image_diff='./diff.'+file_plotname)
+                file_image_diff='./diff.'+file_plotname, threshold=10)
             if res[0] is True:
                 remove(file_dummy)
             else:
@@ -570,6 +582,7 @@ class SnippetTests(TestCase):
             file_plotname = 'alpha_histogram_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
             plt.savefig(file_dummy)
+            plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_histogram_%s.png' %
                               field),
