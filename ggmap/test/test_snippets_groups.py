@@ -531,7 +531,7 @@ class SnippetTests(TestCase):
     def test_detect_distant_groups(self):
         for field in self.fields:
             beta = DistanceMatrix.read(
-                get_data_path('detectGroups/Beta/beta_%s.dm' % field))
+                get_data_path('detectGroups/Beta/beta_%s.dm.txt' % field))
             meta = pd.read_csv(get_data_path(
                 'detectGroups/meta_%s.tsv' % field),
                 sep="\t", header=None, index_col=0,
@@ -621,7 +621,7 @@ class SnippetTests(TestCase):
         for field in self.fields:
             fig, ax = plt.subplots()
             beta = DistanceMatrix.read(
-                get_data_path('detectGroups/Beta/beta_%s.dm' % field))
+                get_data_path('detectGroups/Beta/beta_%s.dm.txt' % field))
             meta = pd.read_csv(get_data_path(
                 'detectGroups/meta_%s.tsv' % field),
                 sep="\t", header=None, index_col=0,
