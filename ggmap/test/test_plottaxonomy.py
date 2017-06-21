@@ -4,13 +4,16 @@ import matplotlib.pyplot as plt
 import tempfile
 import random
 import os
+from os import remove
+from io import StringIO
 import sys
 import numpy as np
+from tempfile import mkstemp
 
 from skbio.util import get_data_path
 import pandas as pd
 
-from ggmap.snippets import plotTaxonomy
+from ggmap.snippets import plotTaxonomy, pandas2biom
 from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
@@ -406,6 +409,100 @@ class TaxPlotTests(TestCase):
         with self.assertRaisesRegex(IOError, 'Taxonomy file not found!'):
             plotTaxonomy(self.filename_biom, self.metadata,
                          file_taxonomy='noFile')
+
+    def test_plotTaxonomy_filenotfound(self):
+        with self.assertRaisesRegex(IOError,
+                                    'OTU table file not found'):
+            plotTaxonomy(self.filename_biom+'notthere', self.metadata,
+                         file_taxonomy=self.taxonomy)
+
+    def test_plotTaxonomy_outreduction(self):
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     file_taxonomy=self.taxonomy)
+        self.assertIn('142 samples left with metadata and counts.',
+                      out.getvalue())
+
+    def test_plotTaxonomy_collapse(self):
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     file_taxonomy=self.taxonomy)
+        self.assertIn('9 taxa left after collapsing to Phylum.',
+                      out.getvalue())
+
+    def test_plotTaxonomy_filter(self):
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     minreadnr=5000, file_taxonomy=self.taxonomy)
+        self.assertIn('7 taxa left after filtering low abundant.',
+                      out.getvalue())
+
+    def test_plotTaxonomy_giventaxa(self):
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     plottaxa=['p__Actinobacteria', 'p__Bacteroidetes'],
+                     file_taxonomy=self.taxonomy)
+        self.assertIn('2 taxa left after restricting to provided list.',
+                      out.getvalue())
+
+    def test_plotTaxonomy_nogrouping(self):
+        with self.assertRaisesRegex(ValueError,
+                                    ('Cannot aggregate samples, '
+                                     'if no grouping is given!')):
+            plotTaxonomy(self.filename_biom, self.metadata,
+                         fct_aggregate=np.mean, file_taxonomy=self.taxonomy)
+
+    def test_plotTaxonomy_report(self):
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     minreadnr=5000, file_taxonomy=self.taxonomy)
+        self.assertIn('raw counts: 142', out.getvalue())
+        self.assertIn('raw meta: 287', out.getvalue())
+        self.assertIn('meta with counts: 142 samples x 5 fields',
+                      out.getvalue())
+        self.assertIn('counts with meta: 142', out.getvalue())
+
+    def test_plotTaxonomy_fillmissingranks(self):
+        sample_names = ['sampleA', 'sampleB', 'sampleC', 'sampleD']
+        taxstrings = ['k__bacteria',
+                      'k__bacteria; p__fantasia',
+                      'k__bacteria;p__fantasia;g__nona']
+        otus = ['otu1', 'otu2', 'otu3']
+        lineages = pd.Series(taxstrings, index=otus,
+                             name='taxonomy').to_frame()
+        file_lin = mkstemp()[1]
+        lineages.to_csv(file_lin, sep='\t')
+
+        counts = pd.DataFrame([[1, 2, 3, 4],
+                               [5, 6, 7, 8],
+                               [9, 10, 11, 12]],
+                              index=otus,
+                              columns=sample_names)
+        file_dummy = mkstemp()[1]
+        pandas2biom(file_dummy, counts)
+        meta = pd.Series(['a', 'a', 'a', 'b'], index=sample_names,
+                         name='dummy').to_frame()
+
+        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
+                                               meta, rank='Species',
+                                               file_taxonomy=file_lin,
+                                               minreadnr=0)
+        self.assertCountEqual(['s__'], rank_counts.index)
+
+        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
+                                               meta, rank='Kingdom',
+                                               file_taxonomy=file_lin,
+                                               minreadnr=0)
+        self.assertCountEqual(['k__bacteria'], rank_counts.index)
+
+        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
+                                               meta, rank='Phylum',
+                                               file_taxonomy=file_lin,
+                                               minreadnr=0)
+        self.assertCountEqual(['p__fantasia', 'p__'], rank_counts.index)
+
+        remove(file_dummy)
+        remove(file_lin)
 
 
 if __name__ == '__main__':
