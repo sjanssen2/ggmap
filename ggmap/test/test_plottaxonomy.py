@@ -413,31 +413,35 @@ class TaxPlotTests(TestCase):
     def test_plotTaxonomy_filenotfound(self):
         with self.assertRaisesRegex(IOError,
                                     'OTU table file not found'):
-            plotTaxonomy(self.filename_biom+'notthere', self.metadata)
+            plotTaxonomy(self.filename_biom+'notthere', self.metadata,
+                         file_taxonomy=self.taxonomy)
 
     def test_plotTaxonomy_outreduction(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out)
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     file_taxonomy=self.taxonomy)
         self.assertIn('142 samples left with metadata and counts.',
                       out.getvalue())
 
     def test_plotTaxonomy_collapse(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out)
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     file_taxonomy=self.taxonomy)
         self.assertIn('9 taxa left after collapsing to Phylum.',
                       out.getvalue())
 
     def test_plotTaxonomy_filter(self):
         out = StringIO()
         plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     minreadnr=5000)
+                     minreadnr=5000, file_taxonomy=self.taxonomy)
         self.assertIn('7 taxa left after filtering low abundant.',
                       out.getvalue())
 
     def test_plotTaxonomy_giventaxa(self):
         out = StringIO()
         plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     plottaxa=['p__Actinobacteria', 'p__Bacteroidetes'])
+                     plottaxa=['p__Actinobacteria', 'p__Bacteroidetes'],
+                     file_taxonomy=self.taxonomy)
         self.assertIn('2 taxa left after restricting to provided list.',
                       out.getvalue())
 
@@ -446,12 +450,12 @@ class TaxPlotTests(TestCase):
                                     ('Cannot aggregate samples, '
                                      'if no grouping is given!')):
             plotTaxonomy(self.filename_biom, self.metadata,
-                         fct_aggregate=np.mean)
+                         fct_aggregate=np.mean, file_taxonomy=self.taxonomy)
 
     def test_plotTaxonomy_report(self):
         out = StringIO()
         plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     minreadnr=5000)
+                     minreadnr=5000, file_taxonomy=self.taxonomy)
         self.assertIn('raw counts: 142', out.getvalue())
         self.assertIn('raw meta: 287', out.getvalue())
         self.assertIn('meta with counts: 142 samples x 5 fields',
