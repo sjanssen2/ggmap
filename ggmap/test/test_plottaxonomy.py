@@ -306,6 +306,15 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy},
         'threshold': 2525}
+    configs['tp_rawcounts'] = {
+        'description': 'plot raw taxa',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'rank': 'raw',
+                   'minreadnr': 5000},
+        'threshold': 1700}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
