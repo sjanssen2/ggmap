@@ -296,7 +296,8 @@ def plotTaxonomy(file_otutable,
                  no_top_labels=False,
                  grayscale=False,
                  out=sys.stdout):
-    """
+    """Plot taxonomy.
+
     Parameters
     ----------
     file_otutable : file
@@ -325,6 +326,10 @@ def plotTaxonomy(file_otutable,
         If True, print no labels on top of the bars. Default is False.
     grayscale : Bool
         If True, plot low abundant taxa with gray scale values.
+
+    Returns
+    -------
+    fig, rank_counts, graphinfo, vals
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -398,7 +403,7 @@ def plotTaxonomy(file_otutable,
     rank_counts /= rank_counts.sum(axis=0)
 
     # filter low abundant taxa
-    if len(lowAbundandTaxa) > 0:
+    if (grayscale is False) & (len(lowAbundandTaxa) > 0):
         lowReadTaxa = rank_counts.loc[lowAbundandTaxa, :].sum(axis=0)
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
@@ -417,7 +422,7 @@ def plotTaxonomy(file_otutable,
     # all for plotting
     # sort taxa according to sum of abundance
     taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
-    if len(lowAbundandTaxa) > 0:
+    if (grayscale is False) & (len(lowAbundandTaxa) > 0):
         taxaidx = [taxon
                    for taxon in taxaidx
                    if taxon != NAME_LOW_ABUNDANCE] + [NAME_LOW_ABUNDANCE]
@@ -504,6 +509,7 @@ def plotTaxonomy(file_otutable,
             ax = axarr[ypos]
         for i in range(0, vals.shape[0]):
             taxon = vals.index[i]
+            color = colors[taxon]
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
                                                .groupby('group_l1')):
@@ -519,7 +525,7 @@ def plotTaxonomy(file_otutable,
                 ax.fill_between(_shiftLeft(_repMiddleValues(xpos)),
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
-                                color=colors[taxon])
+                                color=color)
 
         # decorate graph with axes labels ...
         if print_sample_labels:
