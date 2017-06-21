@@ -314,7 +314,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'file_taxonomy': taxonomy,
                    'rank': 'raw',
                    'minreadnr': 5000},
-        'threshold': 0}
+        'threshold': 1700}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
