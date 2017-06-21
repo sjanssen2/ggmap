@@ -293,7 +293,9 @@ def plotTaxonomy(file_otutable,
                  minreadnr=50,
                  plottaxa=None,
                  fct_aggregate=None,
-                 no_top_labels=False):
+                 no_top_labels=False,
+                 grayscale=False,
+                 out=sys.stdout):
     """
     Parameters
     ----------
@@ -321,6 +323,8 @@ def plotTaxonomy(file_otutable,
         A numpy function to aggregate over several samples.
     no_top_labels : Bool
         If True, print no labels on top of the bars. Default is False.
+    grayscale : Bool
+        If True, plot low abundant taxa with gray scale values.
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -352,7 +356,8 @@ def plotTaxonomy(file_otutable,
                          if idx in rawcounts.columns], :]
     counts = rawcounts.loc[:, meta.index]
     if verbose:
-        print('%i samples left with metadata and counts.' % meta.shape[0])
+        out.write('%i samples left with metadata and counts.\n' %
+                  meta.shape[0])
 
     # assign taxonomy and collapse at given rank
     if rank != 'raw':
@@ -380,8 +385,8 @@ def plotTaxonomy(file_otutable,
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
         # rank
         if verbose:
-            print('%i taxa left after collapsing to %s.' %
-                  (rank_counts.shape[0], rank))
+            out.write('%i taxa left after collapsing to %s.\n' %
+                      (rank_counts.shape[0], rank))
     else:
         rank_counts = counts
 
@@ -399,15 +404,15 @@ def plotTaxonomy(file_otutable,
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
         rank_counts = rank_counts.append(lowReadTaxa)
         if verbose:
-            print('%i taxa left after filtering low abundant.' %
-                  (rank_counts.shape[0]-1))
+            out.write('%i taxa left after filtering low abundant.\n' %
+                      (rank_counts.shape[0]-1))
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
         rank_counts = rank_counts.loc[plottaxa, :]
         if verbose:
-            print('%i taxa left after restricting to provided list.' %
-                  (rank_counts.shape[0]))
+            out.write('%i taxa left after restricting to provided list.\n' %
+                      (rank_counts.shape[0]))
 
     # all for plotting
     # sort taxa according to sum of abundance
@@ -618,10 +623,10 @@ def plotTaxonomy(file_otutable,
             ax.get_legend().set_title(title=title, prop=font0)
 
     if verbose:
-        print("raw counts:", rawcounts.shape[1])
-        print("raw meta:", metadata.shape[0])
-        print("meta with counts:", meta.shape)
-        print("counts with meta:", counts.shape[1])
+        out.write("raw counts: %i\n" % rawcounts.shape[1])
+        out.write("raw meta: %i\n" % metadata.shape[0])
+        out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
+        out.write("counts with meta: %i\n" % counts.shape[1])
 
     return fig, rank_counts, graphinfo, vals
 
