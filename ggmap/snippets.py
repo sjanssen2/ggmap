@@ -1164,3 +1164,43 @@ def plotGroup_permanovas(beta, groupings,
     ax.xaxis.label.set_visible(False)
 
     return ax
+
+
+def mutate_sequence(sequence, num_mutations=1,
+                    alphabet=set(['A', 'C', 'G', 'T'])):
+    """Introduce a number of point mutations to a DNA sequence.
+
+    No position will be mutated more than once.
+
+    Parameters
+    ----------
+    sequence : str
+        The sequence that is going to get mutated.
+    num_mutations : int
+        Number of mutations that should be made in the sequence.
+        Default is 1.
+    alphabet : set(chars)
+        Alphabet of replacement characters for mutations.
+        Default is [A,C,G,T], i.e. DNA alphabet. Change to [A,C,G,U] for RNA.
+
+    Returns
+    -------
+    str : the mutated sequence.
+
+    Raises
+    ------
+    ValueError if number of mutations exceeds available characters in sequence.
+    """
+    if len(sequence) < num_mutations:
+        raise ValueError("Sequence not long enough for that many mutations.")
+    positions = set(range(0, len(sequence)))
+    mutated_positions = set()
+    mut_sequence = sequence
+    while len(mutated_positions) < num_mutations:
+        pos = random.choice(list(positions))
+        positions.remove(pos)
+        mutated_positions.add(pos)
+        cur = mut_sequence[pos].upper()
+        mut = random.choice(list(alphabet - set([cur])))
+        mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
+    return mut_sequence
