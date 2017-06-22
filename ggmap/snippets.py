@@ -18,6 +18,7 @@ from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
 import matplotlib.cbook
+import random
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -293,8 +294,11 @@ def plotTaxonomy(file_otutable,
                  minreadnr=50,
                  plottaxa=None,
                  fct_aggregate=None,
-                 no_top_labels=False):
-    """
+                 no_top_labels=False,
+                 grayscale=False,
+                 out=sys.stdout):
+    """Plot taxonomy.
+
     Parameters
     ----------
     file_otutable : file
@@ -321,9 +325,18 @@ def plotTaxonomy(file_otutable,
         A numpy function to aggregate over several samples.
     no_top_labels : Bool
         If True, print no labels on top of the bars. Default is False.
+    grayscale : Bool
+        If True, plot low abundant taxa with gray scale values.
+
+    Returns
+    -------
+    fig, rank_counts, graphinfo, vals
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
+    GRAYS = ['#888888', '#EEEEEE', '#999999', '#DDDDDD', '#AAAAAA',
+             '#CCCCCC', '#BBBBBB']
+    random.seed(42)
 
     # Parameter checks: check that grouping fields are in metadata table
     for i, field in enumerate([group_l0, group_l1, group_l2]):
@@ -352,7 +365,8 @@ def plotTaxonomy(file_otutable,
                          if idx in rawcounts.columns], :]
     counts = rawcounts.loc[:, meta.index]
     if verbose:
-        print('%i samples left with metadata and counts.' % meta.shape[0])
+        out.write('%i samples left with metadata and counts.\n' %
+                  meta.shape[0])
 
     # assign taxonomy and collapse at given rank
     if rank != 'raw':
@@ -380,8 +394,8 @@ def plotTaxonomy(file_otutable,
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
         # rank
         if verbose:
-            print('%i taxa left after collapsing to %s.' %
-                  (rank_counts.shape[0], rank))
+            out.write('%i taxa left after collapsing to %s.\n' %
+                      (rank_counts.shape[0], rank))
     else:
         rank_counts = counts
 
@@ -393,29 +407,32 @@ def plotTaxonomy(file_otutable,
     rank_counts /= rank_counts.sum(axis=0)
 
     # filter low abundant taxa
-    if len(lowAbundandTaxa) > 0:
+    if (grayscale is False) & (len(lowAbundandTaxa) > 0):
         lowReadTaxa = rank_counts.loc[lowAbundandTaxa, :].sum(axis=0)
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
         rank_counts = rank_counts.append(lowReadTaxa)
         if verbose:
-            print('%i taxa left after filtering low abundant.' %
-                  (rank_counts.shape[0]-1))
+            out.write('%i taxa left after filtering low abundant.\n' %
+                      (rank_counts.shape[0]-1))
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
         rank_counts = rank_counts.loc[plottaxa, :]
         if verbose:
-            print('%i taxa left after restricting to provided list.' %
-                  (rank_counts.shape[0]))
+            out.write('%i taxa left after restricting to provided list.\n' %
+                      (rank_counts.shape[0]))
 
     # all for plotting
     # sort taxa according to sum of abundance
     taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
-    if len(lowAbundandTaxa) > 0:
+    if (grayscale is False) & (len(lowAbundandTaxa) > 0):
         taxaidx = [taxon
                    for taxon in taxaidx
                    if taxon != NAME_LOW_ABUNDANCE] + [NAME_LOW_ABUNDANCE]
+    elif grayscale is True:
+        taxaidx = [taxon for taxon in taxaidx if taxon in highAbundantTaxa] +\
+                  [taxon for taxon in taxaidx if taxon not in highAbundantTaxa]
     rank_counts = rank_counts.loc[taxaidx, :]
 
     # aggregate over samples
@@ -499,6 +516,10 @@ def plotTaxonomy(file_otutable,
             ax = axarr[ypos]
         for i in range(0, vals.shape[0]):
             taxon = vals.index[i]
+            color = colors[taxon]
+            if taxon in lowAbundandTaxa:
+                # color = GRAYS[i % len(GRAYS)] for deterministic selection
+                color = random.choice(GRAYS)
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
                                                .groupby('group_l1')):
@@ -514,7 +535,7 @@ def plotTaxonomy(file_otutable,
                 ax.fill_between(_shiftLeft(_repMiddleValues(xpos)),
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
-                                color=colors[taxon])
+                                color=color)
 
         # decorate graph with axes labels ...
         if print_sample_labels:
@@ -603,10 +624,17 @@ def plotTaxonomy(file_otutable,
         # display a legend
         if ypos == 0:
             l_patches = [mpatches.Patch(color=colors[tax], label=tax)
-                         for tax in vals.index]
-            if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
-                l_patches[-1]._label = "+%i %s taxa" % (len(lowAbundandTaxa),
-                                                        NAME_LOW_ABUNDANCE)
+                         for tax in vals.index
+                         if (tax in highAbundantTaxa) |
+                            (tax == NAME_LOW_ABUNDANCE)]
+            label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
+                                                  NAME_LOW_ABUNDANCE)
+            if grayscale:
+                l_patches.append(mpatches.Patch(color='gray',
+                                                label=label_low_abundant))
+            else:
+                if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
+                    l_patches[-1]._label = label_low_abundant
             ax.legend(handles=l_patches,
                       loc='upper left',
                       bbox_to_anchor=(1.01, 1.05))
@@ -618,10 +646,10 @@ def plotTaxonomy(file_otutable,
             ax.get_legend().set_title(title=title, prop=font0)
 
     if verbose:
-        print("raw counts:", rawcounts.shape[1])
-        print("raw meta:", metadata.shape[0])
-        print("meta with counts:", meta.shape)
-        print("counts with meta:", counts.shape[1])
+        out.write("raw counts: %i\n" % rawcounts.shape[1])
+        out.write("raw meta: %i\n" % metadata.shape[0])
+        out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
+        out.write("counts with meta: %i\n" % counts.shape[1])
 
     return fig, rank_counts, graphinfo, vals
 
