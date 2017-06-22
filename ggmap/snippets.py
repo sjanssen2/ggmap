@@ -18,6 +18,7 @@ from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
 import matplotlib.cbook
+import random
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -333,6 +334,9 @@ def plotTaxonomy(file_otutable,
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
+    GRAYS = ['#888888', '#EEEEEE', '#999999', '#DDDDDD', '#AAAAAA',
+             '#CCCCCC', '#BBBBBB']
+    random.seed(42)
 
     # Parameter checks: check that grouping fields are in metadata table
     for i, field in enumerate([group_l0, group_l1, group_l2]):
@@ -426,6 +430,9 @@ def plotTaxonomy(file_otutable,
         taxaidx = [taxon
                    for taxon in taxaidx
                    if taxon != NAME_LOW_ABUNDANCE] + [NAME_LOW_ABUNDANCE]
+    elif grayscale is True:
+        taxaidx = [taxon for taxon in taxaidx if taxon in highAbundantTaxa] +\
+                  [taxon for taxon in taxaidx if taxon not in highAbundantTaxa]
     rank_counts = rank_counts.loc[taxaidx, :]
 
     # aggregate over samples
@@ -510,6 +517,9 @@ def plotTaxonomy(file_otutable,
         for i in range(0, vals.shape[0]):
             taxon = vals.index[i]
             color = colors[taxon]
+            if taxon in lowAbundandTaxa:
+                #color = GRAYS[i % len(GRAYS)]
+                color = random.choice(GRAYS)
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
                                                .groupby('group_l1')):
@@ -614,10 +624,17 @@ def plotTaxonomy(file_otutable,
         # display a legend
         if ypos == 0:
             l_patches = [mpatches.Patch(color=colors[tax], label=tax)
-                         for tax in vals.index]
-            if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
-                l_patches[-1]._label = "+%i %s taxa" % (len(lowAbundandTaxa),
-                                                        NAME_LOW_ABUNDANCE)
+                         for tax in vals.index
+                         if (tax in highAbundantTaxa) |
+                            (tax == NAME_LOW_ABUNDANCE)]
+            label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
+                                                  NAME_LOW_ABUNDANCE)
+            if grayscale:
+                l_patches.append(mpatches.Patch(color='gray',
+                                                label=label_low_abundant))
+            else:
+                if l_patches[-1]._label == NAME_LOW_ABUNDANCE:
+                    l_patches[-1]._label = label_low_abundant
             ax.legend(handles=l_patches,
                       loc='upper left',
                       bbox_to_anchor=(1.01, 1.05))
