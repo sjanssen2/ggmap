@@ -315,6 +315,31 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'rank': 'raw',
                    'minreadnr': 5000},
         'threshold': 1700}
+    configs['tp_gray_minreads'] = {
+        'description': 'Stricter read threshold',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'verbose': False,
+                   'print_sample_labels': False,
+                   'reorder_samples': True,
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'group_l0': 'Q2',
+                   'rank': 'Species',
+                   'minreadnr': 10000,
+                   'file_taxonomy': taxonomy,
+                   'grayscale': True},
+        'threshold': 2314}
+    configs['tp_gray_rawcounts'] = {
+        'description': 'plot raw taxa',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'verbose': False,
+                   'file_taxonomy': taxonomy,
+                   'rank': 'raw',
+                   'minreadnr': 5000,
+                   'grayscale': True},
+        'threshold': 1700}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
