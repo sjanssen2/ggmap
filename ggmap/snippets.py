@@ -518,7 +518,7 @@ def plotTaxonomy(file_otutable,
             taxon = vals.index[i]
             color = colors[taxon]
             if taxon in lowAbundandTaxa:
-                #color = GRAYS[i % len(GRAYS)]
+                # color = GRAYS[i % len(GRAYS)] for deterministic selection
                 color = random.choice(GRAYS)
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
