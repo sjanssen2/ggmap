@@ -11,11 +11,11 @@ class SnippetTests(TestCase):
 
     def test_mutate_sequence_default(self):
         mut_seq = mutate_sequence(self.sequence)
-        self.assertEqual(sum(map(lambda x: x.isupper(), mut_seq)), 1)
+        self.assertEqual(mut_seq, "acgtacgtacAt")
 
     def test_mutate_sequence_five(self):
         mut_seq = mutate_sequence(self.sequence, num_mutations=5)
-        self.assertEqual(sum(map(lambda x: x.isupper(), mut_seq)), 5)
+        self.assertEqual(mut_seq, 'TcTtCAgtacAt')
 
     def test_mutate_sequence_toomany(self):
         with self.assertRaisesRegex(ValueError,
@@ -27,7 +27,14 @@ class SnippetTests(TestCase):
     def test_mutate_sequence_diffAlphabet(self):
         mut_seq = mutate_sequence(self.sequence, num_mutations=4,
                                   alphabet=set(['#']))
-        self.assertEqual(sum(map(lambda x: x == '#', mut_seq)), 4)
+        self.assertEqual(mut_seq, '#cg##cgtac#t')
+
+    def test_mutate_sequence_tooSmallAlphabet(self):
+        with self.assertRaisesRegex(ValueError,
+                                    "Alphabet is too small to find mutation!"):
+            for i in range(1, 10):
+                mutate_sequence(self.sequence, num_mutations=1,
+                                alphabet=set(['a']))
 
 
 if __name__ == '__main__':
