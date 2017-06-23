@@ -1167,7 +1167,7 @@ def plotGroup_permanovas(beta, groupings,
 
 
 def mutate_sequence(sequence, num_mutations=1,
-                    alphabet=set(['A', 'C', 'G', 'T'])):
+                    alphabet=['A', 'C', 'G', 'T']):
     """Introduce a number of point mutations to a DNA sequence.
 
     No position will be mutated more than once.
@@ -1179,7 +1179,7 @@ def mutate_sequence(sequence, num_mutations=1,
     num_mutations : int
         Number of mutations that should be made in the sequence.
         Default is 1.
-    alphabet : set(chars)
+    alphabet : [chars]
         Alphabet of replacement characters for mutations.
         Default is [A,C,G,T], i.e. DNA alphabet. Change to [A,C,G,U] for RNA.
 
@@ -1189,7 +1189,10 @@ def mutate_sequence(sequence, num_mutations=1,
 
     Raises
     ------
-    ValueError if number of mutations exceeds available characters in sequence.
+    ValueError:
+        a) if number of mutations exceeds available characters in sequence.
+        b) if alphabet is so limited that position to be mutated will be the
+           same as before.
     """
     if len(sequence) < num_mutations:
         raise ValueError("Sequence not long enough for that many mutations.")
@@ -1201,6 +1204,10 @@ def mutate_sequence(sequence, num_mutations=1,
         positions.remove(pos)
         mutated_positions.add(pos)
         cur = mut_sequence[pos].upper()
-        mut = random.choice(list(alphabet - set([cur])))
+        replacement_candidates = [c for c in alphabet if c.upper() != cur]
+        try:
+            mut = random.choice(replacement_candidates)
+        except IndexError:
+            raise ValueError("Alphabet is too small to find mutation!")
         mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
     return mut_sequence
