@@ -490,7 +490,8 @@ def beta_diversity(counts,
                             "weighted_unifrac",
                             "bray_curtis"],
                    dry=True, use_grid=True, nocache=False,
-                   reference_tree=None, workdir=None):
+                   reference_tree=None, workdir=None,
+                   wait=True):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -545,12 +546,13 @@ def beta_diversity(counts,
                      use_grid=use_grid,
                      ppn=1,
                      nocache=nocache,
-                     workdir=workdir)
+                     workdir=workdir,
+                     wait=wait)
 
 
 def sepp(counts,
          dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='10GB'):
+         ppn=10, pmem='10GB', wait=True):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -573,6 +575,8 @@ def sepp(counts,
     workdir : str
         Filepath to an existing temporary working directory. This will only
         call post_execute to parse results.
+    wait : bool
+        Default: True. Wait for results.
 
     Returns
     -------
@@ -637,7 +641,10 @@ def sepp(counts,
                     nocache=nocache,
                     walltime='12:00:00',
                     environment='seppGG_py3',
-                    workdir=workdir)
+                    workdir=workdir,
+                    wait=wait)
+    if wait is False:
+        return res
 
     res['tree'] = TreeNode.read(StringIO(res['tree']))
     return res
@@ -645,7 +652,8 @@ def sepp(counts,
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               dry=True, use_grid=True, ppn=10, nocache=False, workdir=None,
-              pmem='8GB', environment=QIIME_ENV, walltime='4:00:00'):
+              pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
+              wait=True):
     """
 
     Parameters
@@ -694,11 +702,14 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 if (call_x.wait() != 0):
                     raise ValueError("something went wrong")
         else:
-            cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
-                        QIIME_ENV, ppn=ppn, wait=True, dry=dry, pmem=pmem,
-                        walltime=walltime)
+            qid = cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
+                              QIIME_ENV, ppn=ppn, wait=wait, dry=dry,
+                              pmem=pmem, walltime=walltime,
+                              file_qid=workdir+'/cluster_job_id.txt')
             if dry:
                 return None
+            if wait is False:
+                return qid
     else:
         pre_data = pre_execute(workdir, cache_arguments)
 
