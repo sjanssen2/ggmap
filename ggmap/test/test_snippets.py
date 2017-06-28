@@ -282,5 +282,6 @@ class ReadWriteTests(TestCase):
             biom2pandas(file_biom_out, withTaxonomy=True)
         remove(file_biom_out)
 
+
 if __name__ == '__main__':
     main()
