@@ -340,6 +340,17 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'minreadnr': 5000,
                    'grayscale': True},
         'threshold': 1700}
+    configs['tp_taxfrombiom'] = {
+        'description': 'use taxonomy from metadata biom table',
+        'params': {'file_otutable': get_data_path('taxannot_withtax.biom'),
+                   'metadata':
+                   pd.read_csv(get_data_path('skin_metadata.tsv'),
+                               sep='\t', index_col=0),
+                   'verbose': False,
+                   'rank': 'Phylum',
+                   'file_taxonomy': taxonomy,
+                   'taxonomy_from_biom': True},
+        'threshold': 310}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
