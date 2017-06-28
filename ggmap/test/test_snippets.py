@@ -2,12 +2,27 @@ from unittest import TestCase, main
 import pandas as pd
 import warnings
 import tempfile
+from io import StringIO
 import biom
+from biom.table import Table
+from biom.util import biom_open
+from tempfile import mkstemp
+from os import remove
 
 from skbio.util import get_data_path
 
 from ggmap.snippets import (biom2pandas, pandas2biom, parse_splitlibrarieslog,
                             _repMiddleValues, _shiftLeft)
+
+
+def get_metadata(file_biom):
+    with biom_open(file_biom, 'r') as f:
+        t = Table.from_hdf5(f)
+        try:
+            md = t.metadata_to_dataframe('observation')
+        except KeyError:
+            return None
+    return md
 
 
 class ReadWriteTests(TestCase):
@@ -104,6 +119,10 @@ class ReadWriteTests(TestCase):
                             "ABC transporters",
                             "General function prediction only", "Transporters"]
 
+        self.file_biom_input = get_data_path('taxannot_rawcounts.biom')
+        self.file_biom_tax = get_data_path('taxannot_withtax.biom')
+        self.file_tax_input = get_data_path('taxannot_lineages.tsv')
+
     def test_biom2pandas_minibiom(self):
         with self.assertRaises(IOError):
             biom2pandas('/dev')
@@ -123,14 +142,16 @@ class ReadWriteTests(TestCase):
         self.assertEqual(b.sum().sum(), 100273)
 
         with self.assertRaisesRegex(ValueError,
-                                    'No taxonomy information found in biom f'):
+                                    ('Biom file does not have any '
+                                     'observation metadata!')):
             b, t = biom2pandas(self.filename_minibiom, withTaxonomy=True)
 
         with self.assertRaisesRegex(ValueError, "too many values to unpack"):
             b, t = biom2pandas(self.filename_withtax, withTaxonomy=False)
 
         b, t = biom2pandas(self.filename_withtax, withTaxonomy=True)
-        self.assertCountEqual(t['family'].values, self.families_withtax)
+        self.assertCountEqual(t.apply(lambda r: r.split(';')[-3]),
+                              self.families_withtax)
 
     def test_biom2pandas_float(self):
         b = biom2pandas(self.filename_float, astype=int)
@@ -164,6 +185,102 @@ class ReadWriteTests(TestCase):
     def test__shiftLeft(self):
         self.assertEqual(_shiftLeft([1, 2, 3]), [2, 3, 4])
 
+    def test_pandas2biom_addtaxonomy(self):
+        file_biom_out = mkstemp('.biom')[1]
+
+        # input biom table has no metadata for observations
+        self.assertTrue(get_metadata(self.file_biom_input) is None)
+
+        # output biom table has no metadata for observations, if not provided
+        counts = biom2pandas(self.file_biom_input)
+        pandas2biom(file_biom_out, counts)
+        self.assertTrue(get_metadata(self.file_biom_input) is None)
+
+        taxannot = pd.read_csv(self.file_tax_input, sep='\t', index_col=0)
+        # store counts with taxonomy as biom table
+        pandas2biom(file_biom_out, counts, taxonomy=taxannot['taxonomy'])
+        # obtain metadata (i.e. taxonomy) from biom table
+        obs_taxonomy = get_metadata(file_biom_out)
+        # remove unknown ranks from lineage strings
+        levels = obs_taxonomy.columns
+        obs_taxonomy_nounknown = obs_taxonomy.apply(
+            lambda row: ";".join([row[l]
+                                  for l in levels
+                                  if not row[l].endswith('__')]), axis=1)
+        # compare original taxonomy with the one stored in biom table
+        self.assertCountEqual(obs_taxonomy_nounknown.to_dict(),
+                              taxannot['taxonomy'].to_dict())
+
+        # check that missing taxa in count table are reported.
+        err = StringIO()
+        idx_missing = counts.index[:5]
+        idx_in = counts.index[5:]
+        pandas2biom(file_biom_out,
+                    counts.loc[idx_in, :],
+                    taxonomy=taxannot['taxonomy'],
+                    err=err)
+        self.assertIn(('Warning: following %i taxa are not in the provided '
+                       'count table, but in taxonomy') % len(idx_missing),
+                      err.getvalue())
+        for taxon in idx_missing:
+            self.assertIn(taxon, err.getvalue())
+
+        # check that missing taxa in taxonomy are reported.
+        err = StringIO()
+        idx_missing = taxannot.index[:5]
+        idx_in = taxannot.index[5:]
+        pandas2biom(file_biom_out,
+                    counts,
+                    taxonomy=taxannot['taxonomy'].loc[idx_in],
+                    err=err)
+        self.assertIn(('Warning: following %i taxa are not in the '
+                       'provided taxonomy:') % len(idx_missing),
+                      err.getvalue())
+        for taxon in idx_missing:
+            self.assertIn(taxon, err.getvalue())
+
+        with self.assertRaisesRegex(AttributeError,
+                                    'taxonomy must be a pandas.Series!'):
+            pandas2biom(file_biom_out, counts, taxonomy=taxannot)
+
+        remove(file_biom_out)
+
+    def test_biom2pandas_readtaxonomy(self):
+        # check if reading without taxonomy succeeds
+        biom2pandas(self.file_biom_tax, withTaxonomy=False)
+
+        # check that taxonomy is read correctly from biom table
+        _, obs_taxonomy = biom2pandas(self.file_biom_tax, withTaxonomy=True)
+        exp_taxonomy = pd.read_csv(self.file_tax_input, sep='\t', index_col=0)
+        for i, (tax, row) in enumerate(obs_taxonomy.iteritems()):
+            self.assertEqual("; ".join([r
+                                        for r in row.split(";")
+                                        if not r.endswith('__')]),
+                             exp_taxonomy['taxonomy'][tax])
+
+        # check that error is raised if not metadata present in biom file
+        with self.assertRaisesRegex(ValueError,
+                                    ('Biom file does not have any observation'
+                                     ' metadata!')):
+            _, obs_taxonomy = biom2pandas(self.file_biom_input,
+                                          withTaxonomy=True)
+
+        # check that error is raised of no taxonomy metadata present for
+        # observations.
+        file_biom_out = mkstemp('.biom')[1]
+        with biom_open(self.file_biom_input, 'r') as f:
+            table = Table.from_hdf5(f)
+        with biom_open(file_biom_out, 'w') as f:
+            t = dict()
+            for taxon in table.ids(axis='observation'):
+                t[taxon] = {'seqlen': 150}
+            table.add_metadata(t, axis='observation')
+            table.to_hdf5(f, "example")
+        with self.assertRaisesRegex(ValueError,
+                                    ('No taxonomy information found in '
+                                     'biom file.')):
+            biom2pandas(file_biom_out, withTaxonomy=True)
+        remove(file_biom_out)
 
 if __name__ == '__main__':
     main()
