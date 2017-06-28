@@ -429,8 +429,7 @@ def plotTaxonomy(file_otutable,
         if taxonomy_from_biom is False:
             lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
                                    names=['otuID', 'taxonomy'],
-                                   usecols=[0, 1])  # only parse two first
-                                                    # columns
+                                   usecols=[0, 1])  # only parse 2 first cols
             lineages['otuID'] = lineages['otuID'].astype(str)
             lineages.set_index('otuID', inplace=True)
             # add taxonomic lineage information to the counts as
