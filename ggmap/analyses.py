@@ -197,7 +197,8 @@ def rarefaction_curves(counts, metadata,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, num_threads=10,
                        dry=True, use_grid=True, nocache=False,
-                       reference_tree=None, max_depth=None, workdir=None):
+                       reference_tree=None, max_depth=None, workdir=None,
+                       wait=True):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -309,7 +310,8 @@ def rarefaction_curves(counts, metadata,
                             use_grid=use_grid,
                             ppn=num_threads,
                             nocache=nocache,
-                            workdir=workdir)
+                            workdir=workdir,
+                            wait=wait)
 
     if dry is not True:
         tmp_imagename = 'tmp.png'
@@ -323,7 +325,7 @@ def rarefaction_curves(counts, metadata,
 
 
 def rarefy(counts, rarefaction_depth,
-           dry=True, use_grid=True, nocache=False, workdir=None):
+           dry=True, use_grid=True, nocache=False, workdir=None, wait=True):
     """Rarefies a given OTU table to a given depth. This depth should be
        determined by looking at rarefaction curves.
 
@@ -381,14 +383,15 @@ def rarefy(counts, rarefaction_depth,
                      use_grid=use_grid,
                      ppn=1,
                      nocache=nocache,
-                     workdir=workdir)
+                     workdir=workdir,
+                     wait=wait)
 
 
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_otus"],
                     num_threads=10, num_iterations=10, dry=True,
                     use_grid=True, nocache=False, workdir=None,
-                    reference_tree=None):
+                    reference_tree=None, wait=True):
     """Computes alpha diversity values for given BIOM table.
 
     Paramaters
@@ -482,7 +485,8 @@ def alpha_diversity(counts, rarefaction_depth,
                      use_grid=use_grid,
                      ppn=num_threads,
                      nocache=nocache,
-                     workdir=workdir)
+                     workdir=workdir,
+                     wait=wait)
 
 
 def beta_diversity(counts,
@@ -703,7 +707,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                     raise ValueError("something went wrong")
         else:
             qid = cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
-                              QIIME_ENV, ppn=ppn, wait=wait, dry=dry,
+                              environment, ppn=ppn, wait=wait, dry=dry,
                               pmem=pmem, walltime=walltime,
                               file_qid=workdir+'/cluster_job_id.txt')
             if dry:
