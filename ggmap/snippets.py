@@ -340,7 +340,8 @@ def plotTaxonomy(file_otutable,
                  fct_aggregate=None,
                  no_top_labels=False,
                  grayscale=False,
-                 out=sys.stdout):
+                 out=sys.stdout,
+                 taxonomy_from_biom=False):
     """Plot taxonomy.
 
     Parameters
@@ -371,6 +372,9 @@ def plotTaxonomy(file_otutable,
         If True, print no labels on top of the bars. Default is False.
     grayscale : Bool
         If True, plot low abundant taxa with gray scale values.
+    taxonomy_from_biom : Bool
+        Default is False. If true, read taxonomy information from input biom
+        file.
 
     Returns
     -------
@@ -395,13 +399,21 @@ def plotTaxonomy(file_otutable,
                          (rank, ", ".join(RANKS)))
 
     # check that taxonomy file exists
-    if not os.path.exists(file_taxonomy) and rank != 'raw':
+    if (not os.path.exists(file_taxonomy)) and \
+       (rank != 'raw') and \
+       (taxonomy_from_biom is False):
         raise IOError('Taxonomy file not found!')
 
     # check that biom table can be read
     if not os.path.exists(file_otutable):
         raise IOError('OTU table file not found')
-    rawcounts = biom2pandas(file_otutable)
+    rawcounts, biomtaxonomy = None, None
+    if taxonomy_from_biom:
+        rawcounts, biomtaxonomy = biom2pandas(file_otutable,
+                                              withTaxonomy=taxonomy_from_biom)
+    else:
+        rawcounts = biom2pandas(file_otutable,
+                                withTaxonomy=taxonomy_from_biom)
 
     # restrict to those samples for which we have metadata AND counts
     meta = metadata.loc[[idx
@@ -414,14 +426,21 @@ def plotTaxonomy(file_otutable,
 
     # assign taxonomy and collapse at given rank
     if rank != 'raw':
-        lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
-                               names=['otuID', 'taxonomy'],
-                               usecols=[0, 1])  # only parse two first columns
-        lineages['otuID'] = lineages['otuID'].astype(str)
-        lineages.set_index('otuID', inplace=True)
-        # add taxonomic lineage information to the counts as column "taxonomy"
-        rank_counts = pd.merge(counts, lineages, how='left', left_index=True,
-                               right_index=True)
+        if taxonomy_from_biom is False:
+            lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
+                                   names=['otuID', 'taxonomy'],
+                                   usecols=[0, 1])  # only parse two first
+                                                    # columns
+            lineages['otuID'] = lineages['otuID'].astype(str)
+            lineages.set_index('otuID', inplace=True)
+            # add taxonomic lineage information to the counts as
+            # column "taxonomy"
+            rank_counts = pd.merge(counts, lineages, how='left',
+                                   left_index=True, right_index=True)
+        else:
+            biomtaxonomy.name = 'taxonomy'
+            rank_counts = pd.merge(counts, biomtaxonomy.to_frame(), how='left',
+                                   left_index=True, right_index=True)
 
         # split lineage string into individual taxa names on ';' and remove
         # surrounding whitespaces. If rank does not exist return r+'__' instead
@@ -439,6 +458,7 @@ def plotTaxonomy(file_otutable,
         rank_counts = rank_counts.reset_index().groupby(rank).sum()
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
         # rank
+
         if verbose:
             out.write('%i taxa left after collapsing to %s.\n' %
                       (rank_counts.shape[0], rank))
