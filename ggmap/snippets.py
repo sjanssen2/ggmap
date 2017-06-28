@@ -32,7 +32,7 @@ def biom2pandas(file_biom, withTaxonomy=False, astype=int):
     file_biom : str
         The path to the biom file.
     withTaxonomy : bool
-        If TRUE, returns a second Pandas.DataFrame with lineage information for
+        If TRUE, returns a second Pandas.Series with lineage information for
         each feature, e.g. OTU or deblur-sequence. Default: FALSE
     astype : type
         datatype into each value of the biom table is casted. Default: int.
@@ -58,24 +58,29 @@ def biom2pandas(file_biom, withTaxonomy=False, astype=int):
                               index=table.ids(axis='sample'),
                               columns=table.ids(axis='observation')).T
         if withTaxonomy:
-            otu_ids = table.ids(axis='observation')
-            if table.metadata(otu_ids[0], axis='observation') is not None:
-                if 'taxonomy' in table.metadata(otu_ids[0],
-                                                axis='observation'):
-                    mapping = {i: table.metadata(id=i, axis='observation')
-                               ['taxonomy']
-                               for i in otu_ids}
-                    taxonomy = pd.DataFrame(mapping,
-                                            index=map(str.lower, RANKS)).T
+            try:
+                md = table.metadata_to_dataframe('observation')
+                levels = [col
+                          for col in md.columns
+                          if col.startswith('taxonomy_')]
+                if levels == []:
+                    raise ValueError(('No taxonomy information found in '
+                                      'biom file.'))
+                else:
+                    taxonomy = md.apply(lambda row:
+                                        ";".join([row[l] for l in levels]),
+                                        axis=1)
                     return counts, taxonomy
-            raise ValueError('No taxonomy information found in biom file.')
+            except KeyError:
+                raise ValueError(('Biom file does not have any '
+                                  'observation metadata!'))
         else:
             return counts
     except IOError:
         raise IOError('Cannot read file "%s"' % file_biom)
 
 
-def pandas2biom(file_biom, table):
+def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
     """ Writes a Pandas.DataFrame into a biom file.
 
     Parameters
@@ -84,7 +89,12 @@ def pandas2biom(file_biom, table):
         The filename of the BIOM file to be created.
     table: a Pandas.DataFrame
         The table that should be written as BIOM.
-
+    taxonomy : pandas.Series
+        Index is taxons corresponding to table, values are lineage strings like
+        'k__Bacteria; p__Actinobacteria'
+    err : StringIO
+        Stream onto which errors / warnings should be printed.
+        Default is sys.stderr
     Raises
     ------
     IOError
@@ -98,6 +108,40 @@ def pandas2biom(file_biom, table):
         bt = biom.Table(table.values,
                         observation_ids=table.index,
                         sample_ids=table.columns)
+
+        # add taxonomy metadata if provided, i.e. is not None
+        if taxonomy is not None:
+            if not isinstance(taxonomy, pd.core.series.Series):
+                raise AttributeError('taxonomy must be a pandas.Series!')
+            idx_missing_intable = set(table.index) - set(taxonomy.index)
+            if len(idx_missing_intable) > 0:
+                err.write(('Warning: following %i taxa are not in the '
+                           'provided taxonomy:\n%s\n') % (
+                          len(idx_missing_intable),
+                          ", ".join(idx_missing_intable)))
+            idx_missing_intaxonomy = set(taxonomy.index) - set(table.index)
+            if len(idx_missing_intaxonomy) > 0:
+                err.write(('Warning: following %i taxa are not in the '
+                           'provided count table, but in taxonomy:\n%s\n') % (
+                          len(idx_missing_intaxonomy),
+                          ", ".join(idx_missing_intaxonomy)))
+
+            t = dict()
+            for taxon, linstr in taxonomy.iteritems():
+                # fill missing rank annotations with rank__
+                orig_lineage = {annot[0].lower(): annot
+                                for annot
+                                in (map(str.strip, linstr.split(';')))}
+                lineage = []
+                for rank in RANKS:
+                    rank_char = rank[0].lower()
+                    if rank_char in orig_lineage:
+                        lineage.append(orig_lineage[rank_char])
+                    else:
+                        lineage.append(rank_char+'__')
+                t[taxon] = {'taxonomy': ";".join(lineage)}
+            bt.add_metadata(t, axis='observation')
+
         with biom_open(file_biom, 'w') as f:
             bt.to_hdf5(f, "example")
     except IOError:
@@ -384,6 +428,8 @@ def plotTaxonomy(file_otutable,
         def _splitranks(x, rank):
             try:
                 return [t.strip() for t in x.split(";")][RANKS.index(rank)]
+            except AttributeError:
+                RANKS[RANKS.index(rank)].lower()[0] + "__"
             except IndexError:
                 return RANKS[RANKS.index(rank)].lower()[0] + "__"
         # add columns for each tax rank, such that we can groupby later on
