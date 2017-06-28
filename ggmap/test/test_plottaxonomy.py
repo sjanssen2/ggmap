@@ -351,7 +351,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'rank': 'Phylum',
                    'file_taxonomy': taxonomy,
                    'taxonomy_from_biom': True},
-        'threshold': 0}
+        'threshold': 310}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
