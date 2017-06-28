@@ -4,7 +4,7 @@ flake8
 scikit-bio>=0.5
 click>=6.0
 pandas
-biom-format
+biom-format>=2.1.6
 basemap
 matplotlib
 seaborn
