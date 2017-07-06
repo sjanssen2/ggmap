@@ -19,6 +19,7 @@ import networkx as nx
 import warnings
 import matplotlib.cbook
 import random
+from tempfile import mkstemp
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -749,7 +750,7 @@ def _time_torque2slurm(t_time):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None):
+                file_qid=None, slurm=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -785,6 +786,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     file_qid : str
         Default None. Create a file containing the qid of the submitted job.
         This will ease identification of TMP working directories.
+    slurm : bool
+        Execute cluster job via Slurm instead of Torque.
 
     Returns
     -------
@@ -820,13 +823,30 @@ def cluster_run(cmds, jobname, result, environment=None,
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
     # switch to high mem queue if memory requirement exeeds 250 GB
     highmem = ''
-    if ppn * int(pmem[:-2]) > 250:
-        highmem = ':highmem'
-    ge_cmd = (("%s/qsub -d '%s' -V -l "
-               "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
-              (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
+    slurm_script = None
+    if slurm is False:
+        if ppn * int(pmem[:-2]) > 250:
+            highmem = ':highmem'
+        ge_cmd = (("%s/qsub -d '%s' -V -l "
+                   "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
+                  (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
+        full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
+    else:
+        slurm_script = "#!/bin/bash\n\n"
+        slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
+        slurm_script += '#SBATCH --output=%s/%%A.log\n' % pwd
+        slurm_script += '#SBATCH --partition=hii02\n'
+        slurm_script += '#SBATCH --ntasks=1\n'
+        slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
+        slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
+        slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(walltime)
+        slurm_script += '#SBATCH --mail-type=END,FAIL\n'
+        slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
+        slurm_script += 'srun uname -a\n'
+        for cmd in cmds:
+            slurm_script += 'srun %s\n' % cmd
+        full_cmd = ""
 
-    full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
     if environment is not None:
         # check if environment exists
@@ -839,9 +859,18 @@ def cluster_run(cmds, jobname, result, environment=None,
         full_cmd = "source activate %s && %s" % (environment, full_cmd)
 
     if dry is False:
+        if slurm:
+            _, file_script = mkstemp(suffix='.slurm.sh')
+            f = open(file_script, 'w')
+            f.write(slurm_script)
+            f.close()
+            full_cmd += 'sbatch %s' % file_script
         with subprocess.Popen(full_cmd,
                               shell=True, stdout=subprocess.PIPE) as task_qsub:
             qid = task_qsub.stdout.read().decode('ascii').rstrip()
+            if slurm:
+                qid = qid.split()[-1]
+                os.remove(file_script)
             if file_qid is not None:
                 f = open(file_qid, 'w')
                 f.write('Cluster job ID is:\n%s\n' % qid)
@@ -851,10 +880,27 @@ def cluster_run(cmds, jobname, result, environment=None,
                 sys.stderr.write(
                     "\nWaiting for cluster job %s to complete: " % qid)
                 while True:
-                    poll_status = subprocess.call("%s/qstat %s" % (gebin, qid),
-                                                  shell=True)
-                    # sys.stderr.write('poll_status: %i, job_ever_seen %s\n" %
-                    #                  (poll_status, job_ever_seen))
+                    if slurm:
+                        task_squeue = subprocess.Popen(
+                            ['squeue', '--job', qid], stdout=subprocess.PIPE)
+                        task_wc = subprocess.Popen(
+                            ['wc', '-l'], stdin=task_squeue.stdout,
+                            stdout=subprocess.PIPE)
+                        poll_status = \
+                            int(task_wc.stdout.read().decode('ascii').rstrip())
+                        # Two if polling gives a table with header and one
+                        # status line, i.e. job is still on the grid.
+                        # Translate that to 0 of Torque.
+                        # If table has only one line, i.e. the header, job
+                        # terminated (hopefully successful), translate that
+                        # to 1 of Torque
+                        if poll_status == 2:
+                            poll_status = 0
+                        else:
+                            poll_status = 1
+                    else:
+                        poll_status = subprocess.call(
+                            "%s/qstat %s" % (gebin, qid), shell=True)
                     if (poll_status != 0) and job_ever_seen:
                         sys.stderr.write(' finished.')
                         break
@@ -866,6 +912,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                 sys.stderr.write("Now wait until %s job finishes.\n" % qid)
             return qid
     else:
+        if slurm:
+            print(slurm_script)
         print(full_cmd)
         return None
 
