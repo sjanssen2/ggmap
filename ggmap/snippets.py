@@ -719,6 +719,33 @@ def plotTaxonomy(file_otutable,
     return fig, rank_counts, graphinfo, vals
 
 
+def _time_torque2slurm(t_time):
+    """Convertes run-time resource string from Torque to Slurm.
+    Input format is hh:mm:ss, output is <days>-<hours>:<minutes>
+
+    Parameters
+    ----------
+    t_time : str
+        Input time duration in format hh:mm:ss
+
+    Returns
+    -------
+    Slurm compatible time duration.
+    """
+    t_hours, t_minutes, t_seconds = map(int, t_time.split(':'))
+    s_minutes = (t_seconds // 60) + t_minutes
+    s_hours = (s_minutes // 60) + t_hours
+    s_minutes = s_minutes % 60
+    s_days = s_hours // 24
+    s_hours = s_hours % 24
+
+    # set a minimal run time, if Torque time is < 60 seconds
+    if (s_days == 0) and (s_hours == 0) and (s_minutes == 0):
+        s_minutes = 1
+
+    return "%i-%i:%i" % (s_days, s_hours, s_minutes)
+
+
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
