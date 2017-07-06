@@ -722,7 +722,7 @@ def plotTaxonomy(file_otutable,
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None):
+                file_qid=None, slurm=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -758,6 +758,8 @@ def cluster_run(cmds, jobname, result, environment=None,
     file_qid : str
         Default None. Create a file containing the qid of the submitted job.
         This will ease identification of TMP working directories.
+    slurm : bool
+        Execute cluster job via Slurm instead of Torque.
 
     Returns
     -------
@@ -793,13 +795,19 @@ def cluster_run(cmds, jobname, result, environment=None,
     pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
     # switch to high mem queue if memory requirement exeeds 250 GB
     highmem = ''
-    if ppn * int(pmem[:-2]) > 250:
-        highmem = ':highmem'
-    ge_cmd = (("%s/qsub -d '%s' -V -l "
-               "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
-              (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
+    if slurm is False:
+        if ppn * int(pmem[:-2]) > 250:
+            highmem = ':highmem'
+        ge_cmd = (("%s/qsub -d '%s' -V -l "
+                   "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
+                  (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
+        full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
+    else:
+        walltime
+        ge_cmd = (("/usr/bin/srun --ntasks=1 --partition=hii02 --mail-type=END,FAIL --mail-user=sjanssen@ucsd.edu --cpus-per-task=%i --mem-per-cpu=%s --time=%i-%i:%02i --job-name=cr_%s --output=%s") %
+                  (ppn, pmem, int(walltime.split(':')[0]), int(walltime.split(':')[1]), int(walltime.split(':')[2]), jobname, pwd+"/%A.log"))
+        full_cmd = "%s '%s'" % (ge_cmd, job_cmd)
 
-    full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     env_present = None
     if environment is not None:
         # check if environment exists
