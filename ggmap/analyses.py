@@ -133,12 +133,18 @@ def _plot_collateRarefaction(workdir, metrics, counts, metadata):
 
 
 def _plot_loosing_curve(counts, ax1, ax2):
+    def _getremaining(counts_sums):
+        d = dict()
+        remaining = counts_sums.shape[0]
+        numdepths = counts_sums.value_counts().sort_index()
+        for depth, numsamples in numdepths.iteritems():
+            d[depth] = remaining
+            remaining -= numsamples
+        return pd.Series(data=d, name='remaining').to_frame()
+
     # compute number of lost / remained samples
     reads_per_sample = counts.sum()
-    depths = sorted(reads_per_sample.unique())
-    x = pd.DataFrame(index=depths,
-                     data=[sum(reads_per_sample >= depth) for depth in depths],
-                     columns=['remaining'])
+    x = _getremaining(reads_per_sample)
     x['lost'] = counts.shape[1] - x['remaining']
     x.index.name = 'readcounts'
 
