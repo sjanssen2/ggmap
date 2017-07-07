@@ -1,8 +1,5 @@
 from unittest import TestCase, main
 
-import subprocess
-import sys
-import os
 import pandas as pd
 from pandas.util.testing import assert_frame_equal
 from skbio.util import get_data_path
@@ -10,6 +7,7 @@ from skbio.stats.distance import DistanceMatrix
 
 from ggmap.analyses import (alpha_diversity, beta_diversity,
                             rarefaction_curves)
+from ggmap.imgdiff import compare_images
 
 
 class TreeTests(TestCase):
@@ -33,7 +31,7 @@ class TreeTests(TestCase):
         self.beta = dict()
         for metric in self.metrics_beta:
             self.beta[metric] = DistanceMatrix.read(
-                get_data_path('analyses/beta_%s.dm' % metric))
+                get_data_path('analyses/beta_%s.dm.txt' % metric))
 
         self.filename_rare = get_data_path('analyses/rare.png')
 
@@ -84,34 +82,12 @@ class TreeTests(TestCase):
         obs_rare.savefig(filename_obs)
 
         filename_diff = 'diff_rare.png'
-        res = subprocess.check_output(["compare", "-metric", "AE",
-                                       "-dissimilarity-threshold", "1",
-                                       filename_obs,
-                                       self.filename_rare,
-                                       filename_diff],
-                                      stderr=subprocess.STDOUT)
-        res = res.decode().split('\n')[0]
-        if res == '':
-            res = 0
-        res = int(res)
-        if res > DIFF_THRESHOLD:
-            sys.stdout.write(
-                "Images differ for '%s'. Check differences in %s.\n" %
-                ('rare', filename_diff))
-            cmd = ('echo "==== start file contents (%s)"; '
-                   'cat %s | base64; '
-                   'echo "=== end file contents ==="') % (
-                filename_diff,
-                filename_diff)
-            rescmd = subprocess.check_output(
-                cmd, shell=True).decode().split('\n')
-            for line in rescmd:
-                print(line)
-        else:
-            os.remove(filename_diff)
-            os.remove(filename_obs)
+        res = compare_images(filename_obs, self.filename_rare,
+                             threshold=DIFF_THRESHOLD,
+                             file_image_diff=filename_diff,
+                             name='rarecurves')
+        self.assertTrue(res)
 
-        self.assertLessEqual(res, DIFF_THRESHOLD)
 
 if __name__ == '__main__':
     main()
