@@ -132,16 +132,30 @@ def _plot_collateRarefaction(workdir, metrics, counts, metadata):
     return buf
 
 
-def _plot_loosing_curve(counts, ax1, ax2):
-    def _getremaining(counts_sums):
-        d = dict()
-        remaining = counts_sums.shape[0]
-        numdepths = counts_sums.value_counts().sort_index()
-        for depth, numsamples in numdepths.iteritems():
-            d[depth] = remaining
-            remaining -= numsamples
-        return pd.Series(data=d, name='remaining').to_frame()
+def _getremaining(counts_sums):
+    """Compute number of samples that have at least X read counts.
 
+    Parameters
+    ----------
+    counts_sum : Pandas.Series
+        Reads per sample.
+
+    Returns
+    -------
+    Pandas.Series:
+        Index = sequencing depths,
+        Values = number samples with at least this sequencing depth.
+    """
+    d = dict()
+    remaining = counts_sums.shape[0]
+    numdepths = counts_sums.value_counts().sort_index()
+    for depth, numsamples in numdepths.iteritems():
+        d[depth] = remaining
+        remaining -= numsamples
+    return pd.Series(data=d, name='remaining').to_frame()
+
+
+def _plot_loosing_curve(counts, ax1, ax2):
     # compute number of lost / remained samples
     reads_per_sample = counts.sum()
     x = _getremaining(reads_per_sample)
