@@ -513,7 +513,7 @@ def beta_diversity(counts,
                    metrics=["unweighted_unifrac",
                             "weighted_unifrac",
                             "bray_curtis"],
-                   dry=True, use_grid=True, nocache=False,
+                   num_threads=10, dry=True, use_grid=True, nocache=False,
                    reference_tree=None, workdir=None,
                    wait=True):
     """Computes beta diversity values for given BIOM table.
@@ -524,6 +524,8 @@ def beta_diversity(counts,
         OTU counts
     metrics : [str]
         Beta diversity metrics to be computed.
+    num_threads : int
+        Number of parallel threads. Default: 10.
     dry : boolean
         Do NOT run clusterjobs, just print commands. Default: True
     use_grid : boolean
@@ -541,15 +543,17 @@ def beta_diversity(counts,
 
     def commands(workdir, ppn, args):
         commands = []
-        commands.append(('beta_diversity.py '
+        commands.append(('parallel_beta_diversity.py '
                          '-i %s '                   # input biom file
                          '-m %s '                   # list of beta div metrics
                          '-t %s '                   # tree reference file
-                         '-o %s ') % (
+                         '-o %s '
+                         '-O %i ') % (
             workdir+'/input.biom',
             ",".join(args['metrics']),
             _get_ref_phylogeny(reference_tree),
-            workdir+'/beta'))
+            workdir+'/beta',
+            ppn))
         return commands
 
     def post_execute(workdir, args, pre_data):
@@ -568,7 +572,7 @@ def beta_diversity(counts,
                      post_execute,
                      dry=dry,
                      use_grid=use_grid,
-                     ppn=1,
+                     ppn=num_threads,
                      nocache=nocache,
                      workdir=workdir,
                      wait=wait)
