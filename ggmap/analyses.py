@@ -547,13 +547,13 @@ def beta_diversity(counts,
                          '-i %s '                   # input biom file
                          '-m %s '                   # list of beta div metrics
                          '-t %s '                   # tree reference file
-                         '-o %s ',
+                         '-o %s '
                          '-O %i ') % (
             workdir+'/input.biom',
             ",".join(args['metrics']),
             _get_ref_phylogeny(reference_tree),
             workdir+'/beta',
-            num_threads))
+            ppn))
         return commands
 
     def post_execute(workdir, args, pre_data):
