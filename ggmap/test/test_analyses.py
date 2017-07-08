@@ -62,7 +62,8 @@ class TreeTests(TestCase):
         )
 
         for metric in self.metrics_beta:
-            self.assertEqual(obs_beta[metric], self.beta[metric])
+            self.assertEqual(obs_beta[metric].filter(self.beta[metric].ids),
+                             self.beta[metric])
 
     def test_rare(self):
         # high threshold, since rarefaction is a random process
