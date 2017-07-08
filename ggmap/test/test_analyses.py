@@ -82,7 +82,7 @@ class TreeTests(TestCase):
         filename_obs = 'obs_rare.png'
         obs_rare.savefig(filename_obs)
 
-        filename_diff = 'diff_rare.png'
+        filename_diff = '/tmp/diff_rare.png'
         res = compare_images(filename_obs, self.filename_rare,
                              threshold=DIFF_THRESHOLD,
                              file_image_diff=filename_diff,
