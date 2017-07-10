@@ -52,43 +52,5 @@ class TreeTests(TestCase):
                            exp_alpha.describe(),
                            check_less_precise=0)
 
-    def test_beta(self):
-        obs_beta = beta_diversity(
-            self.counts,
-            self.metrics_beta,
-            dry=False,
-            use_grid=False,
-            nocache=True
-        )
-
-        for metric in self.metrics_beta:
-            self.assertEqual(obs_beta[metric].filter(self.beta[metric].ids),
-                             self.beta[metric])
-
-    def test_rare(self):
-        # high threshold, since rarefaction is a random process
-        DIFF_THRESHOLD = 200000
-
-        obs_rare = rarefaction_curves(
-            self.counts,
-            self.meta,
-            self.metrics_alpha,
-            dry=False,
-            use_grid=False,
-            num_steps=5,
-            nocache=True
-        )
-
-        filename_obs = 'obs_rare.png'
-        obs_rare.savefig(filename_obs)
-
-        filename_diff = '/tmp/diff_rare.png'
-        res = compare_images(filename_obs, self.filename_rare,
-                             threshold=DIFF_THRESHOLD,
-                             file_image_diff=filename_diff,
-                             name='rarecurves')
-        self.assertTrue(res)
-
-
 if __name__ == '__main__':
     main()
