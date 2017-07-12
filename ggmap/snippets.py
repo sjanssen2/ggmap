@@ -325,6 +325,32 @@ def _shiftLeft(values):
     return values[1:]+[values[-1]+1]
 
 
+def _get_sample_numbers(num_samples, fields, names):
+    """Given a table about the number of available samples, this function
+       returns the number of samples for the given group.
+
+    Parameters
+    ----------
+    num_samples : pd.DataFrame
+        Number of samples per group for all set groups.
+    field : [str]
+        grouping names, must be included in metadata and therefore implicitly
+        in num_samples
+    names : [str]
+        Group name.
+
+    Returns
+    -------
+    int : number of samples for the given group.
+
+    """
+    x = num_samples
+    for field, name in zip(fields, names):
+        if field is not None:
+            x = x[x[field] == name]
+    return x[0].sum()
+
+
 def plotTaxonomy(file_otutable,
                  metadata,
                  group_l0=None,
@@ -501,9 +527,15 @@ def plotTaxonomy(file_otutable,
                   [taxon for taxon in taxaidx if taxon not in highAbundantTaxa]
     rank_counts = rank_counts.loc[taxaidx, :]
 
+    levels = [f for f in [group_l2, group_l1, group_l0] if f is not None]
+
+    # keeping track of correct sample numbers
+    num_samples = meta.shape[0]
+    if levels != []:
+        num_samples = meta.groupby(levels).size().reset_index()
+
     # aggregate over samples
     if fct_aggregate is not None:
-        levels = [f for f in [group_l2, group_l1, group_l0] if f is not None]
         if len(levels) < 1:
             raise ValueError("Cannot aggregate samples, "
                              "if no grouping is given!")
@@ -635,8 +667,10 @@ def plotTaxonomy(file_otutable,
         if group_l0 is None:
             ax.set_ylabel('relative abundance')
         else:
-            ax.set_ylabel("%s\n(n=%i)" % (n0, g0.shape[0]))
-        #  ax.set_yticks([])
+            ax.set_ylabel("%s\n(n=%i)" % (n0,
+                                          _get_sample_numbers(num_samples,
+                                                              [group_l0],
+                                                              [n0])))
 
         # print labels on top of the groups
         if not no_top_labels:
@@ -646,7 +680,10 @@ def plotTaxonomy(file_otutable,
                 pos = []
                 for n, g in graphinfo.loc[g0.index, :].groupby('group_l1'):
                     pos.append(g['xpos'].mean()+0.5)
-                    labels.append(str(n)+"\n(n=%i)" % g.shape[0])
+                    labels.append(str(n)+"\n(n=%i)" %
+                                  _get_sample_numbers(num_samples,
+                                                      [group_l0, group_l1],
+                                                      [n0, n]))
                 ax2.set_xticks(pos)
                 ax2.set_xlim(ax.get_xlim())
                 ax2.set_xticklabels(labels)
@@ -665,7 +702,12 @@ def plotTaxonomy(file_otutable,
                 pos.append(g.sort_values('xpos').iloc[0, :].loc['xpos'])
                 poslabel.append(g['xpos'].mean())
                 labels.append(str(g.sort_values('xpos').iloc[0, :]
-                              .loc['group_l2']) + ("\n(n=%i)" % g.shape[0]))
+                              .loc['group_l2']) + ("\n(n=%i)" %
+                              _get_sample_numbers(num_samples,
+                                                  [group_l0,
+                                                   group_l1,
+                                                   group_l2],
+                                                  [n0, n[0], n[1]])))
             ax3.set_xticks(np.array(poslabel)+.5, minor=False)
             ax3.set_xticks(np.array(pos), minor=True)
             ax3.set_xticklabels(labels, rotation='vertical')
