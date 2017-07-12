@@ -662,7 +662,7 @@ def plotTaxonomy(file_otutable,
         # crop graph to actually plotted bars
         ax.set_xlim(0, graphinfo.loc[g0.index, 'xpos'].max()+1)
         ax.set_ylim(0, rank_counts.sum().max())
-        ax.set_axis_bgcolor('white')
+        ax.set_facecolor('white')
 
         if group_l0 is None:
             ax.set_ylabel('relative abundance')
