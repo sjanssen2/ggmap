@@ -325,6 +325,32 @@ def _shiftLeft(values):
     return values[1:]+[values[-1]+1]
 
 
+def _get_sample_numbers(num_samples, fields, names):
+    """Given a table about the number of available samples, this function
+       returns the number of samples for the given group.
+
+    Parameters
+    ----------
+    num_samples : pd.DataFrame
+        Number of samples per group for all set groups.
+    field : [str]
+        grouping names, must be included in metadata and therefore implicitly
+        in num_samples
+    names : [str]
+        Group name.
+
+    Returns
+    -------
+    int : number of samples for the given group.
+
+    """
+    x = num_samples
+    for field, name in zip(fields, names):
+        if field is not None:
+            x = x[x[field] == name]
+    return x[0].sum()
+
+
 def plotTaxonomy(file_otutable,
                  metadata,
                  group_l0=None,
