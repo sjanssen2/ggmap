@@ -62,8 +62,18 @@ def compare_images(file_image_a, file_image_b, threshold=0,
                'echo "=== end file contents ===";'
                'echo "copy above file content into a file.txt and convert by";'
                'echo "cat file.txt | base64 --decode > file.png"') % (
-            file_image_diff,
-            file_image_diff)
+            file_image_a,
+            file_image_a)
+        rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
+        for line in rescmd:
+            print(line)
+        cmd = ('echo "==== start file contents (%s)"; '
+               'cat %s | base64; '
+               'echo "=== end file contents ===";'
+               'echo "copy above file content into a file.txt and convert by";'
+               'echo "cat file.txt | base64 --decode > file.png"') % (
+            file_image_b,
+            file_image_b)
         rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
         for line in rescmd:
             print(line)
