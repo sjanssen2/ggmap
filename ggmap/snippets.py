@@ -26,7 +26,7 @@ RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
-    """ Converts a biom file into a Pandas.DataFrame
+    """ Converts a biom file into a Pandas.DataFrame.
 
     Parameters
     ----------
