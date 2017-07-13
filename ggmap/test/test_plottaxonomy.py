@@ -362,7 +362,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l2': 'genspec',
                    'group_l0': 'AGE',
                    'no_sample_numbers': True},
-        'threshold': 0}
+        'threshold': 1471}
     configs['tp_no-n_3groups_agg'] = {
         'description': ('Do not show n=X sample number information, '
                         'for aggregations'),
@@ -376,7 +376,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'group_l0': 'AGE',
                    'no_sample_numbers': True,
                    'fct_aggregate': np.mean},
-        'threshold': 0}
+        'threshold': 735}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
