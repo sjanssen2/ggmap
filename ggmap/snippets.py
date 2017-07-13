@@ -368,7 +368,8 @@ def plotTaxonomy(file_otutable,
                  no_top_labels=False,
                  grayscale=False,
                  out=sys.stdout,
-                 taxonomy_from_biom=False):
+                 taxonomy_from_biom=False,
+                 no_sample_numbers=False):
     """Plot taxonomy.
 
     Parameters
@@ -402,6 +403,8 @@ def plotTaxonomy(file_otutable,
     taxonomy_from_biom : Bool
         Default is False. If true, read taxonomy information from input biom
         file.
+    no_sample_numbers : Bool
+        Default is False. If true, no n= sample numbers will be reported.
 
     Returns
     -------
@@ -667,10 +670,11 @@ def plotTaxonomy(file_otutable,
         if group_l0 is None:
             ax.set_ylabel('relative abundance')
         else:
-            ax.set_ylabel("%s\n(n=%i)" % (n0,
-                                          _get_sample_numbers(num_samples,
-                                                              [group_l0],
-                                                              [n0])))
+            label = n0
+            if no_sample_numbers is False:
+                label += "\n(n=%i)" % _get_sample_numbers(
+                    num_samples, [group_l0], [n0])
+            ax.set_ylabel(label)
 
         # print labels on top of the groups
         if not no_top_labels:
@@ -680,10 +684,11 @@ def plotTaxonomy(file_otutable,
                 pos = []
                 for n, g in graphinfo.loc[g0.index, :].groupby('group_l1'):
                     pos.append(g['xpos'].mean()+0.5)
-                    labels.append(str(n)+"\n(n=%i)" %
-                                  _get_sample_numbers(num_samples,
-                                                      [group_l0, group_l1],
-                                                      [n0, n]))
+                    label = str(n)
+                    if no_sample_numbers is False:
+                        label += "\n(n=%i)" % _get_sample_numbers(
+                            num_samples, [group_l0, group_l1], [n0, n])
+                    labels.append(label)
                 ax2.set_xticks(pos)
                 ax2.set_xlim(ax.get_xlim())
                 ax2.set_xticklabels(labels)
@@ -701,13 +706,13 @@ def plotTaxonomy(file_otutable,
                                                             'group_l2']):
                 pos.append(g.sort_values('xpos').iloc[0, :].loc['xpos'])
                 poslabel.append(g['xpos'].mean())
-                labels.append(str(g.sort_values('xpos').iloc[0, :]
-                              .loc['group_l2']) + ("\n(n=%i)" %
-                              _get_sample_numbers(num_samples,
-                                                  [group_l0,
-                                                   group_l1,
-                                                   group_l2],
-                                                  [n0, n[0], n[1]])))
+                label = str(g.sort_values('xpos').iloc[0, :].loc['group_l2'])
+                if no_sample_numbers is False:
+                    label += "\n(n=%i)" % _get_sample_numbers(
+                        num_samples,
+                        [group_l0, group_l1, group_l2],
+                        [n0, n[0], n[1]])
+                labels.append(label)
             ax3.set_xticks(np.array(poslabel)+.5, minor=False)
             ax3.set_xticks(np.array(pos), minor=True)
             ax3.set_xticklabels(labels, rotation='vertical')
