@@ -351,6 +351,32 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'file_taxonomy': taxonomy,
                    'taxonomy_from_biom': True},
         'threshold': 310}
+    configs['tp_no-n_3groups'] = {
+        'description': 'Do not show n=X sample number information',
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'verbose': False,
+                   'rank': 'Phylum',
+                   'file_taxonomy': taxonomy,
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'group_l0': 'AGE',
+                   'no_sample_numbers': True},
+        'threshold': 0}
+    configs['tp_no-n_3groups_agg'] = {
+        'description': ('Do not show n=X sample number information, '
+                        'for aggregations'),
+        'params': {'file_otutable': biomfile,
+                   'metadata': metadata,
+                   'verbose': False,
+                   'rank': 'Phylum',
+                   'file_taxonomy': taxonomy,
+                   'group_l1': 'diet_brief',
+                   'group_l2': 'genspec',
+                   'group_l0': 'AGE',
+                   'no_sample_numbers': True,
+                   'fct_aggregate': np.mean},
+        'threshold': 0}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
