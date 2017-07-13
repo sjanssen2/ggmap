@@ -224,7 +224,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean},
-        'threshold': 1717}
+        'threshold': 2062}
     configs['tp_agg_no1'] = {
         'description': 'Aggregate plot when group l1 is not set',
         'params': {'file_otutable': biomfile,
@@ -236,7 +236,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean},
-        'threshold': 1276}
+        'threshold': 1512}
     configs['tp_agg_no0'] = {
         'description': 'Aggregate plot when group l0 is not set',
         'params': {'file_otutable': biomfile,
@@ -248,7 +248,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean},
-        'threshold': 1156}
+        'threshold': 1443}
     configs['tp_agg_no2'] = {
         'description': 'Aggregate plot when group l2 is not set',
         'params': {'file_otutable': biomfile,
@@ -260,7 +260,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean},
-        'threshold': 1336}
+        'threshold': 1869}
     configs['tp_agg_only0'] = {
         'description': 'Aggregate plot when only group l0 is set',
         'params': {'file_otutable': biomfile,
@@ -283,7 +283,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'verbose': False,
                    'file_taxonomy': taxonomy,
                    'fct_aggregate': np.mean},
-        'threshold': 1102}
+        'threshold': 1191}
     configs['tp_notop_2'] = {
         'description': 'Check that labels above bars are printed; agg 0, 2',
         'params': {'file_otutable': biomfile,

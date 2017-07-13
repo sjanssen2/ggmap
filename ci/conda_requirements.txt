@@ -7,7 +7,7 @@ pandas
 biom-format>=2.1.6
 basemap
 matplotlib
-seaborn
+seaborn=0.7.1
 numpy
 xlrd
 pillow
