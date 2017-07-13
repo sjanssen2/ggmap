@@ -606,7 +606,7 @@ def plotTaxonomy(file_otutable,
             colors[taxon] = availColors[len(colors) % len(availColors)]
 
     # plot the actual thing
-    fig, axarr = plt.subplots(len(grps0), 1)
+    fig, axarr = plt.subplots(len(grps0), 1, figsize=(8, 5.5))
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
         if group_l0 is None:
             ax = axarr
