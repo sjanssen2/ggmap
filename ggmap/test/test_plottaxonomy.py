@@ -360,7 +360,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
             sys.stderr.flush()
             f = plotTaxonomy(**configs[name]['params'])
             filename = outdir + name + extension
-            f[0].savefig(filename, dpi=100)
+            f[0].savefig(filename)
             configs[name]['imagefile'] = filename
             plt.close(f[0])
         sys.stderr.write(" done.\n")
