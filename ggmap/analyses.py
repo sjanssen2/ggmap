@@ -515,7 +515,7 @@ def beta_diversity(counts,
                             "bray_curtis"],
                    num_threads=10, dry=True, use_grid=True, nocache=False,
                    reference_tree=None, workdir=None,
-                   wait=True):
+                   wait=True, use_parallel=False):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -532,6 +532,9 @@ def beta_diversity(counts,
         Use grid engine instead of local execution. Default: True
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
+    use_parallel : boolean
+        Default: false. If true, use parallel version of beta div computation.
+        I found that it often stalles with defunct processes.
 
     Returns
     -------
@@ -541,20 +544,34 @@ def beta_diversity(counts,
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
 
-    def commands(workdir, ppn, args):
-        commands = []
-        commands.append(('parallel_beta_diversity.py '
-                         '-i %s '                   # input biom file
-                         '-m %s '                   # list of beta div metrics
-                         '-t %s '                   # tree reference file
-                         '-o %s '
-                         '-O %i ') % (
-            workdir+'/input.biom',
-            ",".join(args['metrics']),
-            _get_ref_phylogeny(reference_tree),
-            workdir+'/beta',
-            ppn))
-        return commands
+    if use_parallel:
+        def commands(workdir, ppn, args):
+            commands = []
+            commands.append(('parallel_beta_diversity.py '
+                             '-i %s '              # input biom file
+                             '-m %s '              # list of beta div metrics
+                             '-t %s '              # tree reference file
+                             '-o %s '
+                             '-O %i ') % (
+                workdir+'/input.biom',
+                ",".join(args['metrics']),
+                _get_ref_phylogeny(reference_tree),
+                workdir+'/beta',
+                ppn))
+            return commands
+    else:
+        def commands(workdir, ppn, args):
+            commands = []
+            commands.append(('beta_diversity.py '
+                             '-i %s '              # input biom file
+                             '-m %s '              # list of beta div metrics
+                             '-t %s '              # tree reference file
+                             '-o %s ') % (
+                workdir+'/input.biom',
+                ",".join(args['metrics']),
+                _get_ref_phylogeny(reference_tree),
+                workdir+'/beta'))
+            return commands
 
     def post_execute(workdir, args, pre_data):
         results = dict()
