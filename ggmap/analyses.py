@@ -580,7 +580,7 @@ def beta_diversity(counts,
 
 def sepp(counts,
          dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='10GB', wait=True):
+         ppn=10, pmem='20GB', wait=True):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -620,9 +620,10 @@ def sepp(counts,
     def commands(workdir, ppn, args):
         commands = []
         commands.append('cd %s' % workdir)
-        commands.append('%srun-sepp.sh "%s" res' % (
+        commands.append('%srun-sepp.sh "%s" res -x %i' % (
             '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
-            workdir+'/sequences.mfa'))
+            workdir+'/sequences.mfa',
+            ppn))
         return commands
 
     def post_execute(workdir, args, pre_data):
