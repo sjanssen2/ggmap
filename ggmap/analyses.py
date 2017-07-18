@@ -258,6 +258,10 @@ def rarefaction_curves(counts, metadata,
     workdir : str
         Filepath to an existing temporary working directory. This will only
         call post_execute to parse results.
+
+    Returns
+    -------
+    plt figure
     """
     def pre_execute(workdir, args):
         # store counts as a biom file
