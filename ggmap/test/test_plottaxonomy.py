@@ -554,22 +554,22 @@ class TaxPlotTests(TestCase):
         meta = pd.Series(['a', 'a', 'a', 'b'], index=sample_names,
                          name='dummy').to_frame()
 
-        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
-                                               meta, rank='Species',
-                                               file_taxonomy=file_lin,
-                                               minreadnr=0)
+        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+                                                  meta, rank='Species',
+                                                  file_taxonomy=file_lin,
+                                                  minreadnr=0)
         self.assertCountEqual(['s__'], rank_counts.index)
 
-        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
-                                               meta, rank='Kingdom',
-                                               file_taxonomy=file_lin,
-                                               minreadnr=0)
+        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+                                                  meta, rank='Kingdom',
+                                                  file_taxonomy=file_lin,
+                                                  minreadnr=0)
         self.assertCountEqual(['k__bacteria'], rank_counts.index)
 
-        _, rank_counts, _, vals = plotTaxonomy(file_dummy,
-                                               meta, rank='Phylum',
-                                               file_taxonomy=file_lin,
-                                               minreadnr=0)
+        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+                                                  meta, rank='Phylum',
+                                                  file_taxonomy=file_lin,
+                                                  minreadnr=0)
         self.assertCountEqual(['p__fantasia', 'p__'], rank_counts.index)
 
         remove(file_dummy)
