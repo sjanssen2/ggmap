@@ -370,7 +370,7 @@ def plotTaxonomy(file_otutable,
                  out=sys.stdout,
                  taxonomy_from_biom=False,
                  no_sample_numbers=False,
-                 colors=dict()):
+                 colors=None):
     """Plot taxonomy.
 
     Parameters
@@ -611,6 +611,8 @@ def plotTaxonomy(file_otutable,
         sns.color_palette('Paired', 12) +\
         sns.color_palette('Dark2', 12) +\
         sns.color_palette('Pastel1', 12)
+    if colors is None:
+        colors = dict()
     colors[NAME_LOW_ABUNDANCE] = 'white'
     for i in range(0, vals.shape[0]):
         taxon = vals.index[i]
