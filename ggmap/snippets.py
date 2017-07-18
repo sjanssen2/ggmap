@@ -607,7 +607,6 @@ def plotTaxonomy(file_otutable,
                 offset += max(1, int(g0.shape[0]*0.05))
 
     # define colors for taxons
-    #availColors = sns.color_palette('Paired', 100)
     availColors = \
         sns.color_palette('Paired', 12) +\
         sns.color_palette('Dark2', 12) +\
