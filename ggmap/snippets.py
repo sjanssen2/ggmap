@@ -369,7 +369,8 @@ def plotTaxonomy(file_otutable,
                  grayscale=False,
                  out=sys.stdout,
                  taxonomy_from_biom=False,
-                 no_sample_numbers=False):
+                 no_sample_numbers=False,
+                 colors=dict()):
     """Plot taxonomy.
 
     Parameters
@@ -405,10 +406,15 @@ def plotTaxonomy(file_otutable,
         file.
     no_sample_numbers : Bool
         Default is False. If true, no n= sample numbers will be reported.
+    colors : dict(taxon: (r, g, b))
+        Provide a predefined color dictionary to use same colors for several
+        plots. Default is an empty dictionary.
+        Format: key = taxon name,
+        Value: a triple of RGB float values.
 
     Returns
     -------
-    fig, rank_counts, graphinfo, vals
+    fig, rank_counts, graphinfo, vals, color-dict
     """
 
     NAME_LOW_ABUNDANCE = 'low abundance'
@@ -601,8 +607,12 @@ def plotTaxonomy(file_otutable,
                 offset += max(1, int(g0.shape[0]*0.05))
 
     # define colors for taxons
-    availColors = sns.color_palette('Paired', 100)
-    colors = {NAME_LOW_ABUNDANCE: 'white'}
+    #availColors = sns.color_palette('Paired', 100)
+    availColors = \
+        sns.color_palette('Paired', 12) +\
+        sns.color_palette('Dark2', 12) +\
+        sns.color_palette('Pastel1', 12)
+    colors[NAME_LOW_ABUNDANCE] = 'white'
     for i in range(0, vals.shape[0]):
         taxon = vals.index[i]
         if taxon not in colors:
@@ -764,7 +774,7 @@ def plotTaxonomy(file_otutable,
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
         out.write("counts with meta: %i\n" % counts.shape[1])
 
-    return fig, rank_counts, graphinfo, vals
+    return fig, rank_counts, graphinfo, vals, colors
 
 
 def _time_torque2slurm(t_time):
