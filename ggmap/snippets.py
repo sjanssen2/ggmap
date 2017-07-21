@@ -370,7 +370,8 @@ def plotTaxonomy(file_otutable,
                  out=sys.stdout,
                  taxonomy_from_biom=False,
                  no_sample_numbers=False,
-                 colors=None):
+                 colors=None,
+                 min_abundance_grayscale=0):
     """Plot taxonomy.
 
     Parameters
@@ -411,6 +412,9 @@ def plotTaxonomy(file_otutable,
         plots. Default is an empty dictionary.
         Format: key = taxon name,
         Value: a triple of RGB float values.
+    min_abundance_grayscale : float
+        Stop drawing gray rectangles for low abundant taxa if their relative
+        abundance is below this threshold. Saves time and space.
 
     Returns
     -------
@@ -516,6 +520,18 @@ def plotTaxonomy(file_otutable,
         if verbose:
             out.write('%i taxa left after filtering low abundant.\n' %
                       (rank_counts.shape[0]-1))
+
+    # grayscale == True takes a lot of time to draw rectangles that are barly
+    # visible. Thus, I here filter for those tiny little guys.
+    no_grayscale_taxa = []
+    if grayscale:
+        max_rel_ab = (rank_counts / rank_counts.sum(axis=0)).max(axis=1)
+        no_grayscale_taxa = [idx
+                             for idx, max_relab
+                             in max_rel_ab.iteritems()
+                             if max_relab < min_abundance_grayscale]
+        if len(no_grayscale_taxa) > 0:
+            out.write('ignoring %i very low taxa\n' % len(no_grayscale_taxa))
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
@@ -628,6 +644,8 @@ def plotTaxonomy(file_otutable,
             ax = axarr[ypos]
         for i in range(0, vals.shape[0]):
             taxon = vals.index[i]
+            if taxon in no_grayscale_taxa:
+                continue
             color = colors[taxon]
             if taxon in lowAbundandTaxa:
                 # color = GRAYS[i % len(GRAYS)] for deterministic selection
