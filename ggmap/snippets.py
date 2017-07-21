@@ -1492,7 +1492,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, groups, diffTaxa=None,
                 name = [n]
             out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
                       + ", ")
-            out.write("'%s'" % groups[-1], end="")
+            out.write("'%s'" % groups[-1])
             out.write("  (n=%i)\n" % g.shape[0])
 
             # filter samples for calour
