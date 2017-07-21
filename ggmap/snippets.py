@@ -1409,3 +1409,142 @@ def mutate_sequence(sequence, num_mutations=1,
             raise ValueError("Alphabet is too small to find mutation!")
         mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
     return mut_sequence
+
+
+def _find_diff_taxa_runpfdr(calour_experiment, field, diffTaxa=None,
+                            out=sys.stdout):
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    field : str
+        The metadata column along which samples should be separated and tested
+        for differentially abundant taxa.
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    ns = calour_experiment.sample_metadata[field].value_counts()
+    for (a, b) in combinations(ns.index, 2):
+        ediff = calour_experiment.diff_abundance(field, a, b,
+                                                 fdr_method='dsfdr')
+        out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
+                  % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
+        if ediff.feature_metadata.shape[0] > 0:
+            if (a, b) not in diffTaxa:
+                diffTaxa[(a, b)] = dict()
+            for taxon in ediff.feature_metadata.index:
+                if taxon not in diffTaxa[(a, b)]:
+                    diffTaxa[(a, b)][taxon] = 0
+                diffTaxa[(a, b)][taxon] += 1
+
+    return diffTaxa
+
+
+def _find_diff_taxa_singlelevel(calour_experiment, groups, diffTaxa=None,
+                                out=sys.stdout):
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata group of fields, i.e. samples are controlled for the first :-1
+       fields and abundance is checked for the latest field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    groups : [str]
+        The metadata columns for which samples should be controlled (first n-1)
+        and along which samples should be separated and tested for
+        differentially abundant taxa (last)
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    if len(groups) > 1:
+        for n, g in calour_experiment.sample_metadata.groupby(groups[:-1]):
+            name = n
+            if type(n) != tuple:
+                name = [n]
+            out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
+                      + ", ")
+            out.write("'%s'" % groups[-1], end="")
+            out.write("  (n=%i)\n" % g.shape[0])
+
+            # filter samples for calour
+            e = calour_experiment
+            for (field, value) in zip(groups, name):
+                e = e.filter_samples(field, [value], inplace=False)
+
+            diffTaxa = _find_diff_taxa_runpfdr(e, groups[-1], diffTaxa)
+    else:
+        out.write("'%s'" % groups[0])
+        out.write("  (n=%i)\n" % calour_experiment.sample_metadata.shape[0])
+        diffTaxa = _find_diff_taxa_runpfdr(
+            calour_experiment, groups[0], diffTaxa)
+
+    return diffTaxa
+
+
+def find_diff_taxa(calour_experiment, groups, diffTaxa=None, out=sys.stdout):
+    # TODO: rephrase docstring
+    # TODO: unit tests for all three functions
+    # TODO: include calour in requirements
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata group of fields, i.e. samples are controlled for the first :-1
+       fields and abundance is checked for the latest field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    groups : [str]
+        The metadata columns for which samples should be controlled (first n-1)
+        and along which samples should be separated and tested for
+        differentially abundant taxa (last)
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    for i in range(len(groups)):
+        sub_groups = groups[len(groups)-i-1:]
+        diffTaxa = _find_diff_taxa_singlelevel(
+            calour_experiment, sub_groups, diffTaxa)
+        out.write("\n")
+
+    return diffTaxa
