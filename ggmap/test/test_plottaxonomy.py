@@ -447,8 +447,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'group_l0': 'hsid',
                        'fct_aggregate': np.mean,
                        'minreadnr': 10000,
-                       'grayscale': False,
-                       'fct_aggregate': np.mean},
+                       'grayscale': False},
             'threshold': 2116}
         configs['mock_gray0.2'] = {
             'description': ('Now plotting gray taxa and leave a 20\% gap.'),
@@ -462,8 +461,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'fct_aggregate': np.mean,
                        'min_abundance_grayscale': 0.2,
                        'minreadnr': 10000,
-                       'grayscale': True,
-                       'fct_aggregate': np.mean},
+                       'grayscale': True},
             'threshold': 2116}
         configs['mock_gray0.01'] = {
             'description': ('Reduce the gap to only 1\%.'),
@@ -477,8 +475,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'fct_aggregate': np.mean,
                        'minreadnr': 10000,
                        'min_abundance_grayscale': 0.01,
-                       'grayscale': True,
-                       'fct_aggregate': np.mean},
+                       'grayscale': True},
             'threshold': 2116}
 
     if not list_existing:
