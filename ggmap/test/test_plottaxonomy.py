@@ -390,6 +390,14 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
         elif bodysite == 'Foot':
             minreads = 26800
         return minreads
+    exp_diffs = {'amina_gray_Foot': 8380,
+                 'amina_nogray_Foot': 8380,
+                 'amina_nogray_Armpit': 6988,
+                 'amina_gray_Armpit': 6988,
+                 'amina_gray_Arm': 7707,
+                 'amina_nogray_Arm': 7707,
+                 'amina_gray_Face': 7226,
+                 'amina_nogray_Face': 7226}
     meta_amina = pd.read_csv(get_data_path('amina.meta.tsv'),
                              index_col=0, sep='\t')
     for bodysite in sorted(meta_amina['sample_site'].unique()):
@@ -407,7 +415,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'fct_aggregate': np.mean,
                        'grayscale': False,
                        'minreadnr': get_depth(bodysite)},
-            'threshold': 0}
+            'threshold': exp_diffs['amina_nogray_%s' % bodysite]}
         configs['amina_gray_%s' % bodysite] = {
             'description': ('with low abundant grayscale for %s' % bodysite),
             'params': {'file_otutable': get_data_path('amina.sub10k.biom'),
@@ -423,7 +431,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'min_abundance_grayscale': 0.1,
                        'grayscale': True,
                        'minreadnr': get_depth(bodysite)},
-            'threshold': 0}
+            'threshold':  exp_diffs['amina_gray_%s' % bodysite]}
 
         # plot mock taxonomy for testing grayscale
         metadata = pd.read_csv(get_data_path('tax_mock_meta.tsv'),
@@ -441,7 +449,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'minreadnr': 10000,
                        'grayscale': False,
                        'fct_aggregate': np.mean},
-            'threshold': 0}
+            'threshold': 2116}
         configs['mock_gray0.2'] = {
             'description': ('Now plotting gray taxa and leave a 20\% gap.'),
             'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
@@ -456,7 +464,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'minreadnr': 10000,
                        'grayscale': True,
                        'fct_aggregate': np.mean},
-            'threshold': 0}
+            'threshold': 2116}
         configs['mock_gray0.01'] = {
             'description': ('Reduce the gap to only 1\%.'),
             'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
@@ -471,7 +479,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'min_abundance_grayscale': 0.01,
                        'grayscale': True,
                        'fct_aggregate': np.mean},
-            'threshold': 0}
+            'threshold': 2116}
 
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
