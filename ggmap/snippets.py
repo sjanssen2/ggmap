@@ -521,18 +521,6 @@ def plotTaxonomy(file_otutable,
             out.write('%i taxa left after filtering low abundant.\n' %
                       (rank_counts.shape[0]-1))
 
-    # grayscale == True takes a lot of time to draw rectangles that are barly
-    # visible. Thus, I here filter for those tiny little guys.
-    no_grayscale_taxa = []
-    if grayscale:
-        max_rel_ab = (rank_counts / rank_counts.sum(axis=0)).max(axis=1)
-        no_grayscale_taxa = [idx
-                             for idx, max_relab
-                             in max_rel_ab.iteritems()
-                             if max_relab < min_abundance_grayscale]
-        if len(no_grayscale_taxa) > 0:
-            out.write('ignoring %i very low taxa\n' % len(no_grayscale_taxa))
-
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
         rank_counts = rank_counts.loc[plottaxa, :]
@@ -637,6 +625,7 @@ def plotTaxonomy(file_otutable,
 
     # plot the actual thing
     fig, axarr = plt.subplots(len(grps0), 1)
+    num_saved_boxes = 0
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
         if group_l0 is None:
             ax = axarr
@@ -644,11 +633,8 @@ def plotTaxonomy(file_otutable,
             ax = axarr[ypos]
         for i in range(0, vals.shape[0]):
             taxon = vals.index[i]
-            if taxon in no_grayscale_taxa:
-                continue
             color = colors[taxon]
             if taxon in lowAbundandTaxa:
-                # color = GRAYS[i % len(GRAYS)] for deterministic selection
                 color = random.choice(GRAYS)
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
@@ -658,6 +644,9 @@ def plotTaxonomy(file_otutable,
                 else:
                     y_prev = vals.loc[:, g1_idx.sort_values(by='xpos').index]\
                         .iloc[i-1, :]
+                    if grayscale & (y_prev.min() > 1-min_abundance_grayscale):
+                        num_saved_boxes += 1
+                        continue
                 y_curr = vals.loc[:, g1_idx.sort_values(by='xpos').index]\
                     .iloc[i, :]
                 xpos = g1_idx.sort_values(by='xpos')['xpos']
@@ -666,6 +655,12 @@ def plotTaxonomy(file_otutable,
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
                                 color=color)
+
+            if grayscale & \
+               (vals.iloc[i, :].min() >= 1-min_abundance_grayscale):
+                num_saved_boxes += len(graphinfo.loc[g0.index,
+                                                     'group_l1'].unique())
+                break
 
         # decorate graph with axes labels ...
         if print_sample_labels:
@@ -792,6 +787,8 @@ def plotTaxonomy(file_otutable,
         out.write("raw meta: %i\n" % metadata.shape[0])
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
         out.write("counts with meta: %i\n" % counts.shape[1])
+        if grayscale:
+            out.write("saved plotting %i boxes.\n" % num_saved_boxes)
 
     return fig, rank_counts, graphinfo, vals, colors
 
