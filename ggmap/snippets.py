@@ -370,7 +370,8 @@ def plotTaxonomy(file_otutable,
                  out=sys.stdout,
                  taxonomy_from_biom=False,
                  no_sample_numbers=False,
-                 colors=None):
+                 colors=None,
+                 min_abundance_grayscale=0):
     """Plot taxonomy.
 
     Parameters
@@ -411,6 +412,9 @@ def plotTaxonomy(file_otutable,
         plots. Default is an empty dictionary.
         Format: key = taxon name,
         Value: a triple of RGB float values.
+    min_abundance_grayscale : float
+        Stop drawing gray rectangles for low abundant taxa if their relative
+        abundance is below this threshold. Saves time and space.
 
     Returns
     -------
@@ -621,6 +625,7 @@ def plotTaxonomy(file_otutable,
 
     # plot the actual thing
     fig, axarr = plt.subplots(len(grps0), 1)
+    num_saved_boxes = 0
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
         if group_l0 is None:
             ax = axarr
@@ -630,7 +635,6 @@ def plotTaxonomy(file_otutable,
             taxon = vals.index[i]
             color = colors[taxon]
             if taxon in lowAbundandTaxa:
-                # color = GRAYS[i % len(GRAYS)] for deterministic selection
                 color = random.choice(GRAYS)
             y_prev = None
             for j, (name, g1_idx) in enumerate(graphinfo.loc[g0.index, :]
@@ -640,6 +644,9 @@ def plotTaxonomy(file_otutable,
                 else:
                     y_prev = vals.loc[:, g1_idx.sort_values(by='xpos').index]\
                         .iloc[i-1, :]
+                    if grayscale & (y_prev.min() > 1-min_abundance_grayscale):
+                        num_saved_boxes += 1
+                        continue
                 y_curr = vals.loc[:, g1_idx.sort_values(by='xpos').index]\
                     .iloc[i, :]
                 xpos = g1_idx.sort_values(by='xpos')['xpos']
@@ -648,6 +655,12 @@ def plotTaxonomy(file_otutable,
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
                                 color=color)
+
+            if grayscale & \
+               (vals.iloc[i, :].min() >= 1-min_abundance_grayscale):
+                num_saved_boxes += len(graphinfo.loc[g0.index,
+                                                     'group_l1'].unique())
+                break
 
         # decorate graph with axes labels ...
         if print_sample_labels:
@@ -774,6 +787,8 @@ def plotTaxonomy(file_otutable,
         out.write("raw meta: %i\n" % metadata.shape[0])
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
         out.write("counts with meta: %i\n" % counts.shape[1])
+        if grayscale:
+            out.write("saved plotting %i boxes.\n" % num_saved_boxes)
 
     return fig, rank_counts, graphinfo, vals, colors
 

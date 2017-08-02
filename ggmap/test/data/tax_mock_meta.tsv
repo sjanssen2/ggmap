@@ -1,0 +1,11 @@
+#sampleID	hsid	phase
+sample01	Volunteer  1	0_init
+sample02	Volunteer  1	1_none
+sample03	Volunteer  1	2_common
+sample04	Volunteer  1	3_personal
+sample05	Volunteer  2	1_none
+sample06	Volunteer  2	2_common
+sample07	Volunteer  2	3_personal
+sample08	Volunteer  3	2_common
+sample09	Volunteer  3	3_personal
+sample10	Volunteer  3	3_personal

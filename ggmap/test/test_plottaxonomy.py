@@ -378,6 +378,106 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'fct_aggregate': np.mean},
         'threshold': 735}
 
+    # following is stuff to produce taxonomy plots as in Amina's skin study.
+    def get_depth(bodysite):
+        minreads = 70000
+        if bodysite == 'Arm':
+            minreads = 65000
+        elif bodysite == 'Armpit':
+            minreads = 20000
+        elif bodysite == 'Face':
+            minreads = 42000
+        elif bodysite == 'Foot':
+            minreads = 26800
+        return minreads
+    exp_diffs = {'amina_gray_Foot': 8380,
+                 'amina_nogray_Foot': 8380,
+                 'amina_nogray_Armpit': 6988,
+                 'amina_gray_Armpit': 6988,
+                 'amina_gray_Arm': 7707,
+                 'amina_nogray_Arm': 7707,
+                 'amina_gray_Face': 7226,
+                 'amina_nogray_Face': 7226}
+    meta_amina = pd.read_csv(get_data_path('amina.meta.tsv'),
+                             index_col=0, sep='\t')
+    for bodysite in sorted(meta_amina['sample_site'].unique()):
+        configs['amina_nogray_%s' % bodysite] = {
+            'description': ('no low abundant grayscale for %s' % bodysite),
+            'params': {'file_otutable': get_data_path('amina.sub10k.biom'),
+                       'metadata':
+                       meta_amina[meta_amina['sample_site'] == bodysite],
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('amina.taxonomy.cr.tsv'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'no_sample_numbers': True,
+                       'fct_aggregate': np.mean,
+                       'grayscale': False,
+                       'minreadnr': get_depth(bodysite)},
+            'threshold': exp_diffs['amina_nogray_%s' % bodysite]}
+        configs['amina_gray_%s' % bodysite] = {
+            'description': ('with low abundant grayscale for %s' % bodysite),
+            'params': {'file_otutable': get_data_path('amina.sub10k.biom'),
+                       'metadata':
+                       meta_amina[meta_amina['sample_site'] == bodysite],
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('amina.taxonomy.cr.tsv'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'no_sample_numbers': True,
+                       'fct_aggregate': np.mean,
+                       'min_abundance_grayscale': 0.1,
+                       'grayscale': True,
+                       'minreadnr': get_depth(bodysite)},
+            'threshold':  exp_diffs['amina_gray_%s' % bodysite]}
+
+        # plot mock taxonomy for testing grayscale
+        metadata = pd.read_csv(get_data_path('tax_mock_meta.tsv'),
+                               index_col=0, sep='\t')
+        configs['mock_nogray'] = {
+            'description': ('Plotting mock data without gray taxa'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'minreadnr': 10000,
+                       'grayscale': False},
+            'threshold': 2116}
+        configs['mock_gray0.2'] = {
+            'description': ('Now plotting gray taxa and leave a 20\% gap.'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'min_abundance_grayscale': 0.2,
+                       'minreadnr': 10000,
+                       'grayscale': True},
+            'threshold': 2116}
+        configs['mock_gray0.01'] = {
+            'description': ('Reduce the gap to only 1\%.'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'minreadnr': 10000,
+                       'min_abundance_grayscale': 0.01,
+                       'grayscale': True},
+            'threshold': 2116}
+
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
         sys.stderr.flush()
