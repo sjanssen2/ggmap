@@ -378,6 +378,53 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                    'fct_aggregate': np.mean},
         'threshold': 735}
 
+    # following is stuff to produce taxonomy plots as in Amina's skin study.
+    def get_depth(bodysite):
+        minreads = 70000
+        if bodysite == 'Arm':
+            minreads = 65000
+        elif bodysite == 'Armpit':
+            minreads = 20000
+        elif bodysite == 'Face':
+            minreads = 42000
+        elif bodysite == 'Foot':
+            minreads = 26800
+        return minreads
+    meta_amina = pd.read_csv(get_data_path('amina.meta.tsv'),
+                             index_col=0, sep='\t')
+    for bodysite in sorted(meta_amina['sample_site'].unique()):
+        configs['amina_nogray_%s' % bodysite] = {
+            'description': ('no low abundant grayscale for %s' % bodysite),
+            'params': {'file_otutable': get_data_path('amina.sub10k.biom'),
+                       'metadata':
+                       meta_amina[meta_amina['sample_site'] == bodysite],
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('amina.taxonomy.cr.tsv'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'no_sample_numbers': True,
+                       'fct_aggregate': np.mean,
+                       'grayscale': False,
+                       'minreadnr': get_depth(bodysite)},
+            'threshold': 0}
+        configs['amina_gray_%s' % bodysite] = {
+            'description': ('with low abundant grayscale for %s' % bodysite),
+            'params': {'file_otutable': get_data_path('amina.sub10k.biom'),
+                       'metadata':
+                       meta_amina[meta_amina['sample_site'] == bodysite],
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('amina.taxonomy.cr.tsv'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'no_sample_numbers': True,
+                       'fct_aggregate': np.mean,
+                       'min_abundance_grayscale': 0.05,
+                       'grayscale': True,
+                       'minreadnr': get_depth(bodysite)},
+            'threshold': 0}
+
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
         sys.stderr.flush()
