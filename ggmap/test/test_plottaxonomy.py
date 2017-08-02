@@ -420,9 +420,57 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
                        'group_l0': 'hsid',
                        'no_sample_numbers': True,
                        'fct_aggregate': np.mean,
-                       'min_abundance_grayscale': 0.05,
+                       'min_abundance_grayscale': 0.1,
                        'grayscale': True,
                        'minreadnr': get_depth(bodysite)},
+            'threshold': 0}
+
+        # plot mock taxonomy for testing grayscale
+        metadata = pd.read_csv(get_data_path('tax_mock_meta.tsv'),
+                               index_col=0, sep='\t')
+        configs['mock_nogray'] = {
+            'description': ('Plotting mock data without gray taxa'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'minreadnr': 10000,
+                       'grayscale': False,
+                       'fct_aggregate': np.mean},
+            'threshold': 0}
+        configs['mock_gray0.2'] = {
+            'description': ('Now plotting gray taxa and leave a 20\% gap.'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'min_abundance_grayscale': 0.2,
+                       'minreadnr': 10000,
+                       'grayscale': True,
+                       'fct_aggregate': np.mean},
+            'threshold': 0}
+        configs['mock_gray0.01'] = {
+            'description': ('Reduce the gap to only 1\%.'),
+            'params': {'file_otutable': get_data_path('tax_mock_counts.biom'),
+                       'metadata': metadata,
+                       'verbose': False,
+                       'rank': 'Family',
+                       'file_taxonomy': get_data_path('tax_mock_taxonomy.txt'),
+                       'group_l1': 'phase',
+                       'group_l0': 'hsid',
+                       'fct_aggregate': np.mean,
+                       'minreadnr': 10000,
+                       'min_abundance_grayscale': 0.01,
+                       'grayscale': True,
+                       'fct_aggregate': np.mean},
             'threshold': 0}
 
     if not list_existing:
