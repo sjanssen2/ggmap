@@ -351,6 +351,93 @@ def _get_sample_numbers(num_samples, fields, names):
     return x[0].sum()
 
 
+def collapseCounts(file_otutable, rank,
+                   file_taxonomy=None,
+                   verbose=True, out=sys.stdout):
+    """Collapses features of an OTU table according to their taxonomic
+       assignment and a given rank.
+
+    Parameters
+    ----------
+    file_otutable : file
+        Path to a biom OTU table
+    rank : str
+        Set taxonomic level to collapse abundances. Use 'raw' to de-activate
+        collapsing.
+    file_taxonomy : file
+        Taxonomy information is read from the biom file. Except you provide an
+        alternative taxonomy in terms of a two column file. First column must
+        contain feature ID (OTUid or sequence), second colum is the ; separated
+        lineage string.
+        Default is None, i.e. using taxonomy from biom file.
+    verbose : bool
+        Default is true. Report messages if true.
+    out : StringIO
+        Buffer onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+    Pandas.DataFrame: counts of collapsed taxa.
+    """
+    # check that rank is a valid taxonomic rank
+    if rank not in RANKS + ['raw']:
+        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
+                         (rank, ", ".join(RANKS)))
+
+    # check that biom table can be read
+    if not os.path.exists(file_otutable):
+        raise IOError('OTU table file not found')
+
+    counts, taxonomy = None, None
+    if file_taxonomy is None:
+        counts, taxonomy = biom2pandas(file_otutable, withTaxonomy=True)
+        taxonomy.name = 'taxonomy'
+        rank_counts = pd.merge(counts, taxonomy.to_frame(), how='left',
+                               left_index=True, right_index=True)
+    else:
+        # check that taxonomy file exists
+        if (not os.path.exists(file_taxonomy)) and (rank != 'raw'):
+            raise IOError('Taxonomy file not found!')
+
+        counts = biom2pandas(file_otutable, withTaxonomy=False)
+        if rank != 'raw':
+            taxonomy = pd.read_csv(file_taxonomy, sep="\t", header=None,
+                                   names=['otuID', 'taxonomy'],
+                                   usecols=[0, 1])  # only parse 2 first cols
+            taxonomy['otuID'] = taxonomy['otuID'].astype(str)
+            taxonomy.set_index('otuID', inplace=True)
+            # add taxonomic lineage information to the counts as
+            # column "taxonomy"
+            rank_counts = pd.merge(counts, taxonomy, how='left',
+                                   left_index=True, right_index=True)
+
+    if rank != 'raw':
+        # split lineage string into individual taxa names on ';' and remove
+        # surrounding whitespaces. If rank does not exist return r+'__' instead
+        def _splitranks(x, rank):
+            try:
+                return [t.strip() for t in x.split(";")][RANKS.index(rank)]
+            except AttributeError:
+                RANKS[RANKS.index(rank)].lower()[0] + "__"
+            except IndexError:
+                return RANKS[RANKS.index(rank)].lower()[0] + "__"
+        # add columns for each tax rank, such that we can groupby later on
+        rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
+                                                          _splitranks(x, rank))
+        # sum counts according to the selected rank
+        rank_counts = rank_counts.reset_index().groupby(rank).sum()
+        # get rid of the old index, i.e. OTU ids, since we have grouped by some
+        # rank
+
+        if verbose:
+            out.write('%i taxa left after collapsing to %s.\n' %
+                      (rank_counts.shape[0], rank))
+    else:
+        rank_counts = counts
+
+    return rank_counts
+
+
 def plotTaxonomy(file_otutable,
                  metadata,
                  group_l0=None,
@@ -433,76 +520,20 @@ def plotTaxonomy(file_otutable,
                 raise ValueError(('Column "%s" for grouping level %i is not '
                                   'in metadata table!') % (field, i))
 
-    # check that rank is a valid taxonomic rank
-    if rank not in RANKS + ['raw']:
-        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
-                         (rank, ", ".join(RANKS)))
-
-    # check that taxonomy file exists
-    if (not os.path.exists(file_taxonomy)) and \
-       (rank != 'raw') and \
-       (taxonomy_from_biom is False):
-        raise IOError('Taxonomy file not found!')
-
-    # check that biom table can be read
-    if not os.path.exists(file_otutable):
-        raise IOError('OTU table file not found')
-    rawcounts, biomtaxonomy = None, None
+    ft = file_taxonomy
     if taxonomy_from_biom:
-        rawcounts, biomtaxonomy = biom2pandas(file_otutable,
-                                              withTaxonomy=taxonomy_from_biom)
-    else:
-        rawcounts = biom2pandas(file_otutable,
-                                withTaxonomy=taxonomy_from_biom)
+        ft = None
+    rawcounts = collapseCounts(file_otutable, rank, file_taxonomy=ft,
+                               verbose=verbose, out=out)
 
     # restrict to those samples for which we have metadata AND counts
     meta = metadata.loc[[idx
                          for idx in metadata.index
                          if idx in rawcounts.columns], :]
-    counts = rawcounts.loc[:, meta.index]
+    rank_counts = rawcounts.loc[:, meta.index]
     if verbose:
         out.write('%i samples left with metadata and counts.\n' %
                   meta.shape[0])
-
-    # assign taxonomy and collapse at given rank
-    if rank != 'raw':
-        if taxonomy_from_biom is False:
-            lineages = pd.read_csv(file_taxonomy, sep="\t", header=None,
-                                   names=['otuID', 'taxonomy'],
-                                   usecols=[0, 1])  # only parse 2 first cols
-            lineages['otuID'] = lineages['otuID'].astype(str)
-            lineages.set_index('otuID', inplace=True)
-            # add taxonomic lineage information to the counts as
-            # column "taxonomy"
-            rank_counts = pd.merge(counts, lineages, how='left',
-                                   left_index=True, right_index=True)
-        else:
-            biomtaxonomy.name = 'taxonomy'
-            rank_counts = pd.merge(counts, biomtaxonomy.to_frame(), how='left',
-                                   left_index=True, right_index=True)
-
-        # split lineage string into individual taxa names on ';' and remove
-        # surrounding whitespaces. If rank does not exist return r+'__' instead
-        def _splitranks(x, rank):
-            try:
-                return [t.strip() for t in x.split(";")][RANKS.index(rank)]
-            except AttributeError:
-                RANKS[RANKS.index(rank)].lower()[0] + "__"
-            except IndexError:
-                return RANKS[RANKS.index(rank)].lower()[0] + "__"
-        # add columns for each tax rank, such that we can groupby later on
-        rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
-                                                          _splitranks(x, rank))
-        # sum counts according to the selected rank
-        rank_counts = rank_counts.reset_index().groupby(rank).sum()
-        # get rid of the old index, i.e. OTU ids, since we have grouped by some
-        # rank
-
-        if verbose:
-            out.write('%i taxa left after collapsing to %s.\n' %
-                      (rank_counts.shape[0], rank))
-    else:
-        rank_counts = counts
 
     lowAbundandTaxa = rank_counts[(rank_counts.sum(axis=1) < minreadnr)].index
     highAbundantTaxa = rank_counts[(rank_counts.sum(axis=1) >=
