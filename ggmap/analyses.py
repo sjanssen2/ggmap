@@ -213,6 +213,59 @@ def _display_image_in_actual_size(filename):
     return fig
 
 
+def _parse_alpha_div_collated(filename, metric=None):
+    """Parse QIIME's alpha_div_collated file for plotting with matplotlib.
+
+    Parameters
+    ----------
+    filename : str
+        Filename of the alpha_div_collated file to be parsed. It is the result
+        of QIIME's collate_alpha.py script.
+    metric : str
+        Provide the alpha diversity metric name, used to create the input file.
+        Default is None, i.e. the metric name is guessed from the filename.
+
+    Returns
+    -------
+    Pandas.DataFrame with the averaged (over all iterations) alpha diversities
+    per rarefaction depth per sample.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    try:
+        # read qiime's alpha div collated file. It is tab separated and nan
+        # values come as 'n/a'
+        x = pd.read_csv(filename, sep='\t', na_values=['n/a'])
+
+        # make a two level index
+        x.set_index(keys=['sequences per sample', 'iteration'], inplace=True)
+
+        # remove the column that reports the single rarefaction files,
+        # because it would otherwise become another sample
+        del x['Unnamed: 0']
+
+        # average over all X iterations
+        x = x.groupby(['sequences per sample']).mean()
+
+        # change pandas format of data for easy plotting
+        x = x.stack().to_frame().reset_index()
+
+        # guess metric name from filename
+        if metric is None:
+            metric = filename.split('/')[-1].split('.')[0]
+
+        # give columns more appropriate names
+        x = x.rename(columns={'sequences per sample': 'rarefaction depth',
+                              'level_1': 'sample_name',
+                              0: metric})
+        return x
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
+
+
 def rarefaction_curves(counts, metadata,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, num_threads=10,
