@@ -266,7 +266,7 @@ def _parse_alpha_div_collated(filename, metric=None):
         raise IOError('Cannot read file "%s"' % filename)
 
 
-def rarefaction_curves(counts, metadata,
+def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, num_threads=10,
                        dry=True, use_grid=True, nocache=False,
@@ -278,9 +278,6 @@ def rarefaction_curves(counts, metadata,
     ----------
     counts : Pandas.DataFrame
         The raw read counts. Columns are samples, rows are features.
-    metadata : Pandas.DataFrame
-        Metadata for samples, from which 5 most informative columns will be
-        selected for plotting against alpha diversity.
     metrics : [str]
         List of alpha diversity metrics to use.
         Default is ["PD_whole_tree", "shannon", "observed_otus"]
@@ -320,85 +317,90 @@ def rarefaction_curves(counts, metadata,
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
 
-        # determine those 5 fields in the metadata information that have highes
-        # variability
-        var = dict()
-        for field in args['metadata'].columns:
-            var[field] = len(args['metadata'][field].unique())
-        top_var_fields = [field[0]
-                          for field
-                          in sorted(var.items(), key=operator.itemgetter(1),
-                                    reverse=True)[:5]]
-        # store top 5 variable fields of metadata as csv file
-        metatop = args['metadata'].loc[:, top_var_fields]
-        metatop.to_csv(workdir+'/input.meta.tsv',
-                       sep='\t', index_label='#SampleID')
-
-        # create parameter file
-        f = open(workdir+'/params.txt', 'w')
-        f.write('alpha_diversity:metrics %s\n' % ",".join(args['metrics']))
-        f.close()
-
-        return {'metatop': metatop}
-
     def commands(workdir, ppn, args):
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
         commands = []
-        commands.append(('xvfb-run alpha_rarefaction.py '
-                         '-i %s '                # input biom file
-                         '-m %s '                # input metadata file
-                         '-o %s '                # output directory
-                         '-p %s '                # input parameter file
-                         '-a '                   # run in parallel
-                         '-t %s '                # tree reference file
-                         '-O %i '                # number parallel jobs
-                         '--min_rare_depth=%i '  # minimal rarefaction depth
-                         '--max_rare_depth=%i '  # maximal rarefaction depth
-                         '--num_steps=%i') % (   # number steps between min max
+
+        # Alpha rarefaction command
+        commands.append(('parallel_multiple_rarefactions.py '
+                         '-T '
+                         '-i %s '      # Input filepath, (the otu table)
+                         '-m %i '      # Min seqs/sample
+                         '-x %i '      # Max seqs/sample (inclusive)
+                         '-s %i '      # Levels: min, min+step... for level
+                                       # <= max
+                         '-o "%s" '    # Write output rarefied otu tables here
+                                       # makes dir if it doesn’t exist
+                         '-O %i') % (  # Number of jobs to start
             workdir+'/input.biom',
-            workdir+'/input.meta.tsv',
-            workdir+'/rare/',
-            workdir+'/params.txt',
-            _get_ref_phylogeny(reference_tree),
-            ppn,
             args['counts'].sum().min(),
-            max_rare_depth,  # args['counts'].sum().describe()['75%'],
-            args['num_steps']))
+            max_rare_depth,
+            (max_rare_depth - args['counts'].sum().min())/args['num_steps'],
+            workdir+'/rare/rarefaction/',
+            ppn))
+
+        # Alpha diversity on rarefied OTU tables command
+        commands.append(('parallel_alpha_diversity.py '
+                         '-T '
+                         '-i "%s" '       # Input path, must be directory
+                         '-o "%s" '       # Output path, must be directory
+                         '--metrics %s '  # Metrics to use, comma delimited
+                         '-t "%s" '       # Path to newick tree file, required
+                                          # for phylogenetic metrics
+                         '-O %i') % (     # Number of jobs to start
+            workdir+'/rare/rarefaction/',
+            workdir+'/rare/alpha_div/',
+            ",".join(args['metrics']),
+            _get_ref_phylogeny(reference_tree),
+            ppn))
+
+        # Collate alpha command
+        commands.append(('collate_alpha.py '
+                         '-i "%s" '      # Input path (a directory)
+                         '-o "%s"') % (  # Output path (a directory).
+                                         # will be created if needed
+            workdir+'/rare/alpha_div/',
+            workdir+'/rare/alpha_div_collated/'))
+
         return commands
 
     def post_execute(workdir, args, pre_data):
-        return _plot_collateRarefaction(workdir,
-                                        args['metrics'],
-                                        args['counts'],
-                                        pre_data['metatop'])
+        sums = args['counts'].sum()
+        results = {'metrics': dict(),
+                   'remaining': _getremaining(sums),
+                   'readcounts': sums}
+        for metric in args['metrics']:
+            results['metrics'][metric] = _parse_alpha_div_collated(
+                workdir+'/rare/alpha_div_collated/'+metric+'.txt')
 
-    imagebuffer = _executor('rare',
-                            {'counts': counts,
-                             'metadata': metadata,
-                             'metrics': metrics,
-                             'num_steps': num_steps,
-                             'max_depth': max_depth},
-                            pre_execute,
-                            commands,
-                            post_execute,
-                            dry=dry,
-                            use_grid=use_grid,
-                            ppn=num_threads,
-                            nocache=nocache,
-                            workdir=workdir,
-                            wait=wait)
+        return results
 
-    if dry is not True:
-        tmp_imagename = 'tmp.png'
-        imagebuffer.seek(0)
-        f = open(tmp_imagename, 'wb')
-        f.write(imagebuffer.read())
-        f.close()
-        res = _display_image_in_actual_size(tmp_imagename)
-        os.remove(tmp_imagename)
-        return res
+    return _executor('rare',
+                     {'counts': counts,
+                      'metrics': metrics,
+                      'num_steps': num_steps,
+                      'max_depth': max_depth},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     dry=dry,
+                     use_grid=use_grid,
+                     ppn=num_threads,
+                     nocache=nocache,
+                     workdir=workdir,
+                     wait=wait)
+
+    # if dry is not True:
+    #     tmp_imagename = 'tmp.png'
+    #     imagebuffer.seek(0)
+    #     f = open(tmp_imagename, 'wb')
+    #     f.write(imagebuffer.read())
+    #     f.close()
+    #     res = _display_image_in_actual_size(tmp_imagename)
+    #     os.remove(tmp_imagename)
+    #     return res
 
 
 def rarefy(counts, rarefaction_depth,
