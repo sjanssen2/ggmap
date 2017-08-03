@@ -28,5 +28,6 @@ class AnalysesHelperTests(TestCase):
         with self.assertRaisesRegex(IOError, 'Cannot read file'):
             _parse_alpha_div_collated('/dev/null/test')
 
+
 if __name__ == '__main__':
     main()
