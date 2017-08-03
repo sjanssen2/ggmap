@@ -1,3 +1,21 @@
+import io
+
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+import matplotlib.image as mpimg
+import matplotlib.gridspec as gridspec
+
+import seaborn as sns
+
+from ggmap.analyses import _getremaining
+
+plt.switch_backend('Agg')
+plt.rc('font', family='DejaVu Sans')
+
+FILE_REFERENCE_TREE = None
+QIIME_ENV = 'qiime_env'
+
+
 def _zoom(pos, factor):
     """ Zooms in or out of a plt figure. """
     x0 = pos.x0 + pos.width * (1-factor)
