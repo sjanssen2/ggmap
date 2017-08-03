@@ -2,11 +2,9 @@ import tempfile
 import shutil
 import subprocess
 import sys
-import operator
 import hashlib
 import os
 import pickle
-import io
 from io import StringIO
 import collections
 
@@ -14,12 +12,9 @@ import pandas as pd
 from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
-import matplotlib.image as mpimg
-import matplotlib.gridspec as gridspec
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
-import seaborn as sns
 
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
 
@@ -29,17 +24,6 @@ plt.rc('font', family='DejaVu Sans')
 
 FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
-
-
-def _zoom(pos, factor):
-    """ Zooms in or out of a plt figure. """
-    x0 = pos.x0 + pos.width * (1-factor)
-    y0 = pos.y0 + pos.height * (1-factor)
-    x1 = pos.x1 - pos.width * (1-factor)
-    y1 = pos.y1 - pos.height * (1-factor)
-    width = x1 - x0
-    height = y1 - y0
-    return [x0, y0, width, height]
 
 
 def _get_ref_phylogeny(file_tree=None):
@@ -107,31 +91,6 @@ def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     return result
 
 
-def _plot_collateRarefaction(workdir, metrics, counts, metadata):
-    size = 10
-
-    fig = plt.figure(figsize=(metadata.shape[1] * size,
-                              (len(metrics)+1) * size))
-    gs = gridspec.GridSpec(len(metrics)+1, metadata.shape[1],
-                           wspace=0, hspace=0)
-    _plot_loosing_curve(counts, plt.subplot(gs[0, 0]), plt.subplot(gs[0, 1]))
-
-    # compose one huge chart out of all individual rarefaction plots
-    for row, metric in enumerate(metrics):
-        for col, field in enumerate(metadata.columns):
-            ax = plt.subplot(gs[row+1, col])
-            img = mpimg.imread(
-                '%s/rare/alpha_rarefaction_plots/average_plots/%s%s.png' %
-                (workdir, metric, field))
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
-            plt.imshow(img, aspect='auto')
-
-    buf = io.BytesIO()
-    fig.savefig(buf, bbox_inches='tight', pad_inches=0)
-    return buf
-
-
 def _getremaining(counts_sums):
     """Compute number of samples that have at least X read counts.
 
@@ -155,65 +114,123 @@ def _getremaining(counts_sums):
     return pd.Series(data=d, name='remaining').to_frame()
 
 
-def _plot_loosing_curve(counts, ax1, ax2):
-    # compute number of lost / remained samples
-    reads_per_sample = counts.sum()
-    x = _getremaining(reads_per_sample)
-    x['lost'] = counts.shape[1] - x['remaining']
-    x.index.name = 'readcounts'
+def _parse_alpha_div_collated(filename, metric=None):
+    """Parse QIIME's alpha_div_collated file for plotting with matplotlib.
+
+    Parameters
+    ----------
+    filename : str
+        Filename of the alpha_div_collated file to be parsed. It is the result
+        of QIIME's collate_alpha.py script.
+    metric : str
+        Provide the alpha diversity metric name, used to create the input file.
+        Default is None, i.e. the metric name is guessed from the filename.
+
+    Returns
+    -------
+    Pandas.DataFrame with the averaged (over all iterations) alpha diversities
+    per rarefaction depth per sample.
+
+    Raises
+    ------
+    IOError
+        If the file cannot be read.
+    """
+    try:
+        # read qiime's alpha div collated file. It is tab separated and nan
+        # values come as 'n/a'
+        x = pd.read_csv(filename, sep='\t', na_values=['n/a'])
+
+        # make a two level index
+        x.set_index(keys=['sequences per sample', 'iteration'], inplace=True)
+
+        # remove the column that reports the single rarefaction files,
+        # because it would otherwise become another sample
+        del x['Unnamed: 0']
+
+        # average over all X iterations
+        x = x.groupby(['sequences per sample']).mean()
+
+        # change pandas format of data for easy plotting
+        x = x.stack().to_frame().reset_index()
+
+        # guess metric name from filename
+        if metric is None:
+            metric = filename.split('/')[-1].split('.')[0]
+
+        # give columns more appropriate names
+        x = x.rename(columns={'sequences per sample': 'rarefaction depth',
+                              'level_1': 'sample_name',
+                              0: metric})
+        return x
+    except IOError:
+        raise IOError('Cannot read file "%s"' % filename)
+
+
+def _plot_rarefaction_curves(data):
+    """Plot rarefaction curves along with loosing sample stats + read count
+       histogram.
+
+    Parameters
+    ----------
+    data : dict()
+        The result of rarefaction_curves(), i.e. a dict with the three keys
+        - metrics
+        - remaining
+        - readcounts
+
+    Returns
+    -------
+    Matplotlib figure
+    """
+    fig, axes = plt.subplots(2+len(data['metrics']),
+                             1,
+                             figsize=(5, (2+len(data['metrics']))*5),
+                             sharex=False)
+
+    # read count histogram
+    ax = axes[0]
+    n, bins, patches = ax.hist(data['readcounts'],
+                               50,
+                               facecolor='black',
+                               alpha=0.75)
+    ax.set_title('Read count distribution across samples')
+    ax.set_xlabel("read counts")
+    ax.set_ylabel("# samples")
+    ax.get_xaxis().set_major_formatter(
+        FuncFormatter(lambda x, p: format(int(x), ',')))
 
     # loosing samples
-    ax1.set_position(_zoom(ax1.get_position(), 0.9))
-    plt.sca(ax1)
-    plt.plot(x.index, x['remaining'], label='remaining')
-    plt.plot(x.index, x['lost'], label='lost')
-    ax1.set_xlabel("rarefaction depth")
-    ax1.set_ylabel("# samples")
-    ax1.set_title('How many of the %i samples do we loose?' % counts.shape[1])
-    ax1.get_xaxis().set_major_formatter(
+    ax = axes[1]
+    x = data['remaining']
+    x['lost'] = data['readcounts'].shape[0] - x['remaining']
+    x.index.name = 'readcounts'
+    ax.plot(x.index, x['remaining'], label='remaining')
+    ax.plot(x.index, x['lost'], label='lost')
+    ax.set_xlabel("rarefaction depth")
+    ax.set_ylabel("# samples")
+    ax.set_title('How many of the %i samples do we loose?' %
+                 data['readcounts'].shape[0])
+    ax.get_xaxis().set_major_formatter(
         FuncFormatter(lambda x, p: format(int(x), ',')))
     lostHalf = abs(x['remaining'] - x['lost'])
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
-    ax1.set_xlim(0, lostHalf * 1.1)
+    ax.set_xlim(0, lostHalf * 1.1)
     # p = ax.set_xscale("log", nonposx='clip')
 
-    # read count histogram
-    ax2.set_position(_zoom(ax2.get_position(), 0.9))
-    plt.sca(ax2)
-    sns.distplot(reads_per_sample, kde=False)
-    ax2.set_title('Read count distribution across samples')
-    ax2.set_xlabel("read counts")
-    ax2.set_ylabel("# samples")
-    # p = ax.set_xscale("log", nonposx='clip')
-    ax2.get_xaxis().set_major_formatter(
-        FuncFormatter(lambda x, p: format(int(x), ',')))
-
-
-def _display_image_in_actual_size(filename):
-    # from https://stackoverflow.com/questions/28816046/displaying-different-
-    #    images-with-actual-size-in-matplotlib-subplot
-    dpi = 70
-    im_data = plt.imread(filename)
-    height, width, depth = im_data.shape
-
-    # What size does the figure need to be in inches to fit the image?
-    figsize = width / float(dpi), height / float(dpi)
-
-    # Create a figure of the right size with one axes that takes up the full
-    # figure
-    fig = plt.figure(figsize=figsize)
-    ax = fig.add_axes([0, 0, 1, 1])
-
-    # Hide spines, ticks, etc.
-    ax.axis('off')
-
-    # Display the image.
-    ax.imshow(im_data, cmap='gray')
+    for i, metric in enumerate(data['metrics'].keys()):
+        for sample, g in data['metrics'][metric].groupby('sample_name'):
+            axes[i+2].errorbar(g['rarefaction depth'], g[g.columns[-1]])
+        axes[i+2].set_ylabel(g.columns[-1])
+        axes[i+2].set_xlabel('rarefaction depth')
+        axes[i+2].set_xlim(0, lostHalf * 1.1)
+        axes[i+2].get_xaxis().set_major_formatter(
+            FuncFormatter(lambda x, p: format(int(x), ',')))
 
     return fig
 
 
-def rarefaction_curves(counts, metadata,
+def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, num_threads=10,
                        dry=True, use_grid=True, nocache=False,
@@ -225,9 +242,6 @@ def rarefaction_curves(counts, metadata,
     ----------
     counts : Pandas.DataFrame
         The raw read counts. Columns are samples, rows are features.
-    metadata : Pandas.DataFrame
-        Metadata for samples, from which 5 most informative columns will be
-        selected for plotting against alpha diversity.
     metrics : [str]
         List of alpha diversity metrics to use.
         Default is ["PD_whole_tree", "shannon", "observed_otus"]
@@ -267,85 +281,83 @@ def rarefaction_curves(counts, metadata,
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
 
-        # determine those 5 fields in the metadata information that have highes
-        # variability
-        var = dict()
-        for field in args['metadata'].columns:
-            var[field] = len(args['metadata'][field].unique())
-        top_var_fields = [field[0]
-                          for field
-                          in sorted(var.items(), key=operator.itemgetter(1),
-                                    reverse=True)[:5]]
-        # store top 5 variable fields of metadata as csv file
-        metatop = args['metadata'].loc[:, top_var_fields]
-        metatop.to_csv(workdir+'/input.meta.tsv',
-                       sep='\t', index_label='#SampleID')
-
-        # create parameter file
-        f = open(workdir+'/params.txt', 'w')
-        f.write('alpha_diversity:metrics %s\n' % ",".join(args['metrics']))
-        f.close()
-
-        return {'metatop': metatop}
-
     def commands(workdir, ppn, args):
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
         commands = []
-        commands.append(('xvfb-run alpha_rarefaction.py '
-                         '-i %s '                # input biom file
-                         '-m %s '                # input metadata file
-                         '-o %s '                # output directory
-                         '-p %s '                # input parameter file
-                         '-a '                   # run in parallel
-                         '-t %s '                # tree reference file
-                         '-O %i '                # number parallel jobs
-                         '--min_rare_depth=%i '  # minimal rarefaction depth
-                         '--max_rare_depth=%i '  # maximal rarefaction depth
-                         '--num_steps=%i') % (   # number steps between min max
+
+        # Alpha rarefaction command
+        commands.append(('parallel_multiple_rarefactions.py '
+                         '-T '
+                         '-i %s '      # Input filepath, (the otu table)
+                         '-m %i '      # Min seqs/sample
+                         '-x %i '      # Max seqs/sample (inclusive)
+                         '-s %i '      # Levels: min, min+step... for level
+                                       # <= max
+                         '-o %s '      # Write output rarefied otu tables here
+                                       # makes dir if it doesn’t exist
+                         '--jobs_to_start %i') % (  # Number of jobs to start
             workdir+'/input.biom',
-            workdir+'/input.meta.tsv',
-            workdir+'/rare/',
-            workdir+'/params.txt',
+            max(1000, args['counts'].sum().min()),
+            max_rare_depth,
+            (max_rare_depth - args['counts'].sum().min())/args['num_steps'],
+            workdir+'/rare/rarefaction/',
+            ppn))
+
+        # Alpha diversity on rarefied OTU tables command
+        commands.append(('parallel_alpha_diversity.py '
+                         '-T '
+                         '-i %s '         # Input path, must be directory
+                         '-o %s '         # Output path, must be directory
+                         '--metrics %s '  # Metrics to use, comma delimited
+                         '-t %s '         # Path to newick tree file, required
+                                          # for phylogenetic metrics
+                         '--jobs_to_start %i') % (  # Number of jobs to start
+            workdir+'/rare/rarefaction/',
+            workdir+'/rare/alpha_div/',
+            ",".join(args['metrics']),
             _get_ref_phylogeny(reference_tree),
-            ppn,
-            args['counts'].sum().min(),
-            max_rare_depth,  # args['counts'].sum().describe()['75%'],
-            args['num_steps']))
+            ppn))
+
+        # Collate alpha command
+        commands.append(('collate_alpha.py '
+                         '-i %s '      # Input path (a directory)
+                         '-o %s') % (  # Output path (a directory).
+                                       # will be created if needed
+            workdir+'/rare/alpha_div/',
+            workdir+'/rare/alpha_div_collated/'))
+
         return commands
 
     def post_execute(workdir, args, pre_data):
-        return _plot_collateRarefaction(workdir,
-                                        args['metrics'],
-                                        args['counts'],
-                                        pre_data['metatop'])
+        sums = args['counts'].sum()
+        results = {'metrics': dict(),
+                   'remaining': _getremaining(sums),
+                   'readcounts': sums}
+        for metric in args['metrics']:
+            results['metrics'][metric] = _parse_alpha_div_collated(
+                workdir+'/rare/alpha_div_collated/'+metric+'.txt')
 
-    imagebuffer = _executor('rare',
-                            {'counts': counts,
-                             'metadata': metadata,
-                             'metrics': metrics,
-                             'num_steps': num_steps,
-                             'max_depth': max_depth},
-                            pre_execute,
-                            commands,
-                            post_execute,
-                            dry=dry,
-                            use_grid=use_grid,
-                            ppn=num_threads,
-                            nocache=nocache,
-                            workdir=workdir,
-                            wait=wait)
+        return results
+
+    data = _executor('rare',
+                     {'counts': counts,
+                      'metrics': metrics,
+                      'num_steps': num_steps,
+                      'max_depth': max_depth},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     dry=dry,
+                     use_grid=use_grid,
+                     ppn=num_threads,
+                     nocache=nocache,
+                     workdir=workdir,
+                     wait=wait)
 
     if dry is not True:
-        tmp_imagename = 'tmp.png'
-        imagebuffer.seek(0)
-        f = open(tmp_imagename, 'wb')
-        f.write(imagebuffer.read())
-        f.close()
-        res = _display_image_in_actual_size(tmp_imagename)
-        os.remove(tmp_imagename)
-        return res
+        return _plot_rarefaction_curves(data)
 
 
 def rarefy(counts, rarefaction_depth,
