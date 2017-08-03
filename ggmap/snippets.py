@@ -817,7 +817,7 @@ def plotTaxonomy(file_otutable,
         out.write("raw counts: %i\n" % rawcounts.shape[1])
         out.write("raw meta: %i\n" % metadata.shape[0])
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
-        out.write("counts with meta: %i\n" % counts.shape[1])
+        out.write("counts with meta: %i\n" % rank_counts.shape[1])
         if grayscale:
             out.write("saved plotting %i boxes.\n" % num_saved_boxes)
 
