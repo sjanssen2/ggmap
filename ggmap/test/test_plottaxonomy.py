@@ -520,7 +520,7 @@ class TaxPlotTests(TestCase):
     def test_regression_plots(self):
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
-    
+
         sys.stderr.write("Comparing images (%i): " % len(plots))
         sys.stderr.flush()
         testResults = []
