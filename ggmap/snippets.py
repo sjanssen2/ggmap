@@ -1663,3 +1663,4 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abu
         #print()
         #return foldchange
     #return ax
+    return foldchange
