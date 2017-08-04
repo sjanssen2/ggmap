@@ -24,6 +24,11 @@ class QsubTests(TestCase):
             cluster_run("find /tmp/ -name '*.png'", "myjob",
                         "/tmp/newfile_acgjkdh", environment="qiime_env")
 
+        # test if exception is raised early if qid file cannot be written
+        with self.assertRaisesRegex(ValueError, "Cannot write qid file"):
+            cluster_run("find /tmp/ -name *.png", "myjob",
+                        "/tmp/newfile_acgjkdh", file_qid='/dev/null')
+
     def test_cluster_run(self):
         res = cluster_run([], "jobname", get_data_path("float.tsv"))
         self.assertEqual(res, 'Result already present!')
