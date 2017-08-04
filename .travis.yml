@@ -1,5 +1,5 @@
 # Check on http://lint.travis-ci.org/ after modifying it!
-sudo: false
+sudo: required
 language: c
 os:
   - linux
