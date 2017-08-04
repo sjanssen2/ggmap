@@ -418,6 +418,7 @@ def collapseCounts(file_otutable, rank,
             try:
                 return [t.strip() for t in x.split(";")][RANKS.index(rank)]
             except AttributeError:
+                # e.g. if lineage string is missing
                 RANKS[RANKS.index(rank)].lower()[0] + "__"
             except IndexError:
                 return RANKS[RANKS.index(rank)].lower()[0] + "__"
