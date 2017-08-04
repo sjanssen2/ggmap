@@ -643,6 +643,68 @@ class SnippetTests(TestCase):
                 print(res)
             self.assertTrue(res[0])
 
+    def test_plotDistant_groups_externalfigure(self):
+        res = plotDistant_groups(**(self.exp_alpha['AGE']),
+                                 pthresh=0.05,
+                                 _type='alpha', draw_edgelabel=True)
+        self.assertEqual(str(type(res)),
+                         "<class 'matplotlib.axes._subplots.AxesSubplot'>")
+
+    def test_plotGroup_histograms_externalfigure(self):
+        field = 'AGE'
+        alpha = pd.read_csv(get_data_path(
+            'detectGroups/Alpha/alpha_%s.tsv' % field),
+            sep="\t", header=None, index_col=0).iloc[:, 0]
+        alpha.name = 'PD_whole_tree'
+        meta = pd.read_csv(get_data_path(
+            'detectGroups/meta_%s.tsv' % field),
+            sep="\t", header=None, index_col=0,
+            names=['index', field], dtype=str).loc[:, field]
+
+        res = plotGroup_histograms(alpha, meta)
+        self.assertEqual(str(type(res)),
+                         "<class 'matplotlib.axes._subplots.AxesSubplot'>")
+
+    def test_plotGroup_permanovas_externalfigure(self):
+        field = 'AGE'
+        beta = DistanceMatrix.read(
+            get_data_path('detectGroups/Beta/beta_%s.dm.txt' % field))
+        meta = pd.read_csv(get_data_path(
+            'detectGroups/meta_%s.tsv' % field),
+            sep="\t", header=None, index_col=0,
+            names=['index', field], dtype=str).loc[:, field]
+
+        res = plotGroup_permanovas(beta, meta, **(self.exp_beta[field]))
+        self.assertEqual(str(type(res)),
+                         "<class 'matplotlib.axes._subplots.AxesSubplot'>")
+
+    def test_plotGroup_permanovas_toosmallgroups(self):
+        field = 'AGE'
+        beta = DistanceMatrix.read(
+            get_data_path('detectGroups/Beta/beta_%s.dm.txt' % field))
+        meta = pd.read_csv(get_data_path(
+            'detectGroups/meta_%s.tsv' % field),
+            sep="\t", header=None, index_col=0,
+            names=['index', field], dtype=str).loc[:, field]
+        #print(meta)
+        network = self.exp_beta[field]
+        network['n_per_group'] = network['n_per_group'].iloc[:1]
+
+        plotGroup_permanovas(beta, meta, **(network))
+        file_plotname = 'beta_permanova_%s.png' % field
+        file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
+        plt.savefig(file_dummy)
+        plt.close()
+        res = compare_images(
+            get_data_path('detectGroups/beta_permanova_onegroup.png'),
+            file_dummy,
+            file_image_diff='./diff.'+file_plotname)
+        if res[0] is True:
+            remove(file_dummy)
+        else:
+            print(res)
+        self.assertTrue(res[0])
+
 
 if __name__ == '__main__':
     main()
