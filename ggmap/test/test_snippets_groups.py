@@ -686,7 +686,6 @@ class SnippetTests(TestCase):
             'detectGroups/meta_%s.tsv' % field),
             sep="\t", header=None, index_col=0,
             names=['index', field], dtype=str).loc[:, field]
-        #print(meta)
         network = self.exp_beta[field]
         network['n_per_group'] = network['n_per_group'].iloc[:1]
 
