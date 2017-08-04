@@ -12,7 +12,7 @@ from os import remove
 from skbio.util import get_data_path
 
 from ggmap.snippets import (biom2pandas, pandas2biom, parse_splitlibrarieslog,
-                            _repMiddleValues, _shiftLeft)
+                            _repMiddleValues, _shiftLeft, collapseCounts)
 
 
 def get_metadata(file_biom):
@@ -281,6 +281,14 @@ class ReadWriteTests(TestCase):
                                      'biom file.')):
             biom2pandas(file_biom_out, withTaxonomy=True)
         remove(file_biom_out)
+
+    def test_collapseCounts(self):
+        c = collapseCounts(
+            get_data_path('tax_mock_counts.biom'),
+            'Order',
+            file_taxonomy=get_data_path('tax_mock_taxonomy_errors.txt'),
+            verbose=False)
+        self.assertTrue(c.shape[0] <= 1)
 
 
 if __name__ == '__main__':
