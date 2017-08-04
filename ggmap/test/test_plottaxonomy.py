@@ -520,7 +520,7 @@ class TaxPlotTests(TestCase):
     def test_regression_plots(self):
         plots = generate_plots(self.filename_biom, self.metadata,
                                self.taxonomy)
-
+    
         sys.stderr.write("Comparing images (%i): " % len(plots))
         sys.stderr.flush()
         testResults = []
@@ -632,6 +632,13 @@ class TaxPlotTests(TestCase):
         self.assertIn('meta with counts: 142 samples x 5 fields',
                       out.getvalue())
         self.assertIn('counts with meta: 142', out.getvalue())
+
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     minreadnr=8000, file_taxonomy=self.taxonomy,
+                     min_abundance_grayscale=0.2,
+                     grayscale=True)
+        self.assertIn('saved plotting 1 boxes.', out.getvalue())
 
     def test_plotTaxonomy_fillmissingranks(self):
         sample_names = ['sampleA', 'sampleB', 'sampleC', 'sampleD']
