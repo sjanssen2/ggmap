@@ -1,0 +1,20 @@
+taxonA	k__;p__;c__;o__;f__taxonA;g__;s__
+taxonB	k__;p__;c__;o__;f__taxonB;g__;s__
+taxonC	k__;p__;c__;o__;f__taxonC;g__;s__
+taxonD	k__;p__;c__;o__;f__taxonD;g__;s__
+taxonE	k__;p__;c__;o__;f__taxonE;g__;s__
+taxonF	k__;p__;c__;o__;f__taxonF;g__;s__
+taxonG	k__;p__;c__;o__;f__taxonG;g__;s__
+taxonH	k__;p__;c__;o__;f__taxonH;g__;s__
+taxonI
+taxonJ	k__;p__;c__;o__;f__taxonJ;g__;s__
+taxonK	k__;p__;c__;o__;f__taxonK;g__;s__
+taxonL	k__;p__;c__;o__;f__taxonL;g__;s__
+taxonM	k__;p__;c__;o__;f__taxonM;g__;s__
+taxonN	k__;p__;c__;o__;f__taxonN;g__;s__
+taxonO	k__;p__;c__;o__;f__taxonO;g__;s__
+taxonP	k__;p__;c__;o__;f__taxonP;g__;s__
+taxonQ	k__;p__;c__;o__;f__taxonQ;g__;s__
+taxonR	k__;p__;c__;o__;f__taxonR;g__;s__
+taxonS	k__;p__;c__;o__;f__taxonS;g__;s__
+taxonT	k__;p__;c__;o__;f__taxonT;g__;s__

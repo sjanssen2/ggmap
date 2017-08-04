@@ -633,6 +633,13 @@ class TaxPlotTests(TestCase):
                       out.getvalue())
         self.assertIn('counts with meta: 142', out.getvalue())
 
+        out = StringIO()
+        plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                     minreadnr=8000, file_taxonomy=self.taxonomy,
+                     min_abundance_grayscale=0.2,
+                     grayscale=True)
+        self.assertIn('saved plotting 1 boxes.', out.getvalue())
+
     def test_plotTaxonomy_fillmissingranks(self):
         sample_names = ['sampleA', 'sampleB', 'sampleC', 'sampleD']
         taxstrings = ['k__bacteria',

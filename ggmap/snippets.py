@@ -418,6 +418,7 @@ def collapseCounts(file_otutable, rank,
             try:
                 return [t.strip() for t in x.split(";")][RANKS.index(rank)]
             except AttributeError:
+                # e.g. if lineage string is missing
                 RANKS[RANKS.index(rank)].lower()[0] + "__"
             except IndexError:
                 return RANKS[RANKS.index(rank)].lower()[0] + "__"
@@ -854,7 +855,7 @@ def _time_torque2slurm(t_time):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None, slurm=False):
+                file_qid=None, slurm=False, out=sys.stdout):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -892,6 +893,8 @@ def cluster_run(cmds, jobname, result, environment=None,
         This will ease identification of TMP working directories.
     slurm : bool
         Execute cluster job via Slurm instead of Torque.
+    out : StringIO
+        Buffer onto which messages should be printed. Default is sys.stdout.
 
     Returns
     -------
@@ -1017,8 +1020,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             return qid
     else:
         if slurm:
-            print(slurm_script)
-        print(full_cmd)
+            out.write(slurm_script + "\n")
+        out.write(full_cmd + "\n")
         return None
 
 
