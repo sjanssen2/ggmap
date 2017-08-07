@@ -74,6 +74,13 @@ srun find /tmp/ -name *.png
                     "/tmp/teststxxx", out=out, pmem='1000GB')
         self.assertIn(':highmem:', out.getvalue())
 
+    def test_cluster_timing(self):
+        out = StringIO()
+        cluster_run("find /tmp/ -name *.png", "jobname",
+                    "/tmp/teststxxx", out=out, timing=True)
+        self.assertIn('uname -a', out.getvalue())
+        self.assertIn('time -o', out.getvalue())
+
     # not possible to test unless I find a way of having multiple conda envs
     # in Travis
     # def test_cluster_run_env(self):
