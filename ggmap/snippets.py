@@ -23,6 +23,7 @@ from tempfile import mkstemp
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
+EXEC_TIME = '/usr/bin/time'
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -855,7 +856,7 @@ def _time_torque2slurm(t_time):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None, slurm=False, out=sys.stdout):
+                file_qid=None, slurm=False, out=sys.stdout, timing=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -895,6 +896,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         Execute cluster job via Slurm instead of Torque.
     out : StringIO
         Buffer onto which messages should be printed. Default is sys.stdout.
+    timing : bool
+        If True than add time output to every command and store in cr_*.t*
+        file. Default is False.
 
     Returns
     -------
@@ -924,6 +928,21 @@ def cluster_run(cmds, jobname, result, environment=None,
         if "'" in cmd:
             raise ValueError("One of your commands contain a ' char. "
                              "Please remove!")
+    if timing:
+        #TODO: that might crash for slurm, check which the magic variable
+        #names are
+        timing_cmds = []
+        # report machine name
+        timing_cmds.append('uname -a > ${PBS_JOBNAME}.t${PBS_JOBID}')
+        # report commands to be executed (I have problems with quotes)
+        # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
+        #                    % '; '.join(cmds))
+        # add time to every command
+        timing_cmds.extend(map(lambda cmd:
+                               '%s -o ${PBS_JOBNAME}.t${PBS_JOBID} -a %s' %
+                               (EXEC_TIME, cmd),
+                               cmds))
+        cmds = timing_cmds
     job_cmd = " && ".join(cmds)
 
     # compose qsub specific details
