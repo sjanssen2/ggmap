@@ -929,8 +929,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             raise ValueError("One of your commands contain a ' char. "
                              "Please remove!")
     if timing:
-        #TODO: that might crash for slurm, check which the magic variable
-        #names are
+        # TODO: that might crash for slurm, check which the magic variable
+        # names are
         timing_cmds = []
         # report machine name
         timing_cmds.append('uname -a > ${PBS_JOBNAME}.t${PBS_JOBID}')
