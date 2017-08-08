@@ -618,8 +618,10 @@ def sepp(counts,
 
     Parameters
     ----------
-    counts : Pandas.DataFrame
-        OTU counts
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
     dry : bool
         If True: only prepare working directory and create necessary input
         files and print the command that would be executed in a non dry run.
@@ -646,8 +648,12 @@ def sepp(counts,
         # write all deblur sequences into one file
         file_fragments = workdir + '/sequences.mfa'
         f = open(file_fragments, 'w')
-        for sequence in args['seqs']:
-            f.write('>%s\n%s\n' % (sequence, sequence))
+        if type(args['seqs']) == pd.Series:
+            for header, sequence in args['seqs'].iteritems():
+                f.write('>%s\n%s\n' % (header, sequence))
+        else:
+            for sequence in args['seqs']:
+                f.write('>%s\n%s\n' % (sequence, sequence))
         f.close()
 
     def commands(workdir, ppn, args):
@@ -691,8 +697,14 @@ def sepp(counts,
                                          columns=['taxonomy']),
                 'tree': newick.getvalue()}
 
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
     res = _executor('sepp',
-                    {'seqs': sorted(counts.index)},
+                    {'seqs': inp},
                     pre_execute,
                     commands,
                     post_execute,
@@ -705,7 +717,7 @@ def sepp(counts,
                     environment='seppGG_py3',
                     workdir=workdir,
                     wait=wait)
-    if wait is False:
+    if (wait is False) or dry:
         return res
 
     res['tree'] = TreeNode.read(StringIO(res['tree']))
