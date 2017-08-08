@@ -49,7 +49,7 @@ def read_otumap(file_otumap):
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
                           file_cache=None,
-                          verbose=True):
+                          verbose=True, out=sys.stdout):
     """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
@@ -76,6 +76,8 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     verbose : Boolean
         Default: True
         If True, print some info on stdout.
+    out : StringIO
+        Buffer onto which messages should be written. Default is sys.stdout.
 
     Returns
     -------
@@ -83,15 +85,15 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     sequence.
     Note: sequences might come in duplicates, due to degapping.
     """
-
-    if os.path.exists(file_cache):
-        f = open(file_cache, 'rb')
-        fragments = pickle.load(f)
-        f.close()
-        if verbose:
-            print("% 8i fragments loaded from cache '%s'" %
-                  (len(fragments), file_cache))
-        return fragments
+    if file_cache is not None:
+        if os.path.exists(file_cache):
+            f = open(file_cache, 'rb')
+            fragments = pickle.load(f)
+            f.close()
+            if verbose:
+                out.write("% 8i fragments loaded from cache '%s'\n" %
+                          (len(fragments), file_cache))
+            return fragments
 
     # load the full pynast GreenGenes alignment with
     # sequences=1261500 and position=7682
@@ -102,7 +104,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     ali.index = [seq.metadata['id'] for seq in ali]
 
     if verbose:
-        print("% 8i rows and %i cols in alignment '%s'" % (
+        out.write("% 8i rows and %i cols in alignment '%s'\n" % (
             ali.shape[0],
             ali.shape[1],
             file_pynast_alignment.split('/')[-1]))
@@ -114,15 +116,16 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     # all non-representative seq IDs
     seqids_to_use += [seqid for otu in otumap.values for seqid in otu]
     if verbose:
-        print("% 8i sequences in OTU map '%s'" % (
+        out.write("% 8i sequences in OTU map '%s'\n" % (
             len(seqids_to_use),
             file_otumap.split('/')[-1]))
 
     # subset the alignment to those sequences that are selected from OTU map
     ali_otumap = ali.loc[set(seqids_to_use) & set(ali.index)]
     if verbose:
-        print(("% 8i sequences selected from OTU map and alignment. "
-               "Surprise: %i sequences of OTU map are NOT in alignment!") % (
+        out.write(("% 8i sequences selected from OTU map and alignment. "
+                   "Surprise: %i sequences of OTU map are NOT in "
+                   "alignment!\n") % (
             ali_otumap.shape[0],
             len(seqids_to_use) - ali_otumap.shape[0]))
         # To my surprise, not all OTU-IDs of the SEPP reference tree
@@ -136,7 +139,8 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     # trim alignment down to fragment columns
     ali_fragments = ali_otumap.iloc(axis='position')[frg_start:frg_stop]
     if verbose:
-        print("%i -> %i cols: trimming alignment to fragment coordinates" % (
+        out.write(("%i -> %i cols: trimming alignment to fragment "
+                   "coordinates\n") % (
             ali_otumap.shape[1],
             ali_fragments.shape[1]))
 
@@ -151,29 +155,31 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
             fragments.append({'sequence': str(fragment)[:frg_expected_length],
                               'OTUID': fragment_gapped.metadata['id']})
     if verbose:
-        print(("% 8i fragments with ungapped length >= %int. "
-               "Surprise: %i fragments are too short and %i fragments where "
-               "too long (and have been trimmed)!") % (
-              len(fragments),
-              frg_expected_length,
-              ali_fragments.shape[0] - len(fragments), num_frags_toolong))
+        out.write(("% 8i fragments with ungapped length >= %int. "
+                   "Surprise: %i fragments are too short and %i fragments "
+                   "where too long (and have been trimmed)!\n") % (
+                  len(fragments),
+                  frg_expected_length,
+                  ali_fragments.shape[0] - len(fragments), num_frags_toolong))
         # Another surprise is that the trimmed, degapped sequences from pynast
         # alignment do NOT all have length 150nt. Following is a length
         # distribution plot. I checked with Daniel and we decided to omit
         # frgaments smaller than 150nt and timm all other to 150nt.
 
-    f = open(file_cache, 'wb')
-    pickle.dump(fragments, f)
-    f.close()
-    if verbose:
-        print("Stored results to cache '%s'" % file_cache)
+    if file_cache is not None:
+        f = open(file_cache, 'wb')
+        pickle.dump(fragments, f)
+        f.close()
+        if verbose:
+            out.write("Stored results to cache '%s'\n" % file_cache)
 
     return fragments
 
 
 def add_mutations(fragments,
                   max_mutations=10, seednr=42,
-                  file_cache=None, verbose=True):
+                  file_cache=None, verbose=True,
+                  out=sys.stdout):
     """Add point mutated sequences for all fragments provided.
 
     Parameters
@@ -196,6 +202,8 @@ def add_mutations(fragments,
     verbose : Boolean
         Default: True
         If True, print some info on stdout.
+    out : StringIO
+        Buffer onto which messages should be written. Default is sys.stdout.
 
     Returns
     -------
@@ -208,25 +216,26 @@ def add_mutations(fragments,
     - 'num_pointmutations': number of introduced point mutations
     """
     frgs = []
-    if os.path.exists(file_cache):
-        f = open(file_cache, 'rb')
-        frgs = pickle.load(f)
-        f.close()
-        if verbose:
-            print("% 8i mutated fragments loaded from cache '%s'" % (
-                len(frgs), file_cache))
-        return frgs
+    if file_cache is not None:
+        if os.path.exists(file_cache):
+            f = open(file_cache, 'rb')
+            frgs = pickle.load(f)
+            f.close()
+            if verbose:
+                out.write("% 8i mutated fragments loaded from cache '%s'\n" % (
+                    len(frgs), file_cache))
+            return frgs
 
     # convert fragments into Pandas.DataFrame
     fragments = pd.DataFrame(fragments)
     if verbose:
-        print('% 8i fragments to start with' % fragments.shape[0])
+        out.write('% 8i fragments to start with\n' % fragments.shape[0])
     # group fragments by sequence and list true OTUids
     unique_fragments = fragments.groupby('sequence').agg(lambda x:
                                                          list(x.values))
     if verbose:
-        print('% 8i fragments after collapsing by sequence' %
-              unique_fragments.shape[0])
+        out.write('% 8i fragments after collapsing by sequence\n' %
+                  unique_fragments.shape[0])
 
     # add point mutated sequences to the fragment list
     seed(seednr)  # make sure repeated runs produce the same mutated sequences
@@ -240,13 +249,14 @@ def add_mutations(fragments,
             sys.stderr.write('.')
     sys.stderr.write(' done.\n')
     if verbose:
-        print('% 8i fragments generated with 0 to %i point mutations.' % (
-            len(frgs), max_mutations))
+        out.write(('% 8i fragments generated with 0 to %i '
+                   'point mutations.\n') % (len(frgs), max_mutations))
 
-    f = open(file_cache, 'wb')
-    pickle.dump(frgs, f)
-    f.close()
-    if verbose:
-        print("Stored results to cache '%s'" % file_cache)
+    if file_cache is not None:
+        f = open(file_cache, 'wb')
+        pickle.dump(frgs, f)
+        f.close()
+        if verbose:
+            out.write("Stored results to cache '%s'\n" % file_cache)
 
     return frgs
