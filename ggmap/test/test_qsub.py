@@ -79,7 +79,7 @@ srun find /tmp/ -name *.png
         cluster_run("find /tmp/ -name *.png", "jobname",
                     "/tmp/teststxxx", out=out, timing=True)
         self.assertIn('uname -a', out.getvalue())
-        self.assertIn('time -o', out.getvalue())
+        self.assertIn('time -v -o', out.getvalue())
 
     # not possible to test unless I find a way of having multiple conda envs
     # in Travis
