@@ -933,7 +933,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         # names are
         timing_cmds = []
         # report machine name
-        timing_cmds.append('uname -a > ${PBS_JOBNAME}.t${PBS_JOBID}')
+        timing_cmds.append('uname -v -a > ${PBS_JOBNAME}.t${PBS_JOBID}')
         # report commands to be executed (I have problems with quotes)
         # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
         #                    % '; '.join(cmds))
