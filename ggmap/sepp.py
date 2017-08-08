@@ -179,7 +179,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
 def add_mutations(fragments,
                   max_mutations=10, seednr=42,
                   file_cache=None, verbose=True,
-                  out=sys.stdout):
+                  out=sys.stdout, err=sys.stderr):
     """Add point mutated sequences for all fragments provided.
 
     Parameters
@@ -204,6 +204,8 @@ def add_mutations(fragments,
         If True, print some info on stdout.
     out : StringIO
         Buffer onto which messages should be written. Default is sys.stdout.
+    err : StringIO
+        Buffer onto which progress should be written. Default is sys.stderr.
 
     Returns
     -------
@@ -240,14 +242,15 @@ def add_mutations(fragments,
     # add point mutated sequences to the fragment list
     seed(seednr)  # make sure repeated runs produce the same mutated sequences
     frgs = []
+    divisor = int(unique_fragments.shape[0]/min(10, unique_fragments.shape[0]))
     for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
         for num_mutations in range(0, max_mutations+1):
             frgs.append({'sequence': mutate_sequence(sequence, num_mutations),
                          'OTUIDs': row['OTUID'],
                          'num_pointmutations': num_mutations})
-        if i % int(unique_fragments.shape[0]/10) == 0:
-            sys.stderr.write('.')
-    sys.stderr.write(' done.\n')
+        if i % divisor == 0:
+            err.write('.')
+    err.write(' done.\n')
     if verbose:
         out.write(('% 8i fragments generated with 0 to %i '
                    'point mutations.\n') % (len(frgs), max_mutations))
