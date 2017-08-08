@@ -5,7 +5,7 @@ from os import remove
 
 from skbio.util import get_data_path
 
-from ggmap.sepp import (read_otumap, load_sequences_pynast)
+from ggmap.sepp import (read_otumap, load_sequences_pynast, add_mutations)
 
 
 class SeppTests(TestCase):
@@ -111,6 +111,51 @@ class SeppTests(TestCase):
         self.assertIn("%i fragments loaded from cache '%s'" % (7, file_dummy),
                       obs_out)
         self.assertCountEqual(obs, self.exp_fragments)
+
+    def test_add_mutations(self):
+        def _get_num_snips(seqA, seqB):
+            return sum([1 for (a, b) in zip(seqA, seqB) if a != b])
+
+        out = StringIO()
+        err = StringIO()
+        obs = add_mutations(self.exp_fragments, out=out, err=err)
+        self.assertIn(("%i fragments to start with") % (7),
+                      out.getvalue())
+        self.assertIn(("%i fragments after collapsing by sequence") % (7),
+                      out.getvalue())
+        self.assertIn(("%i fragments generated with 0 to "
+                       "%i point mutations.") % (77, 10),
+                      out.getvalue())
+        self.assertEqual(len(obs), 77)
+
+        self.assertEqual(_get_num_snips(obs[0]['sequence'],
+                                        obs[0]['sequence']),
+                         obs[0]['num_pointmutations'])
+        self.assertEqual(_get_num_snips(obs[0]['sequence'],
+                                        obs[5]['sequence']),
+                         obs[5]['num_pointmutations'])
+
+    def test_add_mutations_testcache(self):
+        err = StringIO()
+        out = StringIO()
+        file_dummy = mkstemp()[1]
+        remove(file_dummy)
+
+        # first run: create cache file
+        obs = add_mutations(self.exp_fragments, out=out, err=err,
+                            file_cache=file_dummy)
+        obs_out = out.getvalue()
+        self.assertIn("Stored results to cache '%s'" % file_dummy, obs_out)
+        self.assertEqual(len(obs), 77)
+
+        # second run: load cached results
+        out = StringIO()
+        obs = add_mutations(self.exp_fragments, out=out, err=err,
+                            file_cache=file_dummy)
+        obs_out = out.getvalue()
+        self.assertIn("%i mutated fragments loaded from cache '%s'" %
+                      (77, file_dummy), obs_out)
+        self.assertEqual(len(obs), 77)
 
 
 if __name__ == '__main__':
