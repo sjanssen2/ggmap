@@ -5,7 +5,6 @@ import sys
 import os.path
 
 from skbio import TabularMSA, DNA
-from skbio.tree import TreeNode
 
 from ggmap.snippets import mutate_sequence
 
@@ -123,7 +122,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     ali_otumap = ali.loc[set(seqids_to_use) & set(ali.index)]
     if verbose:
         print(("% 8i sequences selected from OTU map and alignment. "
-               "Surprise: %i OTUs of OTU map are NOT in alignment!") % (
+               "Surprise: %i sequences of OTU map are NOT in alignment!") % (
             ali_otumap.shape[0],
             len(seqids_to_use) - ali_otumap.shape[0]))
         # To my surprise, not all OTU-IDs of the SEPP reference tree
