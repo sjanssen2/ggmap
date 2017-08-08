@@ -47,19 +47,20 @@ def read_otumap(file_otumap):
         raise IOError('Cannot read file "%s"' % file_otumap)
 
 
-def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
+def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
+                          sequence_type='representative',
                           file_cache=None,
                           verbose=True):
-    """Extract fragments from pynast alignment, also in backbone tree.
+    """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
     ----------
     file_pynast_alignment : file
         Filename for pynast alignment from GreenGenes.
-    file_backbone_tree : file
-        Filename for SEPPs backbone tree into which fragments shall be
-        inserted.
+    file_otumap : file
+        Filename for the GreenGenes OTU map to use for determining which IDs to
+        use for representative and non-representative sequences.
     frg_start : int
         Column number in pynast alignment where fragment left border is
         located.
@@ -69,6 +70,14 @@ def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
     frg_expected_length : int
         Expected fragment length (needed because degapped alignment rows do
         not always match correct length)
+    sequence_type : str
+        Default is 'representative'.
+        Valid values are 'representative', 'non-representative', 'all'
+        If 'representative', only representative sequences for each OTU are
+            returned.
+        If 'non-representative', only NON-representative sequences for each OTU
+            are returned, if OTU has more than one sequence.
+        If 'all', all sequences of the OTU are used.
     file_cache : file
         Default is None.
         If not None, resulting fragment are cached to this file and if this
@@ -84,6 +93,9 @@ def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
     sequence.
     Note: sequences might come in duplicates, due to degapping.
     """
+
+    VALID_TYPES = ['all', 'representative', 'non-representative']
+
     if os.path.exists(file_cache):
         f = open(file_cache, 'rb')
         fragments = pickle.load(f)
@@ -107,22 +119,35 @@ def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
             ali.shape[1],
             file_pynast_alignment.split('/')[-1]))
 
-    # load backbone tree and collect all OTU IDs
-    otuids_in_backbonetree = [node.name
-                              for node
-                              in TreeNode.read(file_backbone_tree).tips()]
+    # load OTU map
+    otumap = read_otumap(file_otumap)
+    otuids_nonrepresentative = [seqid
+                                for otu in otumap.values
+                                for seqid in otu]
+    otuids_representative = list(otumap.index)
+    seqids_to_use = None
+    if sequence_type == VALID_TYPES[0]:  # all
+        seqids_to_use = otuids_representative + otuids_nonrepresentative
+    elif sequence_type == VALID_TYPES[1]:  # representative
+        seqids_to_use = otuids_representative
+    elif sequence_type == VALID_TYPES[2]:  # non-representative
+        seqids_to_use = otuids_nonrepresentative
+    else:
+        raise ValueError('Invalid sequence type "%s", choose from "%s"' % (
+            sequence_type, '","'.join(VALID_TYPES)))
     if verbose:
-        print("% 8i OTUs in backbone tree '%s'" % (
-            len(otuids_in_backbonetree),
-            file_backbone_tree.split('/')[-1]))
+        print("% 8i OTUs selected from OTU map '%s' with type '%s'" % (
+            len(seqids_to_use),
+            file_otumap.split('/')[-1],
+            sequence_type))
 
-    # subset the alignment to those sequences that are in the backbone tree
-    ali_backboneseqs = ali.loc[set(otuids_in_backbonetree) & set(ali.index)]
+    # subset the alignment to those sequences that are selected from OTU map
+    ali_otumap = ali.loc[set(seqids_to_use) & set(ali.index)]
     if verbose:
-        print(("% 8i OTU sequences in backbone tree and alignment. "
-               "Surprise: %i OTUs of backbone tree are NOT in alignment!") % (
-            ali_backboneseqs.shape[0],
-            len(otuids_in_backbonetree) - ali_backboneseqs.shape[0]))
+        print(("% 8i OTU sequences selected from OTU map and alignment. "
+               "Surprise: %i OTUs of OTU map are NOT in alignment!") % (
+            ali_otumap.shape[0],
+            len(seqids_to_use) - ali_otumap.shape[0]))
         # To my surprise, not all OTU-IDs of the SEPP reference tree
         # (same with the 99 tree of GreenGenes) are in the pynast alignment.
         # Daniel says: "PyNAST fails on some sequences. The tree is constructed
@@ -132,10 +157,10 @@ def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
         # investigation
 
     # trim alignment down to fragment columns
-    ali_fragments = ali_backboneseqs.iloc(axis='position')[frg_start:frg_stop]
+    ali_fragments = ali_otumap.iloc(axis='position')[frg_start:frg_stop]
     if verbose:
         print("%i -> %i cols: trimming alignment to fragment coordinates" % (
-            ali_backboneseqs.shape[1],
+            ali_otumap.shape[1],
             ali_fragments.shape[1]))
 
     # ungap alignment rows
@@ -165,12 +190,6 @@ def load_sequences_pynast(file_pynast_alignment, file_backbone_tree,
     f.close()
     if verbose:
         print("Stored results to cache '%s'" % file_cache)
-
-    # manually deconstruct unused objects to save memory
-    # del ali
-    # del ali_backboneseqs
-    # del ali_fragments
-    # del otuids_in_backbonetree
 
     return fragments
 
