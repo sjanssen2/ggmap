@@ -235,7 +235,7 @@ def rarefaction_curves(counts,
                        num_steps=20, num_threads=10,
                        dry=True, use_grid=True, nocache=False,
                        reference_tree=None, max_depth=None, workdir=None,
-                       wait=True):
+                       wait=True, crawl_dir=None):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -272,6 +272,11 @@ def rarefaction_curves(counts,
     workdir : str
         Filepath to an existing temporary working directory. This will only
         call post_execute to parse results.
+    crawl_dir : dir
+        A directory with workdir's in from which results should be parsed if
+        a) execution complete (i.e. finished.info file exists)
+        b) cache signature matches
+        Default is None
 
     Returns
     -------
@@ -354,14 +359,16 @@ def rarefaction_curves(counts,
                      ppn=num_threads,
                      nocache=nocache,
                      workdir=workdir,
-                     wait=wait)
+                     wait=wait,
+                     crawl_dir=crawl_dir)
 
     if dry is not True:
         return _plot_rarefaction_curves(data)
 
 
 def rarefy(counts, rarefaction_depth,
-           dry=True, use_grid=True, nocache=False, workdir=None, wait=True):
+           dry=True, use_grid=True, nocache=False, workdir=None, wait=True,
+           crawl_dir=None):
     """Rarefies a given OTU table to a given depth. This depth should be
        determined by looking at rarefaction curves.
 
@@ -379,6 +386,11 @@ def rarefy(counts, rarefaction_depth,
         Don't use cache to retrieve results for previously computed inputs.
     workdir : str
         Path to the working dir of an unfinished previous computation.
+    crawl_dir : dir
+        A directory with workdir's in from which results should be parsed if
+        a) execution complete (i.e. finished.info file exists)
+        b) cache signature matches
+        Default is None
 
     Returns
     -------
@@ -420,14 +432,15 @@ def rarefy(counts, rarefaction_depth,
                      ppn=1,
                      nocache=nocache,
                      workdir=workdir,
-                     wait=wait)
+                     wait=wait,
+                     crawl_dir=crawl_dir)
 
 
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_otus"],
                     num_threads=10, num_iterations=10, dry=True,
                     use_grid=True, nocache=False, workdir=None,
-                    reference_tree=None, wait=True):
+                    reference_tree=None, wait=True, crawl_dir=None):
     """Computes alpha diversity values for given BIOM table.
 
     Paramaters
@@ -448,6 +461,11 @@ def alpha_diversity(counts, rarefaction_depth,
         Use grid engine instead of local execution. Default: True
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
+    crawl_dir : dir
+        A directory with workdir's in from which results should be parsed if
+        a) execution complete (i.e. finished.info file exists)
+        b) cache signature matches
+        Default is None
 
     Returns
     -------
@@ -522,7 +540,8 @@ def alpha_diversity(counts, rarefaction_depth,
                      ppn=num_threads,
                      nocache=nocache,
                      workdir=workdir,
-                     wait=wait)
+                     wait=wait,
+                     crawl_dir=crawl_dir)
 
 
 def beta_diversity(counts,
@@ -531,7 +550,7 @@ def beta_diversity(counts,
                             "bray_curtis"],
                    num_threads=10, dry=True, use_grid=True, nocache=False,
                    reference_tree=None, workdir=None,
-                   wait=True, use_parallel=False):
+                   wait=True, use_parallel=False, crawl_dir=None):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -551,6 +570,11 @@ def beta_diversity(counts,
     use_parallel : boolean
         Default: false. If true, use parallel version of beta div computation.
         I found that it often stalles with defunct processes.
+    crawl_dir : dir
+        A directory with workdir's in from which results should be parsed if
+        a) execution complete (i.e. finished.info file exists)
+        b) cache signature matches
+        Default is None
 
     Returns
     -------
@@ -608,12 +632,13 @@ def beta_diversity(counts,
                      ppn=num_threads,
                      nocache=nocache,
                      workdir=workdir,
-                     wait=wait)
+                     wait=wait,
+                     crawl_dir=crawl_dir)
 
 
 def sepp(counts,
          dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='20GB', wait=True, walltime='12:00:00'):
+         ppn=10, pmem='20GB', wait=True, walltime='12:00:00', crawl_dir=None):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -642,6 +667,11 @@ def sepp(counts,
         Default: True. Wait for results.
     walltime : str
         hh:mm:ss formated wall runtime on cluster. Default is 12:00:00.
+    crawl_dir : dir
+        A directory with workdir's in from which results should be parsed if
+        a) execution complete (i.e. finished.info file exists)
+        b) cache signature matches
+        Default is None
 
     Returns
     -------
@@ -718,7 +748,8 @@ def sepp(counts,
                     walltime=walltime,
                     environment='seppGG_py3',
                     workdir=workdir,
-                    wait=wait)
+                    wait=wait,
+                    crawl_dir=crawl_dir)
     if (wait is False) or dry:
         return res
 
@@ -729,7 +760,7 @@ def sepp(counts,
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               dry=True, use_grid=True, ppn=10, nocache=False, workdir=None,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True):
+              wait=True, crawl_dir=None):
     """
 
     Parameters
@@ -740,9 +771,12 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         least partially and we want to resume from this point, i.e. collect
         results.
     """
+    DIR_CACHE = '.anacache'
+    FILE_STATUS = 'finished.info'
+
     # caching
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
-    file_cache = ".anacache/%s.%s" % (hashlib.md5(
+    file_cache = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
 
     if os.path.exists(file_cache) and (nocache is not True):
@@ -754,7 +788,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
     # create a temporary working directory
     pre_data = None
-    if workdir is None:
+    if (workdir is None) and (crawl_dir is None):
         prefix = 'ana_%s_' % jobname
         if use_grid:
             workdir = tempfile.mkdtemp(prefix=prefix,
@@ -762,10 +796,16 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         else:
             workdir = tempfile.mkdtemp(prefix=prefix)
         sys.stderr.write("Working directory is '%s'. " % workdir)
+        # leave an empty file in workdir with cache file name to later
+        # parse results from tmp dir via 'crawl_dir'
+        f = open(workdir + '/' + file_cache.split('/')[-1], 'w')
+        f.close()
 
         pre_data = pre_execute(workdir, cache_arguments)
 
         lst_commands = commands(workdir, ppn, cache_arguments)
+        # device creation of a file _after_ execution of the job in workdir
+        lst_commands.append('touch %s/%s' % (workdir, FILE_STATUS))
         if not use_grid:
             if dry:
                 sys.stderr.write("\n\n".join(lst_commands))
@@ -786,6 +826,25 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 return None
             if wait is False:
                 return qid
+    elif crawl_dir is not None:
+        if not os.path.exists(crawl_dir):
+            raise IOError("crawl_dir '%s' does not exist!" % crawl_dir)
+        else:
+            # crawl through given directory and search for those sub-dirs that
+            # contain .anacache subdir and only one file, identical with the
+            # file_cache for the current input
+            pot_workdirs = [x[0]  # report directory name
+                            for x in os.walk(crawl_dir)
+                            # shares same cache signature:
+                            if file_cache.split('/')[-1] in x[2]
+                            # is completed
+                            if 'finished.info' in x[2]]
+            if len(pot_workdirs) > 0:
+                workdir = pot_workdirs[0]
+                sys.stderr.write('found matching working dir "%s"\n' % workdir)
+                pre_data = pre_execute(workdir, cache_arguments)
+            else:
+                raise ValueError("No suitable working directory found!")
     else:
         pre_data = pre_execute(workdir, cache_arguments)
 
