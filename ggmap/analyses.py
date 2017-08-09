@@ -613,7 +613,7 @@ def beta_diversity(counts,
 
 def sepp(counts,
          dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='20GB', wait=True):
+         ppn=10, pmem='20GB', wait=True, walltime='12:00:00'):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -640,6 +640,8 @@ def sepp(counts,
         call post_execute to parse results.
     wait : bool
         Default: True. Wait for results.
+    walltime : str
+        hh:mm:ss formated wall runtime on cluster. Default is 12:00:00.
 
     Returns
     -------
@@ -713,7 +715,7 @@ def sepp(counts,
                     ppn=ppn,
                     pmem=pmem,
                     nocache=nocache,
-                    walltime='12:00:00',
+                    walltime=walltime,
                     environment='seppGG_py3',
                     workdir=workdir,
                     wait=wait)
