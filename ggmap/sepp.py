@@ -3,10 +3,11 @@ import pickle
 from random import seed
 import sys
 import os.path
+import string
 
 from skbio import TabularMSA, DNA
 
-from ggmap.snippets import mutate_sequence
+from ggmap.snippets import mutate_sequence, biom2pandas
 
 
 def read_otumap(file_otumap):
@@ -263,3 +264,93 @@ def add_mutations(fragments,
             out.write("Stored results to cache '%s'\n" % file_cache)
 
     return frgs
+
+
+def check_qiita_studies(dir_base):
+    """Checks if all files for Qiita studies are consistent.
+
+    Notes
+    -----
+    a) metadata sample files exist
+    b) metadata match study ID
+    c) biom files for closedref and deblur exist
+    d) feature IDs are either numeric (closedref) or nucleotides (deblur)
+    e) all samples from biom files are in metadata files
+
+    Correct naming convention:
+    dir_base/
+        <QIITA-ID>/
+            (metadata)
+            qiita<QIITA-ID>_sampleinfo.txt
+            (otu table closedref. Ensure to use correct fragment size!)
+            prep<PREPNAME>/qiita<QIITA-ID>_prep<PREPNAME>_150nt_closedref.biom
+            (otu table deblur all. Unfiltered biom table!)
+            prep<PREPNAME>/qiita<QIITA-ID>_prep<PREPNAME>_150nt_deblurall.biom
+
+    Parameters
+    ----------
+    dir_base : path
+        Path to root directory containing QIITA study files.
+
+    Returns
+    -------
+    True, if everything is fine.
+
+    Raises
+    ------
+    ValueErrors if inconsitencies are found.
+    """
+    # collect study names
+    studies = [d for d in next(os.walk(dir_base))[1] if not d.startswith('.')]
+
+    for study in studies:
+        file_sampleinfo = "%s/%s/qiita%s_sampleinfo.txt" % (dir_base,
+                                                            study,
+                                                            study)
+
+        # check that sample info file exists
+        if not os.path.exists(file_sampleinfo):
+            raise ValueError('Missing sample info file for study %s!' % study)
+
+        # checks that sample info file matches study by comparing column
+        # qiita_study_id
+        metadata = pd.read_csv(file_sampleinfo,
+                               sep='\t', dtype=str, index_col=0)
+        if metadata['qiita_study_id'].unique() != [study]:
+            raise ValueError('Wrong sample info file for study %s!' % study)
+
+        preps = [d
+                 for d in next(os.walk(dir_base + '/' + study))[1]
+                 if not d.startswith('.')]
+        for prep in preps:
+            for _type in ['closedref', 'deblurall']:
+                file_biom = "%s/%s/%s/qiita%s_%s_150nt_%s.biom" % (
+                    dir_base, study, prep, study, prep, _type)
+
+                # check that biom file for closed ref exists
+                if not os.path.exists(file_biom):
+                    raise ValueError(
+                        'Missing biom "%s" file "%s" for %s in study %s, %s!' %
+                        (_type, file_biom, _type, study, prep))
+
+                # check biom contents
+                counts = biom2pandas(file_biom)
+                obs_alphabet = set([str(c).upper()
+                                    for idx in counts.index
+                                    for c in set(idx)])
+                description = None
+                if _type == 'closedref':
+                    exp_alphabet = set(map(str, range(0, 10)))
+                    description = 'numeric'
+                else:
+                    exp_alphabet = set(string.ascii_uppercase)
+                    description = 'nucleotides'
+                if len(obs_alphabet - exp_alphabet) > 0:
+                    raise ValueError(('Not all feature IDs are purely %s in '
+                                      'study %s, %s: "%s') % (
+                                     description, study, prep, file_biom))
+                if metadata.loc[counts.columns, :].shape[0] <\
+                   len(counts.columns):
+                    raise ValueError(("Not all samples of %s of study %s are "
+                                      "in the metadata file!") % (prep, study))
+    return True
