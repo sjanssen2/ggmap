@@ -1550,12 +1550,13 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             out.write("  (n=%i)\n" % g.shape[0])
 
             # filter samples for calour
+            e_filtered = e
             for (field, value) in zip(groups, name):
                 _map_values = _map_metadata_calout(metadata, e, field)
                 if value in _map_values:
-                    e = e.filter_samples(field, [_map_values[value]], inplace=False)
+                    e_filtered = e_filtered.filter_samples(field, [_map_values[value]], inplace=False)
 
-            diffTaxa = _find_diff_taxa_runpfdr(e, metadata, groups[-1], diffTaxa)
+            diffTaxa = _find_diff_taxa_runpfdr(e_filtered, metadata, groups[-1], diffTaxa)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
