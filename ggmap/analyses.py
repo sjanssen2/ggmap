@@ -760,7 +760,7 @@ def sepp(counts,
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               dry=True, use_grid=True, ppn=10, nocache=False, workdir=None,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True, crawl_dir=None):
+              wait=True, crawl_dir=None, timing=True):
     """
 
     Parameters
@@ -821,7 +821,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             qid = cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
                               environment, ppn=ppn, wait=wait, dry=dry,
                               pmem=pmem, walltime=walltime,
-                              file_qid=workdir+'/cluster_job_id.txt')
+                              file_qid=workdir+'/cluster_job_id.txt',
+                              timing=timing)
             if dry:
                 return None
             if wait is False:
