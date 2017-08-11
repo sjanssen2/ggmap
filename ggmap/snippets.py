@@ -938,10 +938,17 @@ def cluster_run(cmds, jobname, result, environment=None,
         # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
         #                    % '; '.join(cmds))
         # add time to every command
-        timing_cmds.extend(map(lambda cmd:
-                               '%s -v -o ${PBS_JOBNAME}.t${PBS_JOBID} -a %s' %
-                               (EXEC_TIME, cmd),
-                               cmds))
+        for cmd in cmds:
+            # cd cannot be timed and any attempt will fail changing the
+            # directory
+            if cmd.startswith('cd '):
+                timing_cmds.append(cmd)
+            else:
+                timing_cmds.append(('%s '
+                                    '-v '
+                                    '-o ${PBS_JOBNAME}.t${PBS_JOBID} '
+                                    '-a %s') %
+                                   (EXEC_TIME, cmd))
         cmds = timing_cmds
     job_cmd = " && ".join(cmds)
 
