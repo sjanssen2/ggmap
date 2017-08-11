@@ -323,11 +323,23 @@ def check_qiita_studies(dir_base):
                  for d in next(os.walk(dir_base + '/' + study))[1]
                  if not d.startswith('.')]
         for prep in preps:
+            # get all existing biom files
+            dir_prep = dir_base + '/' + study + '/' + prep
+            files_biom = [d
+                          for d in next(os.walk(dir_prep))[2]
+                          if d.endswith('.biom')]
+            fraglen = set(map(lambda x: x.split('_')[-2].split('n')[0],
+                              files_biom))
+            if len(fraglen) != 1:
+                raise ValueError(('found biom files with differing '
+                                  'sequence lengths: "%s"') %
+                                 '", "'.join(files_biom))
+            fraglen = list(fraglen)[0]
             for _type in ['closedref', 'deblurall']:
-                file_biom = "%s/%s/%s/qiita%s_%s_150nt_%s.biom" % (
-                    dir_base, study, prep, study, prep, _type)
+                file_biom = "%s/%s/%s/qiita%s_%s_%snt_%s.biom" % (
+                    dir_base, study, prep, study, prep, fraglen, _type)
 
-                # check that biom file for closed ref exists
+                # check that biom file exists
                 if not os.path.exists(file_biom):
                     raise ValueError(
                         'Missing biom "%s" file "%s" for %s in study %s, %s!' %
