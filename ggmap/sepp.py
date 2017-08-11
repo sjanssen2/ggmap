@@ -4,8 +4,13 @@ from random import seed
 import sys
 import os.path
 import string
+import numpy as np
+import seaborn as sns
+from itertools import combinations
+from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
+from skbio.stats.distance import DistanceMatrix, MissingIDError
 
 from ggmap.snippets import mutate_sequence, biom2pandas
 
@@ -366,3 +371,116 @@ def check_qiita_studies(dir_base):
                     raise ValueError(("Not all samples of %s of study %s are "
                                       "in the metadata file!") % (prep, study))
     return True
+
+
+def analyse_2014(dir_study, err=sys.stderr):
+    """Replicating figure 1a) of 'Human genetics shape the gut microbiome'.
+    Beta distances are piled up comparing pairs of MonoZygotic (MZ) twins,
+    DiZygotic (DZ) twins and between individuals NOT from the same family
+    (unrelated).
+    Using Mann-Whitney to test significance between those three groups.
+
+    Does significance / p-values increase when using deblur+SEPP compared to
+    closedref?
+
+    Parameters
+    ----------
+    dir_study : dir as str
+        Filepath to directory of Qiita study 2014 (containing prep1).
+    err : StringIO
+        Default sys.stderr. Where to report status.
+
+    Returns
+    -------
+    (fig, stats), where fig is a seaborn facetgrid and stats a Pandas.DataFrame
+    with statistics about significance of every test.
+    """
+    NUMSTEPS = 6
+    PREP = 'prep1'
+
+    err.write('Running analysis for study 2014:\n')
+    err.write('  step 1/%i: loading metadata ...' % NUMSTEPS)
+    metadata = pd.read_csv(dir_study + 'qiita2014_sampleinfo.txt',
+                           sep='\t', dtype=str, index_col=0)
+    err.write(' done.\n')
+
+    err.write('  step 2/%i: load available beta distance matrices ...'
+              % NUMSTEPS)
+    files_dm = [dir_study+'/'+PREP+'/'+d
+                for d in next(os.walk(dir_study+'/' + PREP + '/'))[2]
+                if d.endswith('.dm')]
+    betas = dict()
+    for file_dm in files_dm:
+        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
+        if technique not in betas:
+            betas[technique] = dict()
+        metric = file_dm.split('/')[-1].split('.')[-2]
+        betas[technique][metric] = DistanceMatrix.read(file_dm)
+    err.write(' done.\n')
+
+    err.write('  step 3/%i: obtain beta distance for specific classes ...'
+              % NUMSTEPS)
+    dists = []
+    for file_dm in files_dm:
+        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
+        metric = file_dm.split('/')[-1].split('.')[-2]
+        for zyg in ['MZ', 'DZ']:
+            m_class = metadata[metadata['zygosity'] == zyg]
+            for (familyid, age), g in m_class.groupby(['familyid', 'age']):
+                if g.shape[0] != 2:
+                    continue
+                try:
+                    dists.append({'technique': technique,
+                                  'class': zyg,
+                                  'distance':
+                                  betas[technique][metric][g.index[0],
+                                                           g.index[1]],
+                                  'metric': metric})
+                except MissingIDError:
+                    pass
+
+        pddm = betas[technique][metric].to_data_frame()
+        for n, g in metadata.loc[pddm.index, :].groupby('familyid'):
+            pddm.loc[g.index, g.index] = np.nan
+        for dist in pddm.stack().values:
+            dists.append({'technique': technique,
+                          'class': 'unrelated',
+                          'distance': dist,
+                          'metric': metric})
+    err.write(' done.\n')
+
+    err.write('  step 4/%i: convert dist array to pandas DataFrame ...'
+              % NUMSTEPS)
+    distances = pd.DataFrame(dists)
+    err.write(' done.\n')
+
+    err.write(('  step 5/%i: generate graphical overview '
+               'in terms of boxplots ...')
+              % NUMSTEPS)
+    fig = sns.FacetGrid(distances, col="metric",
+                        sharey=False,
+                        col_order=['bray_curtis',
+                                   'unweighted_unifrac',
+                                   'weighted_unifrac'],
+                        hue_order=['closedref', 'deblurall'])
+    fig = fig.map(sns.boxplot, "class", "distance", "technique").add_legend()
+    err.write(' done.\n')
+
+    # generate statistical summary of class comparisons, i.e. did the
+    # significance improve?
+    err.write(('  step 6/%i: generate statistical summary of '
+               'class comparisons ...') % NUMSTEPS)
+    stats = []
+    for (metric, technique), g in distances.groupby(['metric', 'technique']):
+        for (a, b) in combinations(g['class'].unique(), 2):
+            t = mannwhitneyu(g[(g['class'] == a)]['distance'].values,
+                             g[(g['class'] == b)]['distance'].values,
+                             alternative='two-sided')
+            stats.append({'technique': technique,
+                          'metric': metric,
+                          'comparison': '%s vs %s' % (a, b),
+                          'p-value': t.pvalue})
+    stats = pd.DataFrame(stats)
+    err.write(' done.\n')
+
+    return (fig, stats)
