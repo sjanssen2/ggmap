@@ -4,10 +4,16 @@ from random import seed
 import sys
 import os.path
 import string
+import numpy as np
+import seaborn as sns
+from itertools import combinations
+from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
+from skbio.stats.distance import DistanceMatrix, MissingIDError
+from skbio.tree import TreeNode
 
-from ggmap.snippets import mutate_sequence, biom2pandas
+from ggmap.snippets import mutate_sequence, biom2pandas, RANKS
 
 
 def read_otumap(file_otumap):
@@ -20,9 +26,10 @@ def read_otumap(file_otumap):
 
     Returns
     -------
-    Pandas.Series with representative IDs as index and lists of
-    non-representative IDs as values.
-    Column is named 'non-representatives'.
+    A tuple of (Pandas.Series, Pandas.Series), where the first Series has
+    representative IDs as index and lists of non-representative IDs as values.
+    It's column is named 'non-representatives'.
+    The second Series has every sequence ID as index and its OTU ID as value.
 
     Raises
     ------
@@ -32,17 +39,24 @@ def read_otumap(file_otumap):
     try:
         # read OTU map line by line
         otus = dict()
+        seqs = dict()
         f = open(file_otumap, 'r')
         for line in f:
             fields = line.rstrip().split("\t")
-            otus[str(fields[1])] = list(map(str, fields[2:]))
+            reprID = str(fields[1])
+            seqids = list(map(str, fields[2:]))
+            otus[reprID] = seqids
+            for seqid in seqids + [reprID]:
+                seqs[seqid] = reprID
         f.close()
 
         # convert to pd.Series
         otus = pd.Series(otus)
         otus.index.name = 'representative'
         otus.name = 'non-representatives'
-        return otus
+
+        seqs = pd.Series(seqs)
+        return (otus, seqs)
     except IOError:
         raise IOError('Cannot read file "%s"' % file_otumap)
 
@@ -111,7 +125,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
             file_pynast_alignment.split('/')[-1]))
 
     # load OTU map
-    otumap = read_otumap(file_otumap)
+    otumap = read_otumap(file_otumap)[0]
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
     # all non-representative seq IDs
@@ -323,11 +337,23 @@ def check_qiita_studies(dir_base):
                  for d in next(os.walk(dir_base + '/' + study))[1]
                  if not d.startswith('.')]
         for prep in preps:
+            # get all existing biom files
+            dir_prep = dir_base + '/' + study + '/' + prep
+            files_biom = [d
+                          for d in next(os.walk(dir_prep))[2]
+                          if d.endswith('.biom')]
+            fraglen = set(map(lambda x: x.split('_')[-2].split('n')[0],
+                              files_biom))
+            if len(fraglen) > 1:
+                raise ValueError(('found biom files with differing '
+                                  'sequence lengths: "%s"') %
+                                 '", "'.join(files_biom))
+            fraglen = list(fraglen)[0]
             for _type in ['closedref', 'deblurall']:
-                file_biom = "%s/%s/%s/qiita%s_%s_150nt_%s.biom" % (
-                    dir_base, study, prep, study, prep, _type)
+                file_biom = "%s/%s/%s/qiita%s_%s_%snt_%s.biom" % (
+                    dir_base, study, prep, study, prep, fraglen, _type)
 
-                # check that biom file for closed ref exists
+                # check that biom file exists
                 if not os.path.exists(file_biom):
                     raise ValueError(
                         'Missing biom "%s" file "%s" for %s in study %s, %s!' %
@@ -354,3 +380,154 @@ def check_qiita_studies(dir_base):
                     raise ValueError(("Not all samples of %s of study %s are "
                                       "in the metadata file!") % (prep, study))
     return True
+
+
+def analyse_2014(dir_study, err=sys.stderr):
+    """Replicating figure 1a) of 'Human genetics shape the gut microbiome'.
+    Beta distances are piled up comparing pairs of MonoZygotic (MZ) twins,
+    DiZygotic (DZ) twins and between individuals NOT from the same family
+    (unrelated).
+    Using Mann-Whitney to test significance between those three groups.
+
+    Does significance / p-values increase when using deblur+SEPP compared to
+    closedref?
+
+    Parameters
+    ----------
+    dir_study : dir as str
+        Filepath to directory of Qiita study 2014 (containing prep1).
+    err : StringIO
+        Default sys.stderr. Where to report status.
+
+    Returns
+    -------
+    (fig, stats), where fig is a seaborn facetgrid and stats a Pandas.DataFrame
+    with statistics about significance of every test.
+    """
+    NUMSTEPS = 6
+    PREP = 'prep1'
+
+    err.write('Running analysis for study 2014:\n')
+    err.write('  step 1/%i: loading metadata ...' % NUMSTEPS)
+    metadata = pd.read_csv(dir_study + 'qiita2014_sampleinfo.txt',
+                           sep='\t', dtype=str, index_col=0)
+    err.write(' done.\n')
+
+    err.write('  step 2/%i: load available beta distance matrices ...'
+              % NUMSTEPS)
+    files_dm = [dir_study+'/'+PREP+'/'+d
+                for d in next(os.walk(dir_study+'/' + PREP + '/'))[2]
+                if d.endswith('.dm')]
+    betas = dict()
+    for file_dm in files_dm:
+        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
+        if technique not in betas:
+            betas[technique] = dict()
+        metric = file_dm.split('/')[-1].split('.')[-2]
+        betas[technique][metric] = DistanceMatrix.read(file_dm)
+    err.write(' done.\n')
+
+    err.write('  step 3/%i: obtain beta distance for specific classes ...'
+              % NUMSTEPS)
+    dists = []
+    for file_dm in files_dm:
+        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
+        metric = file_dm.split('/')[-1].split('.')[-2]
+        for zyg in ['MZ', 'DZ']:
+            m_class = metadata[metadata['zygosity'] == zyg]
+            for (familyid, age), g in m_class.groupby(['familyid', 'age']):
+                if g.shape[0] != 2:
+                    continue
+                try:
+                    dists.append({'technique': technique,
+                                  'class': zyg,
+                                  'distance':
+                                  betas[technique][metric][g.index[0],
+                                                           g.index[1]],
+                                  'metric': metric})
+                except MissingIDError:
+                    pass
+
+        pddm = betas[technique][metric].to_data_frame()
+        for n, g in metadata.loc[pddm.index, :].groupby('familyid'):
+            pddm.loc[g.index, g.index] = np.nan
+        for dist in pddm.stack().values:
+            dists.append({'technique': technique,
+                          'class': 'unrelated',
+                          'distance': dist,
+                          'metric': metric})
+    err.write(' done.\n')
+
+    err.write('  step 4/%i: convert dist array to pandas DataFrame ...'
+              % NUMSTEPS)
+    distances = pd.DataFrame(dists)
+    err.write(' done.\n')
+
+    err.write(('  step 5/%i: generate graphical overview '
+               'in terms of boxplots ...')
+              % NUMSTEPS)
+    fig = sns.FacetGrid(distances, col="metric",
+                        sharey=False,
+                        col_order=['bray_curtis',
+                                   'unweighted_unifrac',
+                                   'weighted_unifrac'],
+                        hue_order=['closedref', 'deblurall'])
+    fig = fig.map(sns.boxplot, "class", "distance", "technique").add_legend()
+    err.write(' done.\n')
+
+    # generate statistical summary of class comparisons, i.e. did the
+    # significance improve?
+    err.write(('  step 6/%i: generate statistical summary of '
+               'class comparisons ...') % NUMSTEPS)
+    stats = []
+    for (metric, technique), g in distances.groupby(['metric', 'technique']):
+        for (a, b) in combinations(g['class'].unique(), 2):
+            t = mannwhitneyu(g[(g['class'] == a)]['distance'].values,
+                             g[(g['class'] == b)]['distance'].values,
+                             alternative='two-sided')
+            stats.append({'technique': technique,
+                          'metric': metric,
+                          'comparison': '%s vs %s' % (a, b),
+                          'p-value': t.pvalue,
+                          'test-statistic': t.statistic})
+    stats = pd.DataFrame(stats)
+    err.write(' done.\n')
+
+    return (fig, stats)
+
+
+def get_taxa_radia(file_tree, err=sys.stderr):
+    """Computes phylogenetic radius for each taxon in a reference tree.
+       Radius is maximal tip to tip distance.
+
+    Parameters
+    ----------
+    file_tree : str
+        Filename of the phylogenetic tree in Newick format.
+    err : StringIO
+        Default: stderr. Buffer on which status info is printed.
+
+    Returns
+    -------
+    Pandas.DataFrame with columns "max_tip_tip_dist" and "rank" for every taxon
+    in the given file (which is the index of the DataFrame).
+    """
+    tree = TreeNode.read(file_tree)
+
+    taxa_radia = dict()
+    for rank in RANKS:
+        status = rank
+        if rank != RANKS[-1]:
+            status += ', '
+        else:
+            status += ' done.\n'
+        err.write(status)
+
+        for i, node in enumerate(tree.preorder()):
+            if node.name is None:
+                continue
+            if rank[0].lower()+'__' in node.name:
+                taxa_radia[node.name] = {
+                    'rank': rank,
+                    'max_tip_tip_dist': node.get_max_distance()[0]}
+    return pd.DataFrame(taxa_radia).T

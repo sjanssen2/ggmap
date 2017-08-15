@@ -638,7 +638,8 @@ def beta_diversity(counts,
 
 def sepp(counts,
          dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='20GB', wait=True, walltime='12:00:00', crawl_dir=None):
+         ppn=10, pmem='20GB', wait=True, walltime='12:00:00', crawl_dir=None,
+         reference=None):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -691,10 +692,14 @@ def sepp(counts,
     def commands(workdir, ppn, args):
         commands = []
         commands.append('cd %s' % workdir)
-        commands.append('%srun-sepp.sh "%s" res -x %i' % (
+        ref = ''
+        if args['reference'] is not None:
+            ref = ' -r %s' % args['reference']
+        commands.append('%srun-sepp.sh "%s" res -x %i %s' % (
             '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
             workdir+'/sequences.mfa',
-            ppn))
+            ppn,
+            ref))
         return commands
 
     def post_execute(workdir, args, pre_data):
@@ -727,7 +732,8 @@ def sepp(counts,
         return {'taxonomy': pd.DataFrame(data=lineages,
                                          index=features,
                                          columns=['taxonomy']),
-                'tree': newick.getvalue()}
+                'tree': newick.getvalue(),
+                'reference': args['reference']}
 
     inp = sorted(counts.index)
     if type(counts) == pd.Series:
@@ -736,7 +742,8 @@ def sepp(counts,
         # headers and single column holds sequences.
         inp = counts.sort_index()
     res = _executor('sepp',
-                    {'seqs': inp},
+                    {'seqs': inp,
+                     'reference': reference},
                     pre_execute,
                     commands,
                     post_execute,
@@ -755,6 +762,31 @@ def sepp(counts,
 
     res['tree'] = TreeNode.read(StringIO(res['tree']))
     return res
+
+
+def _parse_timing(workdir, jobname):
+    """If existant, parses timing information.
+
+    Parameters
+    ----------
+    workdir : str
+        Path to tmp workdir of _executor containing cr_ana_<jobname>.t* file
+    jobname : str
+        Name of ran job.
+
+    Parameters
+    ----------
+    None if file could not be found. Otherwise: [str]
+    """
+    files_timing = [workdir + '/' + d
+                    for d in next(os.walk(workdir))[2]
+                    if 'cr_ana_%s.t' % jobname in d]
+    for file_timing in files_timing:
+        with open(file_timing, 'r') as content_file:
+            return content_file.readlines()
+        # stop after reading first found file, since there should only be one
+        break
+    return None
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,

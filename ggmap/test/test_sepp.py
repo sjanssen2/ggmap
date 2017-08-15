@@ -53,7 +53,7 @@ class SeppTests(TestCase):
         with self.assertRaisesRegex(IOError, "Cannot read file"):
             read_otumap('/dev/aucguacguguac')
 
-        obs = read_otumap(self.file_otumap)
+        obs = read_otumap(self.file_otumap)[0]
         self.assertEqual(obs.shape, (22, ))
         self.assertEqual(obs.index.name, 'representative')
         self.assertEqual(obs.name, 'non-representatives')
