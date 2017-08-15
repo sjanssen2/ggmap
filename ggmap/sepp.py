@@ -11,8 +11,9 @@ from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
 from skbio.stats.distance import DistanceMatrix, MissingIDError
+from skbio.tree import TreeNode
 
-from ggmap.snippets import mutate_sequence, biom2pandas
+from ggmap.snippets import mutate_sequence, biom2pandas, RANKS
 
 
 def read_otumap(file_otumap):
@@ -25,9 +26,10 @@ def read_otumap(file_otumap):
 
     Returns
     -------
-    Pandas.Series with representative IDs as index and lists of
-    non-representative IDs as values.
-    Column is named 'non-representatives'.
+    A tuple of (Pandas.Series, Pandas.Series), where the first Series has
+    representative IDs as index and lists of non-representative IDs as values.
+    It's column is named 'non-representatives'.
+    The second Series has every sequence ID as index and its OTU ID as value.
 
     Raises
     ------
@@ -37,17 +39,24 @@ def read_otumap(file_otumap):
     try:
         # read OTU map line by line
         otus = dict()
+        seqs = dict()
         f = open(file_otumap, 'r')
         for line in f:
             fields = line.rstrip().split("\t")
-            otus[str(fields[1])] = list(map(str, fields[2:]))
+            reprID = str(fields[1])
+            seqids = list(map(str, fields[2:]))
+            otus[reprID] = seqids
+            for seqid in seqids + [reprID]:
+                seqs[seqid] = reprID
         f.close()
 
         # convert to pd.Series
         otus = pd.Series(otus)
         otus.index.name = 'representative'
         otus.name = 'non-representatives'
-        return otus
+
+        seqs = pd.Series(seqs)
+        return (otus, seqs)
     except IOError:
         raise IOError('Cannot read file "%s"' % file_otumap)
 
@@ -116,7 +125,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
             file_pynast_alignment.split('/')[-1]))
 
     # load OTU map
-    otumap = read_otumap(file_otumap)
+    otumap = read_otumap(file_otumap)[0]
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
     # all non-representative seq IDs
@@ -335,7 +344,7 @@ def check_qiita_studies(dir_base):
                           if d.endswith('.biom')]
             fraglen = set(map(lambda x: x.split('_')[-2].split('n')[0],
                               files_biom))
-            if len(fraglen) != 1:
+            if len(fraglen) > 1:
                 raise ValueError(('found biom files with differing '
                                   'sequence lengths: "%s"') %
                                  '", "'.join(files_biom))
@@ -479,8 +488,46 @@ def analyse_2014(dir_study, err=sys.stderr):
             stats.append({'technique': technique,
                           'metric': metric,
                           'comparison': '%s vs %s' % (a, b),
-                          'p-value': t.pvalue})
+                          'p-value': t.pvalue,
+                          'test-statistic': t.statistic})
     stats = pd.DataFrame(stats)
     err.write(' done.\n')
 
     return (fig, stats)
+
+
+def get_taxa_radia(file_tree, err=sys.stderr):
+    """Computes phylogenetic radius for each taxon in a reference tree.
+       Radius is maximal tip to tip distance.
+
+    Parameters
+    ----------
+    file_tree : str
+        Filename of the phylogenetic tree in Newick format.
+    err : StringIO
+        Default: stderr. Buffer on which status info is printed.
+
+    Returns
+    -------
+    Pandas.DataFrame with columns "max_tip_tip_dist" and "rank" for every taxon
+    in the given file (which is the index of the DataFrame).
+    """
+    tree = TreeNode.read(file_tree)
+
+    taxa_radia = dict()
+    for rank in RANKS:
+        status = rank
+        if rank != RANKS[-1]:
+            status += ', '
+        else:
+            status += ' done.\n'
+        err.write(status)
+
+        for i, node in enumerate(tree.preorder()):
+            if node.name is None:
+                continue
+            if rank[0].lower()+'__' in node.name:
+                taxa_radia[node.name] = {
+                    'rank': rank,
+                    'max_tip_tip_dist': node.get_max_distance()[0]}
+    return pd.DataFrame(taxa_radia).T
