@@ -7,6 +7,8 @@ import os
 import pickle
 from io import StringIO
 import collections
+import datetime
+import time
 
 import pandas as pd
 from pandas.errors import EmptyDataError
@@ -16,7 +18,8 @@ from matplotlib.ticker import FuncFormatter
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas,
+                            _add_timing_cmds)
 
 
 plt.switch_backend('Agg')
@@ -232,10 +235,8 @@ def _plot_rarefaction_curves(data):
 
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
-                       num_steps=20, num_threads=10,
-                       dry=True, use_grid=True, nocache=False,
-                       reference_tree=None, max_depth=None, workdir=None,
-                       wait=True, crawl_dir=None):
+                       num_steps=20, reference_tree=None, max_depth=None,
+                       **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -248,35 +249,14 @@ def rarefaction_curves(counts,
     num_steps : int
         Number of different rarefaction steps to test. The higher the slower.
         Default is 20.
-    num_threads : int
-        Number of cores to use for parallelization. Default is 10.
-    dry : bool
-        If True: only prepare working directory and create necessary input
-        files and print the command that would be executed in a non dry run.
-        For debugging. Workdir is not deleted.
-        "pre_execute" is called, but not "post_execute".
-        Default is True.
-    use_grid : bool
-        If True, use qsub to schedule as a grid job, otherwise run locally.
-        Default is True.
-    nocache : bool
-        Normally, successful results are cached in .anacache directory to be
-        retrieved when called a second time. You can deactivate this feature
-        (useful for testing) by setting "nocache" to False.
     reference_tree : str
         Filepath to a newick tree file, which will be the phylogeny for unifrac
         alpha diversity distances. By default, qiime's GreenGenes tree is used.
     max_depth : int
         Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
         used.
-    workdir : str
-        Filepath to an existing temporary working directory. This will only
-        call post_execute to parse results.
-    crawl_dir : dir
-        A directory with workdir's in from which results should be parsed if
-        a) execution complete (i.e. finished.info file exists)
-        b) cache signature matches
-        Default is None
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
 
     Returns
     -------
@@ -346,7 +326,10 @@ def rarefaction_curves(counts,
 
         return results
 
-    data = _executor('rare',
+    def post_cache(cache_results):
+        return _plot_rarefaction_curves(cache_results)
+
+    return _executor('rare',
                      {'counts': counts,
                       'metrics': metrics,
                       'num_steps': num_steps,
@@ -354,21 +337,13 @@ def rarefaction_curves(counts,
                      pre_execute,
                      commands,
                      post_execute,
-                     dry=dry,
-                     use_grid=use_grid,
-                     ppn=num_threads,
-                     nocache=nocache,
-                     workdir=workdir,
-                     wait=wait,
-                     crawl_dir=crawl_dir)
-
-    if dry is not True:
-        return _plot_rarefaction_curves(data)
+                     post_cache,
+                     **executor_args)
 
 
 def rarefy(counts, rarefaction_depth,
-           dry=True, use_grid=True, nocache=False, workdir=None, wait=True,
-           crawl_dir=None):
+           ppn=1,
+           **executor_args):
     """Rarefies a given OTU table to a given depth. This depth should be
        determined by looking at rarefaction curves.
 
@@ -378,19 +353,8 @@ def rarefy(counts, rarefaction_depth,
         OTU counts
     rarefaction_depth : int
         Rarefaction depth that must be applied to counts.
-    dry : boolean
-        Do NOT run clusterjobs, just print commands. Default: True
-    use_grid : boolean
-        Use grid engine instead of local execution. Default: True
-    nocache : boolean
-        Don't use cache to retrieve results for previously computed inputs.
-    workdir : str
-        Path to the working dir of an unfinished previous computation.
-    crawl_dir : dir
-        A directory with workdir's in from which results should be parsed if
-        a) execution complete (i.e. finished.info file exists)
-        b) cache signature matches
-        Default is None
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
 
     Returns
     -------
@@ -427,20 +391,14 @@ def rarefy(counts, rarefaction_depth,
                      pre_execute,
                      commands,
                      post_execute,
-                     dry=dry,
-                     use_grid=use_grid,
-                     ppn=1,
-                     nocache=nocache,
-                     workdir=workdir,
-                     wait=wait,
-                     crawl_dir=crawl_dir)
+                     ppn=ppn,
+                     **executor_args)
 
 
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_otus"],
-                    num_threads=10, num_iterations=10, dry=True,
-                    use_grid=True, nocache=False, workdir=None,
-                    reference_tree=None, wait=True, crawl_dir=None):
+                    num_iterations=10, reference_tree=None,
+                    **executor_args):
     """Computes alpha diversity values for given BIOM table.
 
     Paramaters
@@ -451,21 +409,12 @@ def alpha_diversity(counts, rarefaction_depth,
         Rarefaction depth that must be applied to counts.
     metrics : [str]
         Alpha diversity metrics to be computed.
-    num_threads : int
-        Number of parallel threads. Default: 10.
     num_iterations : int
         Number of iterations to rarefy the input table.
-    dry : boolean
-        Do NOT run clusterjobs, just print commands. Default: True
-    use_grid : boolean
-        Use grid engine instead of local execution. Default: True
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
-    crawl_dir : dir
-        A directory with workdir's in from which results should be parsed if
-        a) execution complete (i.e. finished.info file exists)
-        b) cache signature matches
-        Default is None
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
 
     Returns
     -------
@@ -535,22 +484,15 @@ def alpha_diversity(counts, rarefaction_depth,
                      pre_execute,
                      commands,
                      post_execute,
-                     dry=dry,
-                     use_grid=use_grid,
-                     ppn=num_threads,
-                     nocache=nocache,
-                     workdir=workdir,
-                     wait=wait,
-                     crawl_dir=crawl_dir)
+                     **executor_args)
 
 
 def beta_diversity(counts,
                    metrics=["unweighted_unifrac",
                             "weighted_unifrac",
                             "bray_curtis"],
-                   num_threads=10, dry=True, use_grid=True, nocache=False,
-                   reference_tree=None, workdir=None,
-                   wait=True, use_parallel=False, crawl_dir=None):
+                   reference_tree=None, use_parallel=False,
+                   **executor_args):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
@@ -559,22 +501,13 @@ def beta_diversity(counts,
         OTU counts
     metrics : [str]
         Beta diversity metrics to be computed.
-    num_threads : int
-        Number of parallel threads. Default: 10.
-    dry : boolean
-        Do NOT run clusterjobs, just print commands. Default: True
-    use_grid : boolean
-        Use grid engine instead of local execution. Default: True
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
     use_parallel : boolean
         Default: false. If true, use parallel version of beta div computation.
         I found that it often stalles with defunct processes.
-    crawl_dir : dir
-        A directory with workdir's in from which results should be parsed if
-        a) execution complete (i.e. finished.info file exists)
-        b) cache signature matches
-        Default is None
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
 
     Returns
     -------
@@ -627,19 +560,12 @@ def beta_diversity(counts,
                      pre_execute,
                      commands,
                      post_execute,
-                     dry=dry,
-                     use_grid=use_grid,
-                     ppn=num_threads,
-                     nocache=nocache,
-                     workdir=workdir,
-                     wait=wait,
-                     crawl_dir=crawl_dir)
+                     **executor_args)
 
 
-def sepp(counts,
-         dry=True, use_grid=True, nocache=False, workdir=None,
-         ppn=10, pmem='20GB', wait=True, walltime='12:00:00', crawl_dir=None,
-         reference=None):
+def sepp(counts, reference=None,
+         ppn=10, pmem='20GB', walltime='12:00:00',
+         **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -648,31 +574,11 @@ def sepp(counts,
         a) OTU counts in form of a Pandas.DataFrame.
         b) If providing a Pandas.Series, we expect the index to be a fasta
            headers and the colum the fasta sequences.
-    dry : bool
-        If True: only prepare working directory and create necessary input
-        files and print the command that would be executed in a non dry run.
-        For debugging. Workdir is not deleted.
-        "pre_execute" is called, but not "post_execute".
-        Default is True.
-    use_grid : bool
-        If True, use qsub to schedule as a grid job, otherwise run locally.
-        Default is True.
-    nocache : bool
-        Normally, successful results are cached in .anacache directory to be
-        retrieved when called a second time. You can deactivate this feature
-        (useful for testing) by setting "nocache" to False.
-    workdir : str
-        Filepath to an existing temporary working directory. This will only
-        call post_execute to parse results.
-    wait : bool
-        Default: True. Wait for results.
-    walltime : str
-        hh:mm:ss formated wall runtime on cluster. Default is 12:00:00.
-    crawl_dir : dir
-        A directory with workdir's in from which results should be parsed if
-        a) execution complete (i.e. finished.info file exists)
-        b) cache signature matches
-        Default is None
+    reference : str
+        Default: None.
+        Valid values are ['pynast']. Use a different alignment file for SEPP.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
 
     Returns
     -------
@@ -741,27 +647,19 @@ def sepp(counts,
         # However, if provided a Pandas.Series, we expect index are sequence
         # headers and single column holds sequences.
         inp = counts.sort_index()
-    res = _executor('sepp',
-                    {'seqs': inp,
-                     'reference': reference},
-                    pre_execute,
-                    commands,
-                    post_execute,
-                    dry=dry,
-                    use_grid=use_grid,
-                    ppn=ppn,
-                    pmem=pmem,
-                    nocache=nocache,
-                    walltime=walltime,
-                    environment='seppGG_py3',
-                    workdir=workdir,
-                    wait=wait,
-                    crawl_dir=crawl_dir)
-    if (wait is False) or dry:
-        return res
 
-    res['tree'] = TreeNode.read(StringIO(res['tree']))
-    return res
+    def post_cache(cache_results):
+        cache_results['tree'] = TreeNode.read(StringIO(cache_results['tree']))
+        return cache_results
+
+    return _executor('sepp',
+                     {'seqs': inp,
+                      'reference': reference},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn, pmem=pmem, walltime=walltime,
+                     **executor_args)
 
 
 def _parse_timing(workdir, jobname):
@@ -790,105 +688,172 @@ def _parse_timing(workdir, jobname):
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
-              dry=True, use_grid=True, ppn=10, nocache=False, workdir=None,
+              post_cache=None,
+              dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True, crawl_dir=None, timing=True):
+              wait=True, timing=True):
     """
 
     Parameters
     ----------
-    workdir : str
-        Dir path name. Default is None, i.e. new results need to be computed.
-        If a dir is given, we assume the same call has been already run - at
-        least partially and we want to resume from this point, i.e. collect
-        results.
+    jobname : str
+    cache_arguments : []
+    pre_execute : function
+    commands : []
+    post_execute : function
+    post_cache : function
+        A function that is called, after results have been loaded from cache /
+        were generated. E.g. drawing rarefaction curves.
+    environment : str
+
+    ==template arguments that should be copied to calling analysis function==
+    dry : bool
+        Default: True.
+        If True: only prepare working directory and create necessary input
+        files and print the command that would be executed in a non dry run.
+        For debugging. Workdir is not deleted.
+        "pre_execute" is called, but not "post_execute".
+    use_grid : bool
+        Default: True.
+        If True, use qsub to schedule as a grid job, otherwise run locally.
+    nocache : bool
+        Default: False.
+        Normally, successful results are cached in .anacache directory to be
+        retrieved when called a second time. You can deactivate this feature
+        (useful for testing) by setting "nocache" to True.
+    wait : bool
+        Default: True.
+        Wait for results.
+    walltime : str
+        Default: "12:00:00".
+        hh:mm:ss formated wall runtime on cluster.
+    ppn : int
+        Default: 10.
+        Number of CPU cores to be used.
+    pmem : str
+        Default: '8GB'.
+        Resource request for cluster jobs. Multiply by ppn!
+    timing : bool
+        Default: True
+        Use '/usr/bin/time' to log run time of commands.
+
+    Returns
+    -------
     """
     DIR_CACHE = '.anacache'
     FILE_STATUS = 'finished.info'
+    results = {'results': None,
+               'workdir': None,
+               'qid': None,
+               'file_cache': None,
+               'timing': None,
+               'cache_version': 20170815,
+               'created_on': None}
+    DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
-    # caching
+    # create an ID function if no post_cache function is supplied
+    if post_cache is None:
+        post_cache = lambda x: x
+
+    # phase 1: compute signature for cache file
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
-    file_cache = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
+    results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
 
-    if os.path.exists(file_cache) and (nocache is not True):
-        sys.stderr.write("Using existing results from '%s'. \n" % file_cache)
-        f = open(file_cache, 'rb')
+    # phase 2: if cache contains matching file, load from cache and return
+    if os.path.exists(results['file_cache']) and (nocache is not True):
+        sys.stderr.write("Using existing results from '%s'. \n" %
+                         results['file_cache'])
+        f = open(results['file_cache'], 'rb')
         results = pickle.load(f)
         f.close()
         return results
 
-    # create a temporary working directory
-    pre_data = None
-    if (workdir is None) and (crawl_dir is None):
+    # phase 3: search in TMP dir if non-collected results are
+    # ready or are waited for
+    dir_tmp = tempfile.gettempdir()
+    if use_grid:
+        dir_tmp = DIR_TMP_TEMPLATE
+
+    # collect all tmp workdirs that contain the right cache signature
+    pot_workdirs = [x[0]  # report directory name
+                    for x in os.walk(dir_tmp)
+                    # shares same cache signature:
+                    if results['file_cache'].split('/')[-1] in x[2]]
+    finished_workdirs = [wd
+                         for wd in pot_workdirs
+                         if os.path.exists(wd+'/finished.info')]
+    if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
+        sys.stderr.write(('Found %i temporary working directories, but non of '
+                          'them have finished. If no job is currently running,'
+                          ' you might want to delete these directories and res'
+                          'tart:\n  %s\n') % (len(pot_workdirs),
+                                              "\n  ".join(pot_workdirs)))
+        return results
+    if len(finished_workdirs) > 0:
+        # arbitrarily pick first found workdir
+        results['workdir'] = finished_workdirs[0]
+        sys.stderr.write('found matching working dir "%s"\n' %
+                         results['workdir'])
+        pre_data = pre_execute(results['workdir'], cache_arguments)
+    else:
+        # create a temporary working directory
         prefix = 'ana_%s_' % jobname
-        if use_grid:
-            workdir = tempfile.mkdtemp(prefix=prefix,
-                                       dir='/home/sjanssen/TMP/')
-        else:
-            workdir = tempfile.mkdtemp(prefix=prefix)
-        sys.stderr.write("Working directory is '%s'. " % workdir)
+        results['workdir'] = tempfile.mkdtemp(prefix=prefix, dir=dir_tmp)
+        sys.stderr.write("Working directory is '%s'. " % results['workdir'])
         # leave an empty file in workdir with cache file name to later
-        # parse results from tmp dir via 'crawl_dir'
-        f = open(workdir + '/' + file_cache.split('/')[-1], 'w')
+        # parse results from tmp dir
+        f = open("%s/%s" % (results['workdir'],
+                            results['file_cache'].split('/')[-1]), 'w')
         f.close()
 
-        pre_data = pre_execute(workdir, cache_arguments)
+        pre_data = pre_execute(results['workdir'], cache_arguments)
 
-        lst_commands = commands(workdir, ppn, cache_arguments)
+        lst_commands = commands(results['workdir'], ppn, cache_arguments)
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s' % (workdir, FILE_STATUS))
+        lst_commands.append('touch %s/%s' % (results['workdir'], FILE_STATUS))
         if not use_grid:
             if dry:
                 sys.stderr.write("\n\n".join(lst_commands))
-                return None
+                return results
+            if timing:
+                _add_timing_cmds(lst_commands,
+                                 results['workdir']+'/timing.txt')
             with subprocess.Popen("source activate %s && %s" %
                                   (environment, " && ".join(lst_commands)),
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
-                    raise ValueError("something went wrong")
+                    raise ValueError(("something went wrong with conda"
+                                      "activation"))
         else:
-            qid = cluster_run(lst_commands, 'ana_%s' % jobname, workdir+'mock',
-                              environment, ppn=ppn, wait=wait, dry=dry,
-                              pmem=pmem, walltime=walltime,
-                              file_qid=workdir+'/cluster_job_id.txt',
-                              timing=timing)
+            results['qid'] = cluster_run(
+                lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
+                environment, ppn=ppn, wait=wait, dry=dry,
+                pmem=pmem, walltime=walltime,
+                file_qid=results['workdir']+'/cluster_job_id.txt',
+                timing=timing, file_timing=results['workdir']+'/timing.txt')
             if dry:
-                return None
+                return results
             if wait is False:
-                return qid
-    elif crawl_dir is not None:
-        if not os.path.exists(crawl_dir):
-            raise IOError("crawl_dir '%s' does not exist!" % crawl_dir)
-        else:
-            # crawl through given directory and search for those sub-dirs that
-            # contain .anacache subdir and only one file, identical with the
-            # file_cache for the current input
-            pot_workdirs = [x[0]  # report directory name
-                            for x in os.walk(crawl_dir)
-                            # shares same cache signature:
-                            if file_cache.split('/')[-1] in x[2]
-                            # is completed
-                            if 'finished.info' in x[2]]
-            if len(pot_workdirs) > 0:
-                workdir = pot_workdirs[0]
-                sys.stderr.write('found matching working dir "%s"\n' % workdir)
-                pre_data = pre_execute(workdir, cache_arguments)
-            else:
-                raise ValueError("No suitable working directory found!")
-    else:
-        pre_data = pre_execute(workdir, cache_arguments)
+                return results
 
-    results = post_execute(workdir, cache_arguments, pre_data)
+    results['results'] = post_execute(results['workdir'],
+                                      cache_arguments,
+                                      pre_data)
+    results['created_on'] = datetime.datetime.fromtimestamp(
+        time.time()).strftime('%Y-%m-%d %H:%M:%S')
+    if os.path.exists(results['workdir']+'/timing.txt'):
+        with open(results['workdir']+'/timing.txt', 'r') as content_file:
+            results['timing'] = content_file.readlines()
 
-    if results is not None:
-        shutil.rmtree(workdir)
+    if results['results'] is not None:
+        shutil.rmtree(results['workdir'])
         sys.stderr.write(" Was removed.\n")
 
-    os.makedirs(os.path.dirname(file_cache), exist_ok=True)
-    f = open(file_cache, 'wb')
+    os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
+    f = open(results['file_cache'], 'wb')
     pickle.dump(results, f)
     f.close()
 
