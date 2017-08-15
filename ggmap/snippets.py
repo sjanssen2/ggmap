@@ -853,10 +853,47 @@ def _time_torque2slurm(t_time):
     return "%i-%i:%i" % (s_days, s_hours, s_minutes)
 
 
+def _add_timing_cmds(commands, file_timing):
+    """Change list of commands, such that system's time is used to trace
+       run-time.
+
+    Parameters
+    ----------
+    commands : [str]
+        List of commands.
+    file_timing : str
+        Filepath to the file into which timing information shall be written
+
+    Returns
+    -------
+    [str] list of changed commands with timing capability.
+    """
+    timing_cmds = []
+    # report machine name
+    timing_cmds.append('uname -a > %s' % file_timing)
+    # report commands to be executed (I have problems with quotes)
+    # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
+    #                    % '; '.join(cmds))
+    # add time to every command
+    for cmd in commands:
+        # cd cannot be timed and any attempt will fail changing the
+        # directory
+        if cmd.startswith('cd '):
+            timing_cmds.append(cmd)
+        else:
+            timing_cmds.append(('%s '
+                                '-v '
+                                '-o %s '
+                                '-a %s') %
+                               (EXEC_TIME, file_timing, cmd))
+    return timing_cmds
+
+
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None, slurm=False, out=sys.stdout, timing=False):
+                file_qid=None, slurm=False, out=sys.stdout, timing=False,
+                file_timing=None):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -899,6 +936,9 @@ def cluster_run(cmds, jobname, result, environment=None,
     timing : bool
         If True than add time output to every command and store in cr_*.t*
         file. Default is False.
+    file_timing : str
+        Default: None
+        Define filepath into which timeing information shall be written.
 
     Returns
     -------
@@ -929,27 +969,9 @@ def cluster_run(cmds, jobname, result, environment=None,
             raise ValueError("One of your commands contain a ' char. "
                              "Please remove!")
     if timing:
-        # TODO: that might crash for slurm, check which the magic variable
-        # names are
-        timing_cmds = []
-        # report machine name
-        timing_cmds.append('uname -a > ${PBS_JOBNAME}.t${PBS_JOBID}')
-        # report commands to be executed (I have problems with quotes)
-        # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
-        #                    % '; '.join(cmds))
-        # add time to every command
-        for cmd in cmds:
-            # cd cannot be timed and any attempt will fail changing the
-            # directory
-            if cmd.startswith('cd '):
-                timing_cmds.append(cmd)
-            else:
-                timing_cmds.append(('%s '
-                                    '-v '
-                                    '-o ${PBS_JOBNAME}.t${PBS_JOBID} '
-                                    '-a %s') %
-                                   (EXEC_TIME, cmd))
-        cmds = timing_cmds
+        if file_timing is None:
+            file_timing = '${PBS_JOBNAME}.t${PBS_JOBID}'
+        cmds = _add_timing_cmds(cmds, file_timing)
     job_cmd = " && ".join(cmds)
 
     # compose qsub specific details
