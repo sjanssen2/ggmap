@@ -752,8 +752,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
     # create an ID function if no post_cache function is supplied
+    def _id(x):
+        return x
     if post_cache is None:
-        post_cache = lambda x: x
+        post_cache = _id
 
     # phase 1: compute signature for cache file
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
@@ -767,7 +769,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         f = open(results['file_cache'], 'rb')
         results = pickle.load(f)
         f.close()
-        return results
+        return post_cache(results)
 
     # phase 3: search in TMP dir if non-collected results are
     # ready or are waited for
@@ -857,4 +859,4 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     pickle.dump(results, f)
     f.close()
 
-    return results
+    return post_cache(results)
