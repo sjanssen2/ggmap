@@ -20,6 +20,7 @@ import warnings
 import matplotlib.cbook
 import random
 from tempfile import mkstemp
+import pickle
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -1506,3 +1507,58 @@ def mutate_sequence(sequence, num_mutations=1,
             raise ValueError("Alphabet is too small to find mutation!")
         mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
     return mut_sequence
+
+
+def cache(filename, fct, verbose=True, err=sys.stderr, force_renew=False):
+    """Cache results of a function call to disk.
+
+    Parameters
+    ----------
+    filename : str
+        Pathname to cache file, which will hold results of the function call.
+        If file exists, results are loaded from it instead of recomputing via
+        provided function. Otherwise, function will be executed and results
+        stored to this file.
+    fct : executabale
+        A function plus parameters whichs results shall be cached, e.g.
+        "fct_example(1,5,3)", where
+        def fct_test(a, b, c):
+            return a + b * c
+    verbose : bool
+        Default: True.
+        Report caching status to 'err', which by default is sys.stderr.
+    err : StringIO
+        Default: sys.stderr.
+        Stream onto which status messages shall be printed.
+    force_renew : bool
+        Default: False.
+        Force re-execution of provided function even if cache file exists.
+
+    Returns
+    -------
+    Results of provided function, either by actually executing the function
+    with provided parameters or by loaded results from filename.
+
+    Notes
+    -----
+    It is the obligation of the user to ensure that arguments for the provided
+    function don't change between creation of cache file and loading from cache
+    file!
+    """
+    if (not os.path.exists(filename)) or force_renew:
+        try:
+            f = open(filename, 'wb')
+            results = fct
+            pickle.dump(results, f)
+            f.close()
+            if verbose:
+                err.write('stored results in cache "%s".\n' % filename)
+        except Exception as e:
+            raise e
+    else:
+        f = open(filename, 'rb')
+        results = pickle.load(f)
+        f.close()
+        if verbose:
+            err.write('retrieved results from cache "%s".\n' % filename)
+    return results
