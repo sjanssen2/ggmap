@@ -67,7 +67,8 @@ class SeppTests(TestCase):
         out = StringIO()
         obs = load_sequences_pynast(self.file_pynast,
                                     self.file_otumap,
-                                    2263, 3794, 150, file_cache=None, out=out)
+                                    2263, 3794, 150, out=out,
+                                    cache_verbose=False)
         obs_out = out.getvalue()
         self.assertIn("%i rows and %i cols in alignment '%s'" %
                       (9, 7682, self.file_pynast.split('/')[-1]), obs_out)
@@ -88,28 +89,27 @@ class SeppTests(TestCase):
         self.assertCountEqual(obs, self.exp_fragments)
 
     def test_load_sequences_pynast_testcache(self):
-        out = StringIO()
         file_dummy = mkstemp()[1]
         remove(file_dummy)
 
         # first run: create cache file
+        err = StringIO()
         obs = load_sequences_pynast(self.file_pynast,
                                     self.file_otumap,
-                                    2263, 3794, 150, file_cache=file_dummy,
-                                    out=out)
-        obs_out = out.getvalue()
-        self.assertIn("Stored results to cache '%s'" % file_dummy, obs_out)
+                                    2263, 3794, 150, cache_filename=file_dummy,
+                                    out=StringIO(), cache_err=err)
+        self.assertIn('stored results in cache "%s"' % file_dummy,
+                      err.getvalue())
         self.assertCountEqual(obs, self.exp_fragments)
 
         # second run: load cached results
-        out2 = StringIO()
+        err = StringIO()
         obs = load_sequences_pynast(self.file_pynast,
                                     self.file_otumap,
-                                    2263, 3794, 150, file_cache=file_dummy,
-                                    out=out2)
-        obs_out = out2.getvalue()
-        self.assertIn("%i fragments loaded from cache '%s'" % (7, file_dummy),
-                      obs_out)
+                                    2263, 3794, 150, cache_filename=file_dummy,
+                                    out=StringIO(), cache_err=err)
+        self.assertIn('retrieved results from cache "%s"' % (file_dummy),
+                      err.getvalue())
         self.assertCountEqual(obs, self.exp_fragments)
 
     def test_add_mutations(self):
@@ -118,7 +118,8 @@ class SeppTests(TestCase):
 
         out = StringIO()
         err = StringIO()
-        obs = add_mutations(self.exp_fragments, out=out, err=err)
+        obs = add_mutations(self.exp_fragments, out=out, err=err,
+                            cache_verbose=False)
         self.assertIn(("%i fragments to start with") % (7),
                       out.getvalue())
         self.assertIn(("%i fragments after collapsing by sequence") % (7),
@@ -142,19 +143,18 @@ class SeppTests(TestCase):
         remove(file_dummy)
 
         # first run: create cache file
-        obs = add_mutations(self.exp_fragments, out=out, err=err,
-                            file_cache=file_dummy)
-        obs_out = out.getvalue()
-        self.assertIn("Stored results to cache '%s'" % file_dummy, obs_out)
+        obs = add_mutations(self.exp_fragments, verbose=False, out=out,
+                            cache_err=err, cache_filename=file_dummy)
+        self.assertIn('stored results in cache "%s"' % file_dummy,
+                      err.getvalue())
         self.assertEqual(len(obs), 77)
 
         # second run: load cached results
         out = StringIO()
-        obs = add_mutations(self.exp_fragments, out=out, err=err,
-                            file_cache=file_dummy)
-        obs_out = out.getvalue()
-        self.assertIn("%i mutated fragments loaded from cache '%s'" %
-                      (77, file_dummy), obs_out)
+        obs = add_mutations(self.exp_fragments, verbose=False, out=out,
+                            cache_err=err, cache_filename=file_dummy)
+        self.assertIn('retrieved results from cache "%s"' %
+                      (file_dummy), err.getvalue())
         self.assertEqual(len(obs), 77)
 
 
