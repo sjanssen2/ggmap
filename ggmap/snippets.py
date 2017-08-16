@@ -20,6 +20,7 @@ import warnings
 import matplotlib.cbook
 import random
 from tempfile import mkstemp
+import pickle
 
 
 RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
@@ -1506,3 +1507,92 @@ def mutate_sequence(sequence, num_mutations=1,
             raise ValueError("Alphabet is too small to find mutation!")
         mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
     return mut_sequence
+
+
+def cache(func):
+    """Decorator: Cache results of a function call to disk.
+
+    Parameters
+    ----------
+    func : executabale
+        A function plus parameters whichs results shall be cached, e.g.
+        "fct_example(1,5,3)", where
+        @cache
+        def fct_test(a, b, c):
+            return a + b * c
+    cache_filename : str
+        Default: None. I.e. caching is deactivated.
+        Pathname to cache file, which will hold results of the function call.
+        If file exists, results are loaded from it instead of recomputing via
+        provided function. Otherwise, function will be executed and results
+        stored to this file.
+    cache_verbose : bool
+        Default: True.
+        Report caching status to 'cache_err', which by default is sys.stderr.
+    cache_err : StringIO
+        Default: sys.stderr.
+        Stream onto which status messages shall be printed.
+    cache_force_renew : bool
+        Default: False.
+        Force re-execution of provided function even if cache file exists.
+
+    Returns
+    -------
+    Results of provided function, either by actually executing the function
+    with provided parameters or by loaded results from filename.
+
+    Notes
+    -----
+    It is the obligation of the user to ensure that arguments for the provided
+    function don't change between creation of cache file and loading from cache
+    file!
+    """
+    func_name = func.__name__
+
+    def execute(*args, **kwargs):
+        cache_args = {'cache_filename': None,
+                      'cache_verbose': True,
+                      'cache_err': sys.stderr,
+                      'cache_force_renew': False}
+        for varname in cache_args.keys():
+            if varname in kwargs:
+                cache_args[varname] = kwargs[varname]
+                del kwargs[varname]
+
+        if cache_args['cache_filename'] is None:
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: no caching, since "cache_filename" is None.\n' %
+                    func_name)
+            return func(*args, **kwargs)
+
+        if (not os.path.exists(cache_args['cache_filename'])) or\
+           cache_args['cache_force_renew']:
+            try:
+                f = open(cache_args['cache_filename'], 'wb')
+                results = func(*args, **kwargs)
+                pickle.dump(results, f)
+                f.close()
+                if cache_args['cache_verbose']:
+                    cache_args['cache_err'].write(
+                        '%s: stored results in cache "%s".\n' %
+                        (func_name, cache_args['cache_filename']))
+            except Exception as e:
+                raise e
+        else:
+            f = open(cache_args['cache_filename'], 'rb')
+            results = pickle.load(f)
+            f.close()
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: retrieved results from cache "%s".\n' %
+                    (func_name, cache_args['cache_filename']))
+        return results
+    if func.__doc__ is not None:
+        execute.__doc__ = func.__doc__
+    else:
+        execute.__doc__ = ""
+    execute.__doc__ += "\n\n" + cache.__doc__
+    # restore wrapped function name
+    execute.__name__ = func_name
+    return execute

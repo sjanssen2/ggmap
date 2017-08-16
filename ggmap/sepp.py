@@ -1,5 +1,4 @@
 import pandas as pd
-import pickle
 from random import seed
 import sys
 import os.path
@@ -13,7 +12,7 @@ from skbio import TabularMSA, DNA
 from skbio.stats.distance import DistanceMatrix, MissingIDError
 from skbio.tree import TreeNode
 
-from ggmap.snippets import mutate_sequence, biom2pandas, RANKS
+from ggmap.snippets import mutate_sequence, biom2pandas, RANKS, cache
 
 
 def read_otumap(file_otumap):
@@ -61,9 +60,9 @@ def read_otumap(file_otumap):
         raise IOError('Cannot read file "%s"' % file_otumap)
 
 
+@cache
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
-                          file_cache=None,
                           verbose=True, out=sys.stdout):
     """Extract fragments from pynast alignment, also in OTU map.
 
@@ -83,11 +82,6 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     frg_expected_length : int
         Expected fragment length (needed because degapped alignment rows do
         not always match correct length)
-    file_cache : file
-        Default is None.
-        If not None, resulting fragment are cached to this file and if this
-        file already exists, results are re-loaded from this file instead of
-        being generated newly.
     verbose : Boolean
         Default: True
         If True, print some info on stdout.
@@ -100,16 +94,6 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     sequence.
     Note: sequences might come in duplicates, due to degapping.
     """
-    if file_cache is not None:
-        if os.path.exists(file_cache):
-            f = open(file_cache, 'rb')
-            fragments = pickle.load(f)
-            f.close()
-            if verbose:
-                out.write("% 8i fragments loaded from cache '%s'\n" %
-                          (len(fragments), file_cache))
-            return fragments
-
     # load the full pynast GreenGenes alignment with
     # sequences=1261500 and position=7682
     ali = TabularMSA.read(file_pynast_alignment,
@@ -181,19 +165,13 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         # distribution plot. I checked with Daniel and we decided to omit
         # frgaments smaller than 150nt and timm all other to 150nt.
 
-    if file_cache is not None:
-        f = open(file_cache, 'wb')
-        pickle.dump(fragments, f)
-        f.close()
-        if verbose:
-            out.write("Stored results to cache '%s'\n" % file_cache)
-
     return fragments
 
 
+@cache
 def add_mutations(fragments,
                   max_mutations=10, seednr=42,
-                  file_cache=None, verbose=True,
+                  verbose=True,
                   out=sys.stdout, err=sys.stderr):
     """Add point mutated sequences for all fragments provided.
 
@@ -209,11 +187,6 @@ def add_mutations(fragments,
         Default 42.
         Seed for random number generate. Used to ensure mutations are the same
         if run several times.
-    file_cache : file
-        Default is None.
-        If not None, resulting fragment are cached to this file and if this
-        file already exists, results are re-loaded from this file instead of
-        being generated newly.
     verbose : Boolean
         Default: True
         If True, print some info on stdout.
@@ -233,15 +206,6 @@ def add_mutations(fragments,
     - 'num_pointmutations': number of introduced point mutations
     """
     frgs = []
-    if file_cache is not None:
-        if os.path.exists(file_cache):
-            f = open(file_cache, 'rb')
-            frgs = pickle.load(f)
-            f.close()
-            if verbose:
-                out.write("% 8i mutated fragments loaded from cache '%s'\n" % (
-                    len(frgs), file_cache))
-            return frgs
 
     # convert fragments into Pandas.DataFrame
     fragments = pd.DataFrame(fragments)
@@ -263,19 +227,14 @@ def add_mutations(fragments,
             frgs.append({'sequence': mutate_sequence(sequence, num_mutations),
                          'OTUIDs': row['OTUID'],
                          'num_pointmutations': num_mutations})
-        if i % divisor == 0:
-            err.write('.')
-    err.write(' done.\n')
+        if verbose:
+            if i % divisor == 0:
+                err.write('.')
+    if verbose:
+        err.write(' done.\n')
     if verbose:
         out.write(('% 8i fragments generated with 0 to %i '
                    'point mutations.\n') % (len(frgs), max_mutations))
-
-    if file_cache is not None:
-        f = open(file_cache, 'wb')
-        pickle.dump(frgs, f)
-        f.close()
-        if verbose:
-            out.write("Stored results to cache '%s'\n" % file_cache)
 
     return frgs
 
