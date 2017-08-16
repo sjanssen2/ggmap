@@ -455,6 +455,7 @@ def analyse_2014(dir_study, err=sys.stderr):
     return (fig, stats)
 
 
+@cache
 def get_taxa_radia(file_tree, err=sys.stderr):
     """Computes phylogenetic radius for each taxon in a reference tree.
        Radius is maximal tip to tip distance.
