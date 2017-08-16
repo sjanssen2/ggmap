@@ -1,5 +1,4 @@
 import pandas as pd
-import pickle
 from random import seed
 import sys
 import os.path
