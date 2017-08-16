@@ -1509,28 +1509,30 @@ def mutate_sequence(sequence, num_mutations=1,
     return mut_sequence
 
 
-def cache(filename, fct, verbose=True, err=sys.stderr, force_renew=False):
-    """Cache results of a function call to disk.
+def cache(func):
+    """Decorator: Cache results of a function call to disk.
 
     Parameters
     ----------
-    filename : str
+    func : executabale
+        A function plus parameters whichs results shall be cached, e.g.
+        "fct_example(1,5,3)", where
+        @cache
+        def fct_test(a, b, c):
+            return a + b * c
+    cache_filename : str
+        Default: None. I.e. caching is deactivated.
         Pathname to cache file, which will hold results of the function call.
         If file exists, results are loaded from it instead of recomputing via
         provided function. Otherwise, function will be executed and results
         stored to this file.
-    fct : executabale
-        A function plus parameters whichs results shall be cached, e.g.
-        "fct_example(1,5,3)", where
-        def fct_test(a, b, c):
-            return a + b * c
-    verbose : bool
+    cache_verbose : bool
         Default: True.
-        Report caching status to 'err', which by default is sys.stderr.
-    err : StringIO
+        Report caching status to 'cache_err', which by default is sys.stderr.
+    cache_err : StringIO
         Default: sys.stderr.
         Stream onto which status messages shall be printed.
-    force_renew : bool
+    cache_force_renew : bool
         Default: False.
         Force re-execution of provided function even if cache file exists.
 
@@ -1545,20 +1547,52 @@ def cache(filename, fct, verbose=True, err=sys.stderr, force_renew=False):
     function don't change between creation of cache file and loading from cache
     file!
     """
-    if (not os.path.exists(filename)) or force_renew:
-        try:
-            f = open(filename, 'wb')
-            results = fct
-            pickle.dump(results, f)
+    func_name = func.__name__
+
+    def execute(*args, **kwargs):
+        cache_args = {'cache_filename': None,
+                      'cache_verbose': True,
+                      'cache_err': sys.stderr,
+                      'cache_force_renew': False}
+        for varname in cache_args.keys():
+            if varname in kwargs:
+                cache_args[varname] = kwargs[varname]
+                del kwargs[varname]
+
+        if cache_args['cache_filename'] is None:
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: no caching, since "cache_filename" is None.\n' %
+                    func_name)
+            return func(*args, **kwargs)
+
+        if (not os.path.exists(cache_args['cache_filename'])) or\
+           cache_args['cache_force_renew']:
+            try:
+                f = open(cache_args['cache_filename'], 'wb')
+                results = func(*args, **kwargs)
+                pickle.dump(results, f)
+                f.close()
+                if cache_args['cache_verbose']:
+                    cache_args['cache_err'].write(
+                        '%s: stored results in cache "%s".\n' %
+                        (func_name, cache_args['cache_filename']))
+            except Exception as e:
+                raise e
+        else:
+            f = open(cache_args['cache_filename'], 'rb')
+            results = pickle.load(f)
             f.close()
-            if verbose:
-                err.write('stored results in cache "%s".\n' % filename)
-        except Exception as e:
-            raise e
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: retrieved results from cache "%s".\n' %
+                    (func_name, cache_args['cache_filename']))
+        return results
+    if func.__doc__ is not None:
+        execute.__doc__ = func.__doc__
     else:
-        f = open(filename, 'rb')
-        results = pickle.load(f)
-        f.close()
-        if verbose:
-            err.write('retrieved results from cache "%s".\n' % filename)
-    return results
+        execute.__doc__ = ""
+    execute.__doc__ += "\n\n" + cache.__doc__
+    # restore wrapped function name
+    execute.__name__ = func_name
+    return execute
