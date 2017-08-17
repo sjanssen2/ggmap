@@ -2,6 +2,7 @@ import pandas as pd
 from random import seed
 import sys
 import os.path
+from io import StringIO
 import string
 import numpy as np
 import seaborn as sns
@@ -10,7 +11,7 @@ from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
 from skbio.stats.distance import DistanceMatrix, MissingIDError
-from skbio.tree import TreeNode
+from skbio.tree import TreeNode, NoLengthError
 
 from ggmap.snippets import mutate_sequence, biom2pandas, RANKS, cache
 
@@ -237,6 +238,93 @@ def add_mutations(fragments,
                    'point mutations.\n') % (len(frgs), max_mutations))
 
     return frgs
+
+
+def _measure_distance_single(seppresults, seqinfo,
+                             err=sys.stderr, verbose=True):
+    """Computes insertion distance error for given sepp results.
+
+    Parameters
+    ----------
+    seppresults : analyses.sepp['results']
+        Results of a SEPP run, i.e. resulting tree.
+    seqinfo : read_otumap[1] as pd.Series
+        Reverse OTU map, i.e. list OTU for every sequence
+    err : StringIO
+        Default: sys.stderr
+        Buffer onto which status information shall be written.
+    verbose : bool
+        Default: True
+        If True, status information is written to buffer <err>.
+
+    Returns
+    -------
+    Pandas.DataFrame:
+    distance, num_otus, num_mutations, fragment, num_non-representative-seqs
+    """
+    if verbose:
+        err.write('read tree...')
+    tree = TreeNode.read(StringIO(seppresults['tree']))
+    if verbose:
+        err.write('OK: ')
+    xx = []
+    treesize = tree.count(tips=True)
+    for j, fragment in enumerate(tree.tips()):
+        if fragment.name.startswith('otuid'):
+            seqids = fragment.name.split(';')[0].split(':')[-1].split(',')
+            trueOTUids = list(seqinfo.loc[seqids].unique())
+            node_lca = tree.lca(trueOTUids)
+            dist = np.infty
+            try:
+                dist = node_lca.distance(fragment)
+            except NoLengthError:
+                pass
+            xx.append({'distance': dist,
+                       'num_otus': len(trueOTUids),
+                       'num_mutations':
+                       int(fragment.name.split(';')[1].split(':')[-1]),
+                       'fragment': fragment.name,
+                       'num_non-representative-seqs':
+                       len(set(seqids) - set(trueOTUids))})
+        if verbose:
+            if j % int(treesize/10) == 0:
+                err.write('.')
+    if verbose:
+        err.write(' done.\n')
+    return pd.DataFrame(xx)
+
+
+@cache
+def measure_distance(sepp_results, filename_otumap,
+                     err=sys.stderr, verbose=True):
+    """Computes SEPP insertion distance of fragments to true nodes.
+
+    Parameters
+    ----------
+    sepp_results : [analyses.sepp['results']]
+        A list of results of a SEPP run, i.e. resulting tree.
+    filename_otumap : str
+        Pathname to GreenGenes OTU map.
+    err : StringIO
+        Default: sys.stderr
+        Buffer onto which status information shall be written.
+    verbose : bool
+        Default: True
+        If True, status information is written to buffer <err>.
+
+    Returns
+    -------
+    Pandas.DataFrame:
+    distance, num_otus, num_mutations, fragment, num_non-representative-seqs
+    """
+    (otumap, seqinfo) = read_otumap(filename_otumap)
+    d = []
+    for i, r in enumerate(sepp_results):
+        if verbose:
+            err.write('part %i/%i: ' % (i+1, len(sepp_results)))
+        d.append(_measure_distance_single(r, seqinfo,
+                                          err=err, verbose=verbose))
+    return pd.concat(d)
 
 
 def check_qiita_studies(dir_base):
