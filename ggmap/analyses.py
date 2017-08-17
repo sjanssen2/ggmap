@@ -256,7 +256,7 @@ def rarefaction_curves(counts,
         Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
         used.
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -354,7 +354,7 @@ def rarefy(counts, rarefaction_depth,
     rarefaction_depth : int
         Rarefaction depth that must be applied to counts.
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -414,7 +414,7 @@ def alpha_diversity(counts, rarefaction_depth,
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -507,7 +507,7 @@ def beta_diversity(counts,
         Default: false. If true, use parallel version of beta div computation.
         I found that it often stalles with defunct processes.
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -578,7 +578,7 @@ def sepp(counts, reference=None,
         Default: None.
         Valid values are ['pynast']. Use a different alignment file for SEPP.
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -691,7 +691,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True, timing=True):
+              wait=True, timing=True, verbose=True):
     """
 
     Parameters
@@ -736,6 +736,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     timing : bool
         Default: True
         Use '/usr/bin/time' to log run time of commands.
+    verbose : bool
+        Default: True
+        If True, report progress on sys.stderr.
 
     Returns
     -------
@@ -764,8 +767,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
     # phase 2: if cache contains matching file, load from cache and return
     if os.path.exists(results['file_cache']) and (nocache is not True):
-        sys.stderr.write("Using existing results from '%s'. \n" %
-                         results['file_cache'])
+        if verbose:
+            sys.stderr.write("Using existing results from '%s'. \n" %
+                             results['file_cache'])
         f = open(results['file_cache'], 'rb')
         results = pickle.load(f)
         f.close()
@@ -786,23 +790,28 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                          for wd in pot_workdirs
                          if os.path.exists(wd+'/finished.info')]
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
-        sys.stderr.write(('Found %i temporary working directories, but non of '
-                          'them have finished. If no job is currently running,'
-                          ' you might want to delete these directories and res'
-                          'tart:\n  %s\n') % (len(pot_workdirs),
-                                              "\n  ".join(pot_workdirs)))
+        if verbose:
+            sys.stderr.write(
+                ('Found %i temporary working directories, but non of '
+                 'them have finished. If no job is currently running,'
+                 ' you might want to delete these directories and res'
+                 'tart:\n  %s\n') % (len(pot_workdirs),
+                                     "\n  ".join(pot_workdirs)))
         return results
     if len(finished_workdirs) > 0:
         # arbitrarily pick first found workdir
         results['workdir'] = finished_workdirs[0]
-        sys.stderr.write('found matching working dir "%s"\n' %
-                         results['workdir'])
+        if verbose:
+            sys.stderr.write('found matching working dir "%s"\n' %
+                             results['workdir'])
         pre_data = pre_execute(results['workdir'], cache_arguments)
     else:
         # create a temporary working directory
         prefix = 'ana_%s_' % jobname
         results['workdir'] = tempfile.mkdtemp(prefix=prefix, dir=dir_tmp)
-        sys.stderr.write("Working directory is '%s'. " % results['workdir'])
+        if verbose:
+            sys.stderr.write("Working directory is '%s'. " %
+                             results['workdir'])
         # leave an empty file in workdir with cache file name to later
         # parse results from tmp dir
         f = open("%s/%s" % (results['workdir'],
@@ -816,7 +825,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         lst_commands.append('touch %s/%s' % (results['workdir'], FILE_STATUS))
         if not use_grid:
             if dry:
-                sys.stderr.write("\n\n".join(lst_commands))
+                if verbose:
+                    sys.stderr.write("\n\n".join(lst_commands))
                 return results
             if timing:
                 _add_timing_cmds(lst_commands,
@@ -852,7 +862,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
     if results['results'] is not None:
         shutil.rmtree(results['workdir'])
-        sys.stderr.write(" Was removed.\n")
+        if verbose:
+            sys.stderr.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
     f = open(results['file_cache'], 'wb')
