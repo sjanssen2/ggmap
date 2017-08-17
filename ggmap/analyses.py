@@ -662,7 +662,8 @@ def sepp(counts, reference=None,
                      **executor_args)
 
 
-def sortmerna(sequences, ppn=5, pmem='20GB', walltime='2:00:00', **executor_args):
+def sortmerna(sequences,
+              ppn=5, pmem='20GB', walltime='2:00:00', **executor_args):
     """Assigns closed ref GreenGenes OTUids to sequences.
 
     Parameters
@@ -676,15 +677,6 @@ def sortmerna(sequences, ppn=5, pmem='20GB', walltime='2:00:00', **executor_args
     Returns
     -------
     """
-                #    # qid = !source activate qiime_env && echo "
-                #    pick_otus.py
-                #     -m sortmerna
-                #     -i $dir_demuliplexed/seqs.fna
-                #     -r ${file_cr}.fasta
-                #     --sortmerna_db ${file_cr}.idx
-                #     -o $dir_crgg
-                #     --sortmerna_e_value 1 -s 0.97
-                #     --threads $slots" | qsub -k oe -d $PWD -V -l walltime=96:00:00,nodes=1:ppn=$slots,pmem=4gb -N otu_crgg
     def pre_execute(workdir, args):
         # store all unique sequences to a fasta file
         file_fragments = workdir + '/sequences.mfa'
