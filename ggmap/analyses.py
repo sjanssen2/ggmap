@@ -662,6 +662,88 @@ def sepp(counts, reference=None,
                      **executor_args)
 
 
+def sortmerna(sequences, ppn=5, pmem='20GB', walltime='2:00:00', **executor_args):
+    """Assigns closed ref GreenGenes OTUids to sequences.
+
+    Parameters
+    ----------
+    sequences : Pd.Series
+        Set of sequences with header as index and nucleotide sequences as
+        values.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    """
+                #    # qid = !source activate qiime_env && echo "
+                #    pick_otus.py
+                #     -m sortmerna
+                #     -i $dir_demuliplexed/seqs.fna
+                #     -r ${file_cr}.fasta
+                #     --sortmerna_db ${file_cr}.idx
+                #     -o $dir_crgg
+                #     --sortmerna_e_value 1 -s 0.97
+                #     --threads $slots" | qsub -k oe -d $PWD -V -l walltime=96:00:00,nodes=1:ppn=$slots,pmem=4gb -N otu_crgg
+    def pre_execute(workdir, args):
+        # store all unique sequences to a fasta file
+        file_fragments = workdir + '/sequences.mfa'
+        f = open(file_fragments, 'w')
+        for header, sequence in args['seqs'].iteritems():
+            f.write('>%s\n%s\n' % (header, sequence))
+        f.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append(('pick_otus.py '
+                         '-m sortmerna '
+                         '-i %s '
+                         '-r /projects/emp/03-otus/reference/97_otus.fasta '
+                         '--sortmerna_db '
+                         '/projects/emp/03-otus/reference/97_otus.idx '
+                         '-o %s '
+                         '--sortmerna_e_value 1 '
+                         '-s 0.97 '
+                         '--threads %i ') % (
+            workdir + '/sequences.mfa',
+            workdir + '/sortmerna/',
+            ppn))
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        assignments = []
+
+        # parse sucessful sequence to OTU assignments
+        f = open(workdir+'/sortmerna/sequences_otus.txt', 'r')
+        for line in f.readlines():
+            parts = line.rstrip().split('\t')
+            for header in parts[1:]:
+                assignments.append({'otuid': parts[0],
+                                    'header': header})
+        f.close()
+
+        # parse failed sequences
+        f = open(workdir+'/sortmerna/sequences_failures.txt', 'r')
+        for line in f.readlines():
+            assignments.append({'header': line.rstrip()})
+        f.close()
+
+        return pd.DataFrame(assignments).set_index('header')
+
+    # core dump with 8GB with 10 nodes, 4h
+    # trying 20GB with 10 nodes ..., 4h (long wait for scheduler)
+    # trying 20GB with 5 nodes, 2h ...
+    return _executor('sortmerna',
+                     {'seqs': sequences.drop_duplicates().sort_index()},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime=walltime,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -750,8 +832,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                'qid': None,
                'file_cache': None,
                'timing': None,
-               'cache_version': 20170815,
-               'created_on': None}
+               'cache_version': 20170817,
+               'created_on': None,
+               'jobname': jobname}
     DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
     # create an ID function if no post_cache function is supplied
