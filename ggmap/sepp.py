@@ -287,7 +287,7 @@ def _measure_distance_single(seppresults, seqinfo,
                        'num_non-representative-seqs':
                        len(set(seqids) - set(trueOTUids))})
         if verbose:
-            if j % int(treesize/10) == 0:
+            if j % max(1, int(treesize/10)) == 0:
                 err.write('.')
     if verbose:
         err.write(' done.\n')
