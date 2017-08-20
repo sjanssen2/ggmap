@@ -241,7 +241,7 @@ def add_mutations(fragments,
 
 
 def _measure_distance_single(seppresults, seqinfo,
-                             err=sys.stderr, verbose=True):
+                             err=sys.stderr, verbose=True, _type='lca'):
     """Computes insertion distance error for given sepp results.
 
     Parameters
@@ -256,6 +256,12 @@ def _measure_distance_single(seppresults, seqinfo,
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
+    _type : str
+        Default: 'lca'
+        If 'lca': Distance is the path length between the inserted fragment
+        and the lowest common anchestor of all true OTUs.
+        If 'closest': Distance is the path length between the inserted fragment
+        and the closest true OTU.
 
     Returns
     -------
@@ -273,12 +279,24 @@ def _measure_distance_single(seppresults, seqinfo,
         if fragment.name.startswith('otuid'):
             seqids = fragment.name.split(';')[0].split(':')[-1].split(',')
             trueOTUids = list(seqinfo.loc[seqids].unique())
-            node_lca = tree.lca(trueOTUids)
-            dist = np.infty
-            try:
-                dist = node_lca.distance(fragment)
-            except NoLengthError:
-                pass
+
+            if _type == 'lca':
+                node_lca = tree.lca(trueOTUids)
+                dist = np.infty
+                try:
+                    dist = node_lca.distance(fragment)
+                except NoLengthError:
+                    pass
+            elif _type == 'closest':
+                dists = [np.infty]
+                for trueOTU in trueOTUids:
+                    try:
+                        dists.append(tree.find(trueOTU).distance(fragment))
+                    except NoLengthError:
+                        pass
+                dist = min(dists)
+            else:
+                raise ValueError('not a valid value for _type!')
             xx.append({'distance': dist,
                        'num_otus': len(trueOTUids),
                        'num_mutations':
@@ -296,7 +314,7 @@ def _measure_distance_single(seppresults, seqinfo,
 
 @cache
 def measure_distance(sepp_results, filename_otumap,
-                     err=sys.stderr, verbose=True):
+                     err=sys.stderr, verbose=True, _type='lca'):
     """Computes SEPP insertion distance of fragments to true nodes.
 
     Parameters
@@ -311,6 +329,12 @@ def measure_distance(sepp_results, filename_otumap,
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
+    _type : str
+        Default: 'lca'
+        If 'lca': Distance is the path length between the inserted fragment
+        and the lowest common anchestor of all true OTUs.
+        If 'closest': Distance is the path length between the inserted fragment
+        and the closest true OTU.
 
     Returns
     -------
@@ -323,7 +347,8 @@ def measure_distance(sepp_results, filename_otumap,
         if verbose:
             err.write('part %i/%i: ' % (i+1, len(sepp_results)))
         d.append(_measure_distance_single(r, seqinfo,
-                                          err=err, verbose=verbose))
+                                          err=err, verbose=verbose,
+                                          _type=_type))
     return pd.concat(d)
 
 

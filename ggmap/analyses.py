@@ -563,7 +563,7 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, reference=None,
+def sepp(counts, reference=None, stopdecomposition=None,
          ppn=10, pmem='20GB', walltime='12:00:00',
          **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
@@ -601,11 +601,15 @@ def sepp(counts, reference=None,
         ref = ''
         if args['reference'] is not None:
             ref = ' -r %s' % args['reference']
-        commands.append('%srun-sepp.sh "%s" res -x %i %s' % (
+        sdcomp = ''
+        if args['stopdecomposition'] is not None:
+            sdcomp = ' -M %f ' % args['stopdecomposition']
+        commands.append('%srun-sepp.sh "%s" res -x %i %s %s' % (
             '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
             workdir+'/sequences.mfa',
             ppn,
-            ref))
+            ref,
+            sdcomp))
         return commands
 
     def post_execute(workdir, args, pre_data):
@@ -652,9 +656,12 @@ def sepp(counts, reference=None,
         cache_results['tree'] = TreeNode.read(StringIO(cache_results['tree']))
         return cache_results
 
+    args = {'seqs': inp,
+            'reference': reference}
+    if stopdecomposition is not None:
+        args['stopdecomposition'] = stopdecomposition
     return _executor('sepp',
-                     {'seqs': inp,
-                      'reference': reference},
+                     args,
                      pre_execute,
                      commands,
                      post_execute,
@@ -680,10 +687,14 @@ def sortmerna(sequences,
     def pre_execute(workdir, args):
         # store all unique sequences to a fasta file
         file_fragments = workdir + '/sequences.mfa'
+        file_mapping = workdir + '/headermap.tsv'
         f = open(file_fragments, 'w')
-        for header, sequence in args['seqs'].iteritems():
-            f.write('>%s\n%s\n' % (header, sequence))
+        m = open(file_mapping, 'w')
+        for i, (header, sequence) in enumerate(args['seqs'].iteritems()):
+            f.write('>%s\n%s\n' % ('seq_%i' % i, sequence))
+            m.write('seq_%i\t%s\n' % (i, header))
         f.close()
+        m.close()
 
     def commands(workdir, ppn, args):
         commands = []
@@ -705,13 +716,16 @@ def sortmerna(sequences,
     def post_execute(workdir, args, pre_data):
         assignments = []
 
+        # parse header mapping file
+        hmap = pd.read_csv(workdir + '/headermap.tsv', sep='\t', header=None,
+                           index_col=0)
         # parse sucessful sequence to OTU assignments
         f = open(workdir+'/sortmerna/sequences_otus.txt', 'r')
         for line in f.readlines():
             parts = line.rstrip().split('\t')
             for header in parts[1:]:
                 assignments.append({'otuid': parts[0],
-                                    'header': header})
+                                    'header': hmap.loc[header].iloc[0]})
         f.close()
 
         # parse failed sequences
