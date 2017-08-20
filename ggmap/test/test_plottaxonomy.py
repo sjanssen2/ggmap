@@ -556,77 +556,99 @@ class TaxPlotTests(TestCase):
 
     def test_parameter_checks(self):
         field = 'notThere'
+        out = StringIO
         with self.assertRaisesRegex(ValueError,
                                     ('Column "%s" for grouping level %i is '
                                      'not in metadata table!') % (field, 0)):
-            plotTaxonomy(self.filename_biom, self.metadata, group_l0=field)
+            f = plotTaxonomy(self.filename_biom, self.metadata, group_l0=field,
+                             out=out)
+            plt.close(f[0])
 
         field = 'notThere'
         with self.assertRaisesRegex(ValueError,
                                     ('Column "%s" for grouping level %i is '
                                      'not in metadata table!') % (field, 1)):
-            plotTaxonomy(self.filename_biom, self.metadata, group_l1=field)
+            f = plotTaxonomy(self.filename_biom, self.metadata, group_l1=field,
+                             out=out)
+            plt.close(f[0])
 
         field = 'notThere'
         with self.assertRaisesRegex(ValueError,
                                     ('Column "%s" for grouping level %i is '
                                      'not in metadata table!') % (field, 2)):
-            plotTaxonomy(self.filename_biom, self.metadata, group_l2=field)
+            f = plotTaxonomy(self.filename_biom, self.metadata, group_l2=field,
+                             out=out)
+            plt.close(f[0])
 
         with self.assertRaisesRegex(ValueError,
                                     'is not a valid taxonomic rank. Choose'):
-            plotTaxonomy(self.filename_biom, self.metadata, rank='noRank')
+            f = plotTaxonomy(self.filename_biom, self.metadata, rank='noRank',
+                             out=out)
+            plt.close(f[0])
 
         with self.assertRaisesRegex(IOError, 'Taxonomy file not found!'):
-            plotTaxonomy(self.filename_biom, self.metadata,
-                         file_taxonomy='noFile')
+            f = plotTaxonomy(self.filename_biom, self.metadata,
+                             file_taxonomy='noFile',
+                             out=out)
+            plt.close(f[0])
 
     def test_plotTaxonomy_filenotfound(self):
+        out = StringIO
         with self.assertRaisesRegex(IOError,
                                     'OTU table file not found'):
-            plotTaxonomy(self.filename_biom+'notthere', self.metadata,
-                         file_taxonomy=self.taxonomy)
+            f = plotTaxonomy(self.filename_biom+'notthere', self.metadata,
+                             file_taxonomy=self.taxonomy,
+                             out=out)
+            plt.close(f[0])
 
     def test_plotTaxonomy_outreduction(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     file_taxonomy=self.taxonomy)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         file_taxonomy=self.taxonomy)
+        plt.close(f[0])
         self.assertIn('142 samples left with metadata and counts.',
                       out.getvalue())
 
     def test_plotTaxonomy_collapse(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     file_taxonomy=self.taxonomy)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         file_taxonomy=self.taxonomy)
+        plt.close(f[0])
         self.assertIn('9 taxa left after collapsing to Phylum.',
                       out.getvalue())
 
     def test_plotTaxonomy_filter(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     minreadnr=5000, file_taxonomy=self.taxonomy)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         minreadnr=5000, file_taxonomy=self.taxonomy)
+        plt.close(f[0])
         self.assertIn('7 taxa left after filtering low abundant.',
                       out.getvalue())
 
     def test_plotTaxonomy_giventaxa(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     plottaxa=['p__Actinobacteria', 'p__Bacteroidetes'],
-                     file_taxonomy=self.taxonomy)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         plottaxa=['p__Actinobacteria', 'p__Bacteroidetes'],
+                         file_taxonomy=self.taxonomy)
+        plt.close(f[0])
         self.assertIn('2 taxa left after restricting to provided list.',
                       out.getvalue())
 
     def test_plotTaxonomy_nogrouping(self):
+        out = StringIO()
         with self.assertRaisesRegex(ValueError,
                                     ('Cannot aggregate samples, '
                                      'if no grouping is given!')):
-            plotTaxonomy(self.filename_biom, self.metadata,
-                         fct_aggregate=np.mean, file_taxonomy=self.taxonomy)
+            f = plotTaxonomy(self.filename_biom, self.metadata,
+                             fct_aggregate=np.mean,
+                             file_taxonomy=self.taxonomy, out=out)
+            plt.close(f[0])
 
     def test_plotTaxonomy_report(self):
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     minreadnr=5000, file_taxonomy=self.taxonomy)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         minreadnr=5000, file_taxonomy=self.taxonomy)
+        plt.close(f[0])
         self.assertIn('raw counts: 142', out.getvalue())
         self.assertIn('raw meta: 287', out.getvalue())
         self.assertIn('meta with counts: 142 samples x 5 fields',
@@ -634,10 +656,11 @@ class TaxPlotTests(TestCase):
         self.assertIn('counts with meta: 142', out.getvalue())
 
         out = StringIO()
-        plotTaxonomy(self.filename_biom, self.metadata, out=out,
-                     minreadnr=8000, file_taxonomy=self.taxonomy,
-                     min_abundance_grayscale=0.2,
-                     grayscale=True)
+        f = plotTaxonomy(self.filename_biom, self.metadata, out=out,
+                         minreadnr=8000, file_taxonomy=self.taxonomy,
+                         min_abundance_grayscale=0.2,
+                         grayscale=True)
+        plt.close(f[0])
         self.assertIn('saved plotting 1 boxes.', out.getvalue())
 
     def test_plotTaxonomy_fillmissingranks(self):
@@ -661,22 +684,26 @@ class TaxPlotTests(TestCase):
         meta = pd.Series(['a', 'a', 'a', 'b'], index=sample_names,
                          name='dummy').to_frame()
 
-        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+        out = StringIO()
+        f, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
                                                   meta, rank='Species',
                                                   file_taxonomy=file_lin,
-                                                  minreadnr=0)
+                                                  minreadnr=0, out=out)
+        plt.close(f)
         self.assertCountEqual(['s__'], rank_counts.index)
 
-        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+        f, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
                                                   meta, rank='Kingdom',
                                                   file_taxonomy=file_lin,
-                                                  minreadnr=0)
+                                                  minreadnr=0, out=out)
+        plt.close(f)
         self.assertCountEqual(['k__bacteria'], rank_counts.index)
 
-        _, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
+        f, rank_counts, _, vals, _ = plotTaxonomy(file_dummy,
                                                   meta, rank='Phylum',
                                                   file_taxonomy=file_lin,
-                                                  minreadnr=0)
+                                                  minreadnr=0, out=out)
+        plt.close(f)
         self.assertCountEqual(['p__fantasia', 'p__'], rank_counts.index)
 
         remove(file_dummy)
