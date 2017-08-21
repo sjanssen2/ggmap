@@ -61,6 +61,18 @@ def _get_ref_phylogeny(file_tree=None):
 
 def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     coll = dict()
+
+    # for debugging
+    sys.stderr.write('alpha: %s\n' % (workdir+'/alpha_input.txt'))
+    cmd = ('echo "==== start file contents (%s)"; '
+           'cat %s '
+           'echo "=== end file contents ===";') % (
+        (workdir+'/alpha_input.txt'))
+    rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
+    for line in rescmd:
+        print(line)
+    # END for debugging
+
     if rarefaction_depth is None:
         try:
             x = pd.read_csv('%s/alpha_input.txt' % (
