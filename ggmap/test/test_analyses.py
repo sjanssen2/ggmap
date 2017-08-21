@@ -67,7 +67,8 @@ class AlphaTests(TestCase):
             self.metrics_alpha,
             dry=False,
             use_grid=False,
-            nocache=True)
+            nocache=True,
+            ppn=1)
 
         # shallow check if rarefaction based alpha div distributions are
         # similar
@@ -80,7 +81,8 @@ class AlphaTests(TestCase):
             self.metrics_alpha,
             dry=False,
             use_grid=False,
-            nocache=True)
+            nocache=True,
+            ppn=1)
 
         assert_frame_equal(obs_alpha['results'], self.alpha_none)
 
