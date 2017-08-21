@@ -893,8 +893,8 @@ def _add_timing_cmds(commands, file_timing):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None, slurm=False, out=sys.stdout, timing=False,
-                file_timing=None):
+                file_qid=None, slurm=False, out=sys.stdout, err=sys.stderr,
+                timing=False, file_timing=None):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -934,6 +934,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         Execute cluster job via Slurm instead of Torque.
     out : StringIO
         Buffer onto which messages should be printed. Default is sys.stdout.
+    err : StringIO
+        Default: sys.stderr.
+        Buffer for status reports.
     timing : bool
         If True than add time output to every command and store in cr_*.t*
         file. Default is False.
@@ -956,7 +959,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
             raise ValueError("Cannot write qid file '%s'." % file_qid)
     if os.path.exists(result):
-        sys.stderr.write("%s already computed\n" % jobname)
+        err.write("%s already computed\n" % jobname)
         return "Result already present!"
     if jobname is None:
         raise ValueError("You need to set a jobname!")
@@ -1033,8 +1036,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 f.close()
             job_ever_seen = False
             if wait:
-                sys.stderr.write(
-                    "\nWaiting for cluster job %s to complete: " % qid)
+                err.write("\nWaiting for cluster job %s to complete: " % qid)
                 while True:
                     if slurm:
                         task_squeue = subprocess.Popen(
@@ -1058,14 +1060,14 @@ def cluster_run(cmds, jobname, result, environment=None,
                         poll_status = subprocess.call(
                             "%s/qstat %s" % (gebin, qid), shell=True)
                     if (poll_status != 0) and job_ever_seen:
-                        sys.stderr.write(' finished.')
+                        err.write(' finished.')
                         break
                     elif (poll_status == 0) and (not job_ever_seen):
                         job_ever_seen = True
-                    sys.stderr.write('.')
+                    err.write('.')
                     time.sleep(10)
             else:
-                sys.stderr.write("Now wait until %s job finishes.\n" % qid)
+                err.write("Now wait until %s job finishes.\n" % qid)
             return qid
     else:
         if slurm:
