@@ -59,53 +59,6 @@ def _get_ref_phylogeny(file_tree=None):
     return FILE_REFERENCE_TREE
 
 
-def _parse_alpha(num_iterations, workdir, rarefaction_depth):
-    coll = dict()
-
-    # for debugging
-    sys.stderr.write('alpha: %s\n' % (workdir+'/alpha_input.txt'))
-    cmd = ('echo "==== start file contents (%s)"; '
-           'cat %s '
-           'echo "=== end file contents ===";') % (
-        (workdir+'/alpha_input.txt', workdir+'/alpha_input.txt'))
-    rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
-    for line in rescmd:
-        print(line)
-    # END for debugging
-
-    if rarefaction_depth is None:
-        try:
-            x = pd.read_csv('%s/alpha_input.txt' % (
-                workdir), sep='\t', index_col=0)
-            return x
-        except EmptyDataError as e:
-            raise EmptyDataError(str(e) +
-                                 "\nMaybe your reference tree is wrong?!")
-
-    for iteration in range(num_iterations):
-        try:
-            x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
-                workdir,
-                rarefaction_depth,
-                iteration), sep='\t', index_col=0)
-        except EmptyDataError as e:
-            raise EmptyDataError(str(e) +
-                                 "\nMaybe your reference tree is wrong?!")
-        if iteration == 0:
-            for metric in x.columns:
-                coll[metric] = pd.DataFrame(data=x[metric])
-                coll[metric].columns = [iteration]
-        else:
-            for metric in x.columns:
-                coll[metric][iteration] = x[metric]
-
-    result = pd.DataFrame(index=list(coll.values())[0].index)
-    for metric in coll.keys():
-        result[metric] = coll[metric].mean(axis=1)
-
-    return result
-
-
 def _getremaining(counts_sums):
     """Compute number of samples that have at least X read counts.
 
@@ -177,6 +130,13 @@ def _parse_alpha_div_collated(filename, metric=None):
         x = x.rename(columns={'sequences per sample': 'rarefaction depth',
                               'level_1': 'sample_name',
                               0: metric})
+
+        # if there is only one (rarefaction) iteration, stacking results in a
+        # slightly different DataFrame, which we are going to normalize here.
+        if 'level_0' in x.columns:
+            x['level_0'] = None
+            x = x.rename(columns={'level_0': 'rarefaction depth'})
+
         return x
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
@@ -439,7 +399,9 @@ def alpha_diversity(counts, rarefaction_depth,
 
     def commands(workdir, ppn, args):
         commands = []
+
         if args['rarefaction_depth'] is not None:
+            # rarefy input table
             commands.append(('parallel_multiple_rarefactions.py '
                              '-T '      # direct polling
                              '-i %s '   # input biom file
@@ -455,10 +417,13 @@ def alpha_diversity(counts, rarefaction_depth,
                 workdir+'/rarefactions',
                 args['num_iterations'],
                 ppn))
+        else:
+            os.mkdir(workdir+'/rarefactions')
+            shutil.copyfile(workdir+'/input.biom',
+                            workdir+'/rarefactions/rarefaction_0_0.biom')
 
-        dir_bioms = workdir+'/rarefactions'
-        if args['rarefaction_depth'] is None:
-            dir_bioms = workdir
+        # compute alpha div values for rarefied tables
+        # (or original input table, if rarefaction depth is None)
         commands.append(('parallel_alpha_diversity.py '
                          '-T '                      # direct polling
                          '-i %s '                   # dir to rarefied tables
@@ -466,20 +431,28 @@ def alpha_diversity(counts, rarefaction_depth,
                          '--metrics %s '            # list of alpha div metrics
                          '-t %s '                   # tree reference file
                          '--jobs_to_start %i') % (  # number parallel jobs
-            dir_bioms,
+            workdir+'/rarefactions/',
             workdir+'/alpha_div/',
             ",".join(args['metrics']),
             _get_ref_phylogeny(args['reference_tree']),
             ppn))
+
+        # Collate alpha command
+        commands.append(('collate_alpha.py '
+                         '-i %s '      # Input path (a directory)
+                         '-o %s') % (  # Output path (a directory).
+                                       # will be created if needed
+            workdir+'/alpha_div/',
+            workdir+'/alpha_div_collated/'))
+
         return commands
 
     def post_execute(workdir, args, pre_data):
-        res = _parse_alpha(args['num_iterations'],
-                           workdir+'/alpha_div/',
-                           args['rarefaction_depth'])
-        if res is not None:
-            res.index.name = args['counts'].index.name
-        return res
+        results = dict()
+        for metric in args['metrics']:
+            results[metric] = _parse_alpha_div_collated(
+                workdir+'/alpha_div_collated/'+metric+'.txt')
+        return results
 
     return _executor('adiv',
                      {'counts': counts,
