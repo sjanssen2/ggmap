@@ -11,7 +11,6 @@ import datetime
 import time
 
 import pandas as pd
-from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
@@ -299,7 +298,9 @@ def rarefaction_curves(counts,
         return results
 
     def post_cache(cache_results):
-        return _plot_rarefaction_curves(cache_results['results'])
+        cache_results['results'] = \
+            _plot_rarefaction_curves(cache_results['results'])
+        return cache_results
 
     return _executor('rare',
                      {'counts': counts,
