@@ -906,10 +906,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
-                    sys.stderr.write("call_x.stderr: >%s<" % call_x.stderr)
-                    sys.stderr.write("call_x.returncode: >%s<" %
-                                     call_x.returncode)
-                    sys.stderr.write("call_x: >%s<" % call_x)
+                    rescmd = subprocess.check_output('ls -la %s *' % workdir, shell=True).decode().split('\n')
+                    for line in rescmd:
+                        print(line)
                     raise ValueError(("something went wrong with conda "
                                       "activation"))
         else:
