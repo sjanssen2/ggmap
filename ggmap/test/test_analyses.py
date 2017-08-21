@@ -52,7 +52,11 @@ class AlphaTests(TestCase):
 
         self.metrics_alpha = ['PD_whole_tree', 'shannon']
         self.alpha = pd.read_csv(
-            get_data_path('analyses/alpha_20000.csv'),
+            get_data_path('analyses/alpha_10000.csv'),
+            sep='\t',
+            index_col=0)
+        self.alpha_none = pd.read_csv(
+            get_data_path('analyses/alpha_None.csv'),
             sep='\t',
             index_col=0)
 
@@ -65,14 +69,20 @@ class AlphaTests(TestCase):
             use_grid=False,
             nocache=True)
 
-        exp_alpha = self.alpha
-
         # shallow check if rarefaction based alpha div distributions are
         # similar
-        assert_frame_equal(
-            obs_alpha['results'].loc[:, exp_alpha.columns].describe(),
-            exp_alpha.describe(),
-            check_less_precise=0)
+        self.assertTrue(all((self.alpha - obs_alpha['results']).max() < 1))
+
+    def test_alpha_norarefaction(self):
+        obs_alpha = alpha_diversity(
+            self.counts,
+            None,
+            self.metrics_alpha,
+            dry=False,
+            use_grid=False,
+            nocache=True)
+
+        assert_frame_equal(obs_alpha['results'], self.alpha_none)
 
 
 class BetaTests(TestCase):
