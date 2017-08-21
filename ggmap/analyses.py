@@ -906,10 +906,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
-                    sys.stderr.write("Call_x:\n")
-                    sys.stderr.write(call_x.stderr)
-                    sys.stderr.write(call_x.returncode)
-                    sys.stderr.write(call_x)
+                    sys.stderr.write("call_x.stderr: >%s<" % call_x.stderr)
+                    sys.stderr.write("call_x.returncode: >%s<" %
+                                     call_x.returncode)
+                    sys.stderr.write("call_x: >%s<" % call_x)
                     raise ValueError(("something went wrong with conda "
                                       "activation"))
         else:
