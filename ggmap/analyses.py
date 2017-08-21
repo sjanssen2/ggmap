@@ -67,7 +67,7 @@ def _parse_alpha(num_iterations, workdir, rarefaction_depth):
     cmd = ('echo "==== start file contents (%s)"; '
            'cat %s '
            'echo "=== end file contents ===";') % (
-        (workdir+'/alpha_input.txt'))
+        (workdir+'/alpha_input.txt', workdir+'/alpha_input.txt'))
     rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
     for line in rescmd:
         print(line)
