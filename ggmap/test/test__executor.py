@@ -31,7 +31,7 @@ class ExecutorTests(TestCase):
                         post_execute,
                         dry=False, wait=True, use_grid=False, nocache=True,
                         timing=False)
-        self.assertIn('Python 2.7.11 :: Continuum Analytics, Inc.',
+        self.assertIn('Python 2.7.',
                       res['results'][1])
         self.assertNotIn('Python 3.', res['results'][1])
 
