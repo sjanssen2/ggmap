@@ -64,7 +64,7 @@ def read_otumap(file_otumap):
 @cache
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
-                          verbose=True, out=sys.stdout):
+                          verbose=True, out=sys.stdout, onlyrepr=False):
     """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
@@ -88,6 +88,9 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         If True, print some info on stdout.
     out : StringIO
         Buffer onto which messages should be written. Default is sys.stdout.
+    onlyrepr : bool
+        Default: False.
+        If True, only fragments from representative sequences are returned.
 
     Returns
     -------
@@ -113,8 +116,9 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     otumap = read_otumap(file_otumap)[0]
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
-    # all non-representative seq IDs
-    seqids_to_use += [seqid for otu in otumap.values for seqid in otu]
+    if onlyrepr is False:
+        # all non-representative seq IDs
+        seqids_to_use += [seqid for otu in otumap.values for seqid in otu]
     if verbose:
         out.write("% 8i sequences in OTU map '%s'\n" % (
             len(seqids_to_use),
