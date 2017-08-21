@@ -1,36 +1,11 @@
 from unittest import TestCase, main
-# import pandas as pd
-# from pandas.util.testing import assert_frame_equal
+import pandas as pd
+from pandas.util.testing import assert_frame_equal
 
-# from skbio.util import get_data_path
+from skbio.util import get_data_path
 
-from ggmap.analyses import (_executor)
+from ggmap.analyses import (_executor, alpha_diversity)
 
-
-#class AnalysesTests(TestCase):
-    # def setUp(self):
-    #     self.counts = pd.read_csv(
-    #         get_data_path('analyses/raw_otu_table.csv'),
-    #         sep='\t',
-    #         dtype={'#SampleID': str})
-    #     self.metrics_alpha = ['PD_whole_tree', 'shannon']
-    #
-    # def test_alpha(self):
-    #     obs_alpha = alpha_diversity(
-    #         self.counts,
-    #         20000,
-    #         self.metrics_alpha,
-    #         dry=False,
-    #         use_grid=False,
-    #         nocache=True)
-    #
-    #     exp_alpha = self.alpha
-    #
-    #     # shallow check if rarefaction based alpha div distributions are
-    #     # similar
-    #     assert_frame_equal(obs_alpha.loc[:, exp_alpha.columns].describe(),
-    #                        exp_alpha.describe(),
-    #                        check_less_precise=0)
 
 class ExecutorTests(TestCase):
     def test__executor(self):
@@ -63,6 +38,39 @@ class ExecutorTests(TestCase):
         self.assertIn('Python 2.7.',
                       res['results'][1])
         self.assertNotIn('Python 3.', res['results'][1])
+
+
+class AlphaTests(TestCase):
+    def setUp(self):
+        self.counts = pd.read_csv(
+            get_data_path('analyses/raw_otu_table.csv'),
+            sep='\t',
+            dtype={'#SampleID': str})
+        self.counts.set_index('#SampleID', inplace=True)
+
+        self.metrics_alpha = ['PD_whole_tree', 'shannon']
+        self.alpha = pd.read_csv(
+            get_data_path('analyses/alpha_20000.csv'),
+            sep='\t',
+            index_col=0)
+
+    def test_alpha(self):
+        obs_alpha = alpha_diversity(
+            self.counts,
+            20000,
+            self.metrics_alpha,
+            dry=False,
+            use_grid=False,
+            nocache=True)
+
+        exp_alpha = self.alpha
+
+        # shallow check if rarefaction based alpha div distributions are
+        # similar
+        assert_frame_equal(
+            obs_alpha['results'].loc[:, exp_alpha.columns].describe(),
+            exp_alpha.describe(),
+            check_less_precise=0)
 
 
 if __name__ == '__main__':
