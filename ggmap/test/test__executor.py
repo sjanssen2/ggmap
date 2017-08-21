@@ -12,7 +12,8 @@ class ExecutorTests(TestCase):
             m.close()
 
         def commands(workdir, ppn, args):
-            commands = ['python --version >> %s 2>&1' % (workdir+'/headermap.tsv')]
+            commands = ['python --version >> %s 2>&1' %
+                        (workdir+'/headermap.tsv')]
             return commands
 
         def post_execute(workdir, args, pre_data):
@@ -28,8 +29,12 @@ class ExecutorTests(TestCase):
                         pre_execute,
                         commands,
                         post_execute,
-                        dry=False, wait=True, use_grid=False, nocache=True, timing=False)
-        print("==res==:", res)
+                        dry=False, wait=True, use_grid=False, nocache=True,
+                        timing=False)
+        self.assertIn('Python 2.7.11 :: Continuum Analytics, Inc.',
+                      res['results'][1])
+        self.assertNotIn('Python 3.', res['results'][1])
+
 
 if __name__ == '__main__':
     main()
