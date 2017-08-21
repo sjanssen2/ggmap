@@ -327,7 +327,7 @@ def rarefaction_curves(counts,
         return results
 
     def post_cache(cache_results):
-        return _plot_rarefaction_curves(cache_results)
+        return _plot_rarefaction_curves(cache_results['results'])
 
     return _executor('rare',
                      {'counts': counts,
