@@ -44,10 +44,14 @@ class TaxPlotTests(TestCase):
     def test_compare_images_dimdiff(self):
         # verify that images of different sizes are recognized as beeing
         # different
+        err = StringIO()
         obs = compare_images(self.file_img_orig, self.file_img_diffdims,
-                             threshold=9)
+                             threshold=9, err=err)
         self.assertFalse(obs[0])
         self.assertEqual(obs[1], -1 * numpy.infty)
+        self.assertEqual(err.getvalue(),
+                         ('Images differ in dimensions: (80, 60) '
+                          'and (90, 60).\n'))
 
     def test_compare_images_misc(self):
         # test default behaviour
