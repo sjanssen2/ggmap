@@ -59,7 +59,7 @@ class AlphaTests(TestCase):
     def test_alpha(self):
         obs_alpha = alpha_diversity(
             self.counts,
-            20000,
+            10000,
             self.metrics_alpha,
             dry=False,
             use_grid=False,
