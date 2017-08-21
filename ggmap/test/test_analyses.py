@@ -2,9 +2,10 @@ from unittest import TestCase, main
 import pandas as pd
 from pandas.util.testing import assert_frame_equal
 
+from skbio.stats.distance import DistanceMatrix
 from skbio.util import get_data_path
 
-from ggmap.analyses import (_executor, alpha_diversity)
+from ggmap.analyses import (_executor, alpha_diversity, beta_diversity)
 
 
 class ExecutorTests(TestCase):
@@ -71,6 +72,36 @@ class AlphaTests(TestCase):
             obs_alpha['results'].loc[:, exp_alpha.columns].describe(),
             exp_alpha.describe(),
             check_less_precise=0)
+
+
+class BetaTests(TestCase):
+    def setUp(self):
+        self.counts = pd.read_csv(
+            get_data_path('analyses/raw_otu_table.csv'),
+            sep='\t',
+            dtype={'#SampleID': str})
+        self.counts.set_index('#SampleID', inplace=True)
+
+        self.metrics_beta = ["unweighted_unifrac", "bray_curtis"]
+
+        self.beta = dict()
+        for metric in self.metrics_beta:
+            self.beta[metric] = DistanceMatrix.read(
+                get_data_path('analyses/beta_%s.dm.txt' % metric))
+
+    def test_beta(self):
+        obs_beta = beta_diversity(
+            self.counts,
+            self.metrics_beta,
+            dry=False,
+            use_grid=False,
+            nocache=True
+        )
+
+        for metric in self.metrics_beta:
+            self.assertEqual(
+                obs_beta['results'][metric].filter(self.beta[metric].ids),
+                self.beta[metric])
 
 
 if __name__ == '__main__':
