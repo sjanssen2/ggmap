@@ -31,8 +31,10 @@ class QsubTests(TestCase):
                         "/tmp/newfile_acgjkdh", file_qid='/dev/null')
 
     def test_cluster_run(self):
-        res = cluster_run([], "jobname", get_data_path("float.tsv"))
+        err = StringIO()
+        res = cluster_run([], "jobname", get_data_path("float.tsv"), err=err)
         self.assertEqual(res, 'Result already present!')
+        self.assertEqual(err.getvalue(), 'jobname already computed\n')
 
     def test_cluster_run_slurm(self):
         exp = """#!/bin/bash
