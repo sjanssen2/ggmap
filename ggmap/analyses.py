@@ -437,12 +437,6 @@ def alpha_diversity(counts, rarefaction_depth,
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
 
-        # create a mock metadata file
-        metadata = pd.DataFrame(index=args['counts'].columns)
-        metadata.index.name = '#SampleID'
-        metadata['mock'] = 'foo'
-        metadata.to_csv(workdir+'/metadata.tsv', sep='\t')
-
     def commands(workdir, ppn, args):
         commands = []
         if args['rarefaction_depth'] is not None:
