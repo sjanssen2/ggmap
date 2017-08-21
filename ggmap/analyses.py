@@ -449,11 +449,13 @@ def alpha_diversity(counts, rarefaction_depth,
         return commands
 
     def post_execute(workdir, args, pre_data):
-        results = dict()
+        results = []
         for metric in args['metrics']:
-            results[metric] = _parse_alpha_div_collated(
+            a = _parse_alpha_div_collated(
                 workdir+'/alpha_div_collated/'+metric+'.txt')
-        return results
+            a = a[['sample_name', metric]].set_index('sample_name')
+            results.append(a)
+        return pd.concat(results, axis=1)
 
     return _executor('adiv',
                      {'counts': counts,
