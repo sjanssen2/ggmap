@@ -5,8 +5,9 @@ from pandas.util.testing import assert_frame_equal
 from skbio.stats.distance import DistanceMatrix
 from skbio.util import get_data_path
 
-from ggmap.analyses import (_executor, alpha_diversity, beta_diversity)
-# from ggmap.imgdiff import compare_images
+from ggmap.analyses import (_executor, alpha_diversity, beta_diversity,
+                            rarefaction_curves)
+from ggmap.imgdiff import compare_images
 
 
 class ExecutorTests(TestCase):
@@ -117,39 +118,40 @@ class BetaTests(TestCase):
                 self.beta[metric])
 
 
-# class RarefactionTests(TestCase):
-#     def setUp(self):
-#         self.counts = pd.read_csv(
-#             get_data_path('analyses/raw_otu_table.csv'),
-#             sep='\t',
-#             dtype={'#SampleID': str})
-#         self.counts.set_index('#SampleID', inplace=True)
-#
-#         self.metrics_alpha = ['PD_whole_tree', 'shannon']
-#
-#         self.filename_rare = get_data_path('analyses/rare.png')
-#
-#     def test_rare(self):
-#         DIFF_THRESHOLD = 50000
-#
-#         obs_rare = rarefaction_curves(
-#             self.counts,
-#             self.metrics_alpha,
-#             dry=False,
-#             use_grid=False,
-#             num_steps=5,
-#             nocache=True
-#         )
-#
-#         filename_obs = 'obs_rare.png'
-#         obs_rare['results'].savefig(filename_obs)
-#
-#         filename_diff = '/tmp/diff_rare.png'
-#         res = compare_images(filename_obs, self.filename_rare,
-#                              threshold=DIFF_THRESHOLD,
-#                              file_image_diff=filename_diff,
-#                              name='rarecurves')
-#         self.assertTrue(res)
+class RarefactionTests(TestCase):
+    def setUp(self):
+        self.counts = pd.read_csv(
+            get_data_path('analyses/raw_otu_table.csv'),
+            sep='\t',
+            dtype={'#SampleID': str})
+        self.counts.set_index('#SampleID', inplace=True)
+
+        self.metrics_alpha = ['PD_whole_tree', 'shannon']
+
+        self.filename_rare = get_data_path('analyses/rare.png')
+
+    def test_rare(self):
+        DIFF_THRESHOLD = 50000
+
+        obs_rare = rarefaction_curves(
+            self.counts,
+            self.metrics_alpha,
+            dry=False,
+            use_grid=False,
+            num_steps=5,
+            nocache=True,
+            ppn=1
+        )
+
+        filename_obs = 'obs_rare.png'
+        obs_rare['results'].savefig(filename_obs)
+
+        filename_diff = '/tmp/diff_rare.png'
+        res = compare_images(filename_obs, self.filename_rare,
+                             threshold=DIFF_THRESHOLD,
+                             file_image_diff=filename_diff,
+                             name='rarecurves')
+        self.assertTrue(res)
 
 
 if __name__ == '__main__':
