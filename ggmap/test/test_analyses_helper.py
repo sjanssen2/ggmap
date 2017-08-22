@@ -1,8 +1,11 @@
 from unittest import TestCase, main
+import shutil
+import tempfile
 
 from skbio.util import get_data_path
 
-from ggmap.analyses import (_parse_alpha_div_collated, _get_ref_phylogeny)
+from ggmap.analyses import (_parse_alpha_div_collated, _get_ref_phylogeny,
+                            _parse_timing)
 
 
 class AnalysesHelperTests(TestCase):
@@ -33,6 +36,22 @@ class AnalysesHelperTests(TestCase):
 
         with self.assertRaises(ValueError):
             _get_ref_phylogeny(env='wrong')
+
+    def test__parse_timing(self):
+        jobname = 'unittest'
+        dir_tmp = tempfile.mkdtemp(prefix='ana_%s_' % jobname,
+                                   dir=tempfile.gettempdir())
+        file_timing = dir_tmp + '/cr_ana_%s.t' % jobname
+        content = ['line1\n', 'line2\n']
+        f = open(file_timing, 'w')
+        f.write("".join(content))
+        f.close()
+        obs = _parse_timing(dir_tmp, jobname)
+        shutil.rmtree(dir_tmp)
+        self.assertEqual(obs, content)
+
+        obs = _parse_timing('/dev/', jobname)
+        self.assertEqual(obs, None)
 
 
 if __name__ == '__main__':
