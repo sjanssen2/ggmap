@@ -28,8 +28,23 @@ FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
 
 
-def _get_ref_phylogeny(file_tree=None):
+def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
     """Use QIIME config to infer location of reference tree or pass given tree.
+
+    Parameters
+    ----------
+    file_tree : str
+        Default: None.
+        If None is set, than we need to activate qiime environment, print
+        config and search for the rigth path information.
+        Otherwise, specified reference tree is returned without doing anything.
+    env : str
+        Default: global constant QIIME_ENV value.
+        Conda environment name for QIIME.
+
+    Returns
+    -------
+    Filepath to reference tree.
     """
     global FILE_REFERENCE_TREE
     if file_tree is not None:
@@ -38,9 +53,10 @@ def _get_ref_phylogeny(file_tree=None):
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
                                "| grep 'pick_otus_reference_seqs_fp:'" %
-                               QIIME_ENV),
+                               env),
                               shell=True,
                               stdout=subprocess.PIPE,
+                              stderr=StringIO(),
                               executable="bash") as call_x:
             out, err = call_x.communicate()
             if (call_x.wait() != 0):
