@@ -117,6 +117,20 @@ class BetaTests(TestCase):
                 obs_beta['results'][metric].filter(self.beta[metric].ids),
                 self.beta[metric])
 
+        obs_beta_serial = beta_diversity(
+            self.counts,
+            self.metrics_beta,
+            dry=False,
+            use_grid=False,
+            nocache=True,
+            use_parallel=False,
+        )
+        for metric in self.metrics_beta:
+            self.assertEqual(
+                obs_beta_serial['results'][metric].filter(
+                    self.beta[metric].ids),
+                self.beta[metric])
+
 
 class RarefactionTests(TestCase):
     def setUp(self):
