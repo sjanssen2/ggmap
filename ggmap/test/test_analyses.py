@@ -138,7 +138,8 @@ class RarefactionTests(TestCase):
             self.metrics_alpha,
             dry=False,
             use_grid=False,
-            num_steps=5,
+            num_steps=3,
+            max_depth=2000,
             nocache=True,
             ppn=1
         )
