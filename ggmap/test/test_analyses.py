@@ -131,7 +131,7 @@ class RarefactionTests(TestCase):
         self.filename_rare = get_data_path('analyses/rare.png')
 
     def test_rare(self):
-        DIFF_THRESHOLD = 50000
+        DIFF_THRESHOLD = 0
 
         obs_rare = rarefaction_curves(
             self.counts.iloc[:5, :5],
