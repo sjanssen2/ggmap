@@ -913,6 +913,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
+                print("Call_x:", call_x)
                 if (call_x.wait() != 0):
                     rescmd = subprocess.check_output(
                         'ls -la %s/*' % results['workdir'],
