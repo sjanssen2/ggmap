@@ -207,7 +207,7 @@ def _plot_rarefaction_curves(data):
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
-                       **executor_args):
+                       num_iterations=10, **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -226,6 +226,9 @@ def rarefaction_curves(counts,
     max_depth : int
         Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
         used.
+    num_iterations : int
+        Default: 10.
+        Number of iterations to rarefy the input table.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -253,12 +256,14 @@ def rarefaction_curves(counts,
                                        # <= max
                          '-o %s '      # Write output rarefied otu tables here
                                        # makes dir if it doesn’t exist
+                         '-n %i '      # number iterations per depth
                          '--jobs_to_start %i') % (  # Number of jobs to start
             workdir+'/input.biom',
             max(1000, args['counts'].sum().min()),
             max_rare_depth,
             (max_rare_depth - args['counts'].sum().min())/args['num_steps'],
             workdir+'/rare/rarefaction/',
+            num_iterations,
             ppn))
 
         # Alpha diversity on rarefied OTU tables command
