@@ -81,6 +81,21 @@ class TaxPlotTests(TestCase):
         self.assertTrue(obs[0] is not True)
         remove(file_dummy)
 
+    def test_compare_images_filenotfound(self):
+        err = StringIO()
+        file_notthere = '/dev/akfjhasdklgjh'
+        compare_images(self.file_img_orig, file_notthere, err=err)
+        self.assertEqual(err.getvalue(),
+                         'Image file "%s" cannot be read.\n' % file_notthere)
+
+        err = StringIO()
+        file_notaccessible = '/dev/diff.png'
+        compare_images(self.file_img_orig, self.file_img_changed,
+                       file_image_diff=file_notaccessible, err=err)
+        self.assertEqual(err.getvalue(),
+                         "Cannot write to diff image file '%s'." %
+                         file_notaccessible)
+
 
 if __name__ == '__main__':
     main()

@@ -11,7 +11,6 @@ import datetime
 import time
 
 import pandas as pd
-from pandas.errors import EmptyDataError
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
@@ -29,17 +28,33 @@ FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
 
 
-def _get_ref_phylogeny(file_tree=None):
+def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
     """Use QIIME config to infer location of reference tree or pass given tree.
+
+    Parameters
+    ----------
+    file_tree : str
+        Default: None.
+        If None is set, than we need to activate qiime environment, print
+        config and search for the rigth path information.
+        Otherwise, specified reference tree is returned without doing anything.
+    env : str
+        Default: global constant QIIME_ENV value.
+        Conda environment name for QIIME.
+
+    Returns
+    -------
+    Filepath to reference tree.
     """
     global FILE_REFERENCE_TREE
     if file_tree is not None:
         return file_tree
     if FILE_REFERENCE_TREE is None:
+        err = StringIO()
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
                                "| grep 'pick_otus_reference_seqs_fp:'" %
-                               QIIME_ENV),
+                               env),
                               shell=True,
                               stdout=subprocess.PIPE,
                               executable="bash") as call_x:
@@ -57,41 +72,6 @@ def _get_ref_phylogeny(file_tree=None):
             out = '/'.join(out.split('/')[:-2])
             FILE_REFERENCE_TREE = out + '/trees/97_otus.tree'
     return FILE_REFERENCE_TREE
-
-
-def _parse_alpha(num_iterations, workdir, rarefaction_depth):
-    coll = dict()
-    if rarefaction_depth is None:
-        try:
-            x = pd.read_csv('%s/alpha_input.txt' % (
-                workdir), sep='\t', index_col=0)
-            return x
-        except EmptyDataError as e:
-            raise EmptyDataError(str(e) +
-                                 "\nMaybe your reference tree is wrong?!")
-
-    for iteration in range(num_iterations):
-        try:
-            x = pd.read_csv('%s/alpha_rarefaction_%i_%i.txt' % (
-                workdir,
-                rarefaction_depth,
-                iteration), sep='\t', index_col=0)
-        except EmptyDataError as e:
-            raise EmptyDataError(str(e) +
-                                 "\nMaybe your reference tree is wrong?!")
-        if iteration == 0:
-            for metric in x.columns:
-                coll[metric] = pd.DataFrame(data=x[metric])
-                coll[metric].columns = [iteration]
-        else:
-            for metric in x.columns:
-                coll[metric][iteration] = x[metric]
-
-    result = pd.DataFrame(index=list(coll.values())[0].index)
-    for metric in coll.keys():
-        result[metric] = coll[metric].mean(axis=1)
-
-    return result
 
 
 def _getremaining(counts_sums):
@@ -165,6 +145,13 @@ def _parse_alpha_div_collated(filename, metric=None):
         x = x.rename(columns={'sequences per sample': 'rarefaction depth',
                               'level_1': 'sample_name',
                               0: metric})
+
+        # if there is only one (rarefaction) iteration, stacking results in a
+        # slightly different DataFrame, which we are going to normalize here.
+        if 'level_0' in x.columns:
+            x['level_0'] = None
+            x = x.rename(columns={'level_0': 'rarefaction depth'})
+
         return x
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
@@ -236,7 +223,7 @@ def _plot_rarefaction_curves(data):
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
-                       **executor_args):
+                       num_iterations=10, **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -255,6 +242,9 @@ def rarefaction_curves(counts,
     max_depth : int
         Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
         used.
+    num_iterations : int
+        Default: 10.
+        Number of iterations to rarefy the input table.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -282,12 +272,14 @@ def rarefaction_curves(counts,
                                        # <= max
                          '-o %s '      # Write output rarefied otu tables here
                                        # makes dir if it doesn’t exist
+                         '-n %i '      # number iterations per depth
                          '--jobs_to_start %i') % (  # Number of jobs to start
             workdir+'/input.biom',
             max(1000, args['counts'].sum().min()),
             max_rare_depth,
             (max_rare_depth - args['counts'].sum().min())/args['num_steps'],
             workdir+'/rare/rarefaction/',
+            num_iterations,
             ppn))
 
         # Alpha diversity on rarefied OTU tables command
@@ -327,13 +319,16 @@ def rarefaction_curves(counts,
         return results
 
     def post_cache(cache_results):
-        return _plot_rarefaction_curves(cache_results)
+        cache_results['results'] = \
+            _plot_rarefaction_curves(cache_results['results'])
+        return cache_results
 
     return _executor('rare',
                      {'counts': counts,
                       'metrics': metrics,
                       'num_steps': num_steps,
-                      'max_depth': max_depth},
+                      'max_depth': max_depth,
+                      'num_iterations': num_iterations},
                      pre_execute,
                      commands,
                      post_execute,
@@ -425,15 +420,11 @@ def alpha_diversity(counts, rarefaction_depth,
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
 
-        # create a mock metadata file
-        metadata = pd.DataFrame(index=args['counts'].columns)
-        metadata.index.name = '#SampleID'
-        metadata['mock'] = 'foo'
-        metadata.to_csv(workdir+'/metadata.tsv', sep='\t')
-
     def commands(workdir, ppn, args):
         commands = []
+
         if args['rarefaction_depth'] is not None:
+            # rarefy input table
             commands.append(('parallel_multiple_rarefactions.py '
                              '-T '      # direct polling
                              '-i %s '   # input biom file
@@ -449,10 +440,13 @@ def alpha_diversity(counts, rarefaction_depth,
                 workdir+'/rarefactions',
                 args['num_iterations'],
                 ppn))
+        else:
+            os.mkdir(workdir+'/rarefactions')
+            shutil.copyfile(workdir+'/input.biom',
+                            workdir+'/rarefactions/rarefaction_0_0.biom')
 
-        dir_bioms = workdir+'/rarefactions'
-        if args['rarefaction_depth'] is None:
-            dir_bioms = workdir
+        # compute alpha div values for rarefied tables
+        # (or original input table, if rarefaction depth is None)
         commands.append(('parallel_alpha_diversity.py '
                          '-T '                      # direct polling
                          '-i %s '                   # dir to rarefied tables
@@ -460,20 +454,30 @@ def alpha_diversity(counts, rarefaction_depth,
                          '--metrics %s '            # list of alpha div metrics
                          '-t %s '                   # tree reference file
                          '--jobs_to_start %i') % (  # number parallel jobs
-            dir_bioms,
+            workdir+'/rarefactions/',
             workdir+'/alpha_div/',
             ",".join(args['metrics']),
             _get_ref_phylogeny(args['reference_tree']),
             ppn))
+
+        # Collate alpha command
+        commands.append(('collate_alpha.py '
+                         '-i %s '      # Input path (a directory)
+                         '-o %s') % (  # Output path (a directory).
+                                       # will be created if needed
+            workdir+'/alpha_div/',
+            workdir+'/alpha_div_collated/'))
+
         return commands
 
     def post_execute(workdir, args, pre_data):
-        res = _parse_alpha(args['num_iterations'],
-                           workdir+'/alpha_div/',
-                           args['rarefaction_depth'])
-        if res is not None:
-            res.index.name = args['counts'].index.name
-        return res
+        results = []
+        for metric in args['metrics']:
+            a = _parse_alpha_div_collated(
+                workdir+'/alpha_div_collated/'+metric+'.txt')
+            a = a[['sample_name', metric]].set_index('sample_name')
+            results.append(a)
+        return pd.concat(results, axis=1)
 
     return _executor('adiv',
                      {'counts': counts,
@@ -926,7 +930,12 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
-                    raise ValueError(("something went wrong with conda"
+                    rescmd = subprocess.check_output(
+                        'ls -la %s/*' % results['workdir'],
+                        shell=True).decode().split('\n')
+                    for line in rescmd:
+                        print(line)
+                    raise ValueError(("something went wrong with conda "
                                       "activation"))
         else:
             results['qid'] = cluster_run(
