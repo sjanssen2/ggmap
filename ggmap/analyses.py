@@ -50,13 +50,13 @@ def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
     if file_tree is not None:
         return file_tree
     if FILE_REFERENCE_TREE is None:
+        err = StringIO()
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
                                "| grep 'pick_otus_reference_seqs_fp:'" %
                                env),
                               shell=True,
                               stdout=subprocess.PIPE,
-                              stderr=StringIO(),
                               executable="bash") as call_x:
             out, err = call_x.communicate()
             if (call_x.wait() != 0):
