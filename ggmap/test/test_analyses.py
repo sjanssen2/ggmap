@@ -134,12 +134,12 @@ class RarefactionTests(TestCase):
         DIFF_THRESHOLD = 50000
 
         obs_rare = rarefaction_curves(
-            self.counts,
+            self.counts.iloc[:5, :5],
             self.metrics_alpha,
             dry=False,
             use_grid=False,
             num_steps=5,
-            max_depth=2000,
+            num_iterations=3,
             nocache=True,
             ppn=1
         )
