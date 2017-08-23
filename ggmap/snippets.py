@@ -1643,25 +1643,32 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abu
         curr_ax = ax[0]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
+        feature_order = sorted(counts_taxa['feature'].unique())
         g = sns.boxplot(data=counts_taxa,
                         x='relative abundance',
                         y='feature',
-                        order=sorted(counts_taxa['feature'].unique()),
+                        order=feature_order,
                         hue='group',
-                        ax=curr_ax)
+                        ax=curr_ax, orient='h')
+        # g.set_xscale('log')
+        g.set_xlim((0, 1))
 
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
         foldchange = np.log(foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
-        feature_order = foldchange.sort_index().index
-        g = sns.barplot(foldchange, y=foldchange.index, order=feature_order, ax=curr_ax, color='blue')
+        foldchange = foldchange.loc[feature_order]
+        foldchange = foldchange.to_frame().reset_index()
+        # return foldchange
+        # feature_order = foldchange.sort_index().index
+        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h', ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
         g.set_ylabel('')
         g.set(yticklabels=taxonomy.loc[feature_order].apply(lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
         g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
         g.yaxis.tick_right()
+        plt.suptitle(metadata_field.name)
 
         #print()
         #return foldchange
-    #return ax
-    return foldchange
+    return fig
+    # return foldchange
