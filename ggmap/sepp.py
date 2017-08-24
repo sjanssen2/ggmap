@@ -301,13 +301,18 @@ def _measure_distance_single(seppresults, seqinfo,
                 dist = min(dists)
             else:
                 raise ValueError('not a valid value for _type!')
-            xx.append({'distance': dist,
-                       'num_otus': len(trueOTUids),
-                       'num_mutations':
-                       int(fragment.name.split(';')[1].split(':')[-1]),
-                       'fragment': fragment.name,
-                       'num_non-representative-seqs':
-                       len(set(seqids) - set(trueOTUids))})
+            xx.append({
+                'distance': dist,
+                'num_otus': len(trueOTUids),
+                'true_otus': ",".join(trueOTUids),
+                'num_mutations':
+                int(fragment.name.split(';')[1].split(':')[-1]),
+                'fragment': fragment.name,
+                'num_non-representative-seqs':
+                len(set(seqids) - set(trueOTUids)),
+                'only repr. sequences':
+                len(set(seqids) - set(trueOTUids)) == 0,
+                })
         if verbose:
             if j % max(1, int(treesize/10)) == 0:
                 err.write('.')
