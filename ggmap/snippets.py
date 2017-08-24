@@ -1573,6 +1573,14 @@ def cache(func):
                     func_name)
             return func(*args, **kwargs)
 
+        if os.path.exists(cache_args['cache_filename']) and\
+           (os.stat(cache_args['cache_filename']).st_size <= 0):
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: removed empty cache.\n' %
+                    func_name)
+            os.remove(cache_args['cache_filename'])
+
         if (not os.path.exists(cache_args['cache_filename'])) or\
            cache_args['cache_force_renew']:
             try:

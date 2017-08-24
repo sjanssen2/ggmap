@@ -79,6 +79,17 @@ class Snippets_CacheTests(TestCase):
         # identical, expected results will differ.
         self.assertFalse(obs2 == 2+4*6)
 
+    def test_cache_removeempty(self):
+        err = StringIO()
+        f = open(self.file_cache, 'wb')
+        f.close()
+        # check that an empty but existing cache file (a likely result of some
+        # function abortion), is removed and not considered a valid cache.
+        fct_example(1, 3, 5,
+                    cache_filename=self.file_cache, cache_err=err)
+        self.assertIn('fct_example: removed empty cache.', err.getvalue())
+        self.assertIn('fct_example: stored results in cache "', err.getvalue())
+
 
 if __name__ == '__main__':
     main()
