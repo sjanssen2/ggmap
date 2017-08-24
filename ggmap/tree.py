@@ -253,9 +253,10 @@ def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
                          metaphlan_clade)
 
 
-def distance_seppinsertion(tree_orig, tree_changed, nodename):
-    node_orig = tree_orig.find(nodename)
-    node_changed = tree_changed.find(nodename)
+def distance_seppinsertion(tree_orig, tree_changed,
+                           nodename_orig, nodename_changed):
+    node_orig = tree_orig.find(nodename_orig)
+    node_changed = tree_changed.find(nodename_changed)
 
     # the node has not been changed, because it's parent still has a name,
     # which would not be true if re-inserted via SEPP
