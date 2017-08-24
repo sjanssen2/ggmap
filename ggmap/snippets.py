@@ -355,7 +355,7 @@ def _get_sample_numbers(num_samples, fields, names):
 
 def collapseCounts(file_otutable, rank,
                    file_taxonomy=None,
-                   verbose=True, out=sys.stdout):
+                   verbose=True, out=sys.stdout, astype=int):
     """Collapses features of an OTU table according to their taxonomic
        assignment and a given rank.
 
@@ -376,6 +376,10 @@ def collapseCounts(file_otutable, rank,
         Default is true. Report messages if true.
     out : StringIO
         Buffer onto which messages should be written. Default is sys.stdout.
+    astype : type
+        datatype into each value of the biom table is casted. Default: int.
+        Use e.g. float if biom table contains relative abundances instead of
+        raw reads.
 
     Returns
     -------
@@ -392,7 +396,8 @@ def collapseCounts(file_otutable, rank,
 
     counts, taxonomy = None, None
     if file_taxonomy is None:
-        counts, taxonomy = biom2pandas(file_otutable, withTaxonomy=True)
+        counts, taxonomy = biom2pandas(file_otutable, withTaxonomy=True,
+                                       astype=astype)
         taxonomy.name = 'taxonomy'
         rank_counts = pd.merge(counts, taxonomy.to_frame(), how='left',
                                left_index=True, right_index=True)
@@ -401,7 +406,7 @@ def collapseCounts(file_otutable, rank,
         if (not os.path.exists(file_taxonomy)) and (rank != 'raw'):
             raise IOError('Taxonomy file not found!')
 
-        counts = biom2pandas(file_otutable, withTaxonomy=False)
+        counts = biom2pandas(file_otutable, withTaxonomy=False, astype=astype)
         if rank != 'raw':
             taxonomy = pd.read_csv(file_taxonomy, sep="\t", header=None,
                                    names=['otuID', 'taxonomy'],
@@ -1567,6 +1572,14 @@ def cache(func):
                     '%s: no caching, since "cache_filename" is None.\n' %
                     func_name)
             return func(*args, **kwargs)
+
+        if os.path.exists(cache_args['cache_filename']) and\
+           (os.stat(cache_args['cache_filename']).st_size <= 0):
+            if cache_args['cache_verbose']:
+                cache_args['cache_err'].write(
+                    '%s: removed empty cache.\n' %
+                    func_name)
+            os.remove(cache_args['cache_filename'])
 
         if (not os.path.exists(cache_args['cache_filename'])) or\
            cache_args['cache_force_renew']:
