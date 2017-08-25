@@ -12,7 +12,7 @@ from ggmap.snippets import (detect_distant_groups_alpha,
                             detect_distant_groups,
                             plotDistant_groups,
                             plotGroup_histograms,
-                            plotGroup_permanovas)
+                            plotGroup_permanovas, _getfirstsigdigit)
 from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
@@ -703,6 +703,12 @@ class SnippetTests(TestCase):
         else:
             print(res)
         self.assertTrue(res[0])
+
+    def test__getfirstsigdigit(self):
+        self.assertEqual(0, _getfirstsigdigit(1.0))
+        self.assertEqual(1, _getfirstsigdigit(0.5726))
+        self.assertEqual(1, _getfirstsigdigit(0.800000))
+        self.assertEqual(4, _getfirstsigdigit(0.000300))
 
 
 if __name__ == '__main__':
