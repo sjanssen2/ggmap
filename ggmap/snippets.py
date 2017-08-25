@@ -1210,6 +1210,8 @@ def _getfirstsigdigit(number):
     """Given a float between < 1, determine the position of first non-zero
        digit.
     """
+    if number >= 1:
+        return 0
     num_digits = 1
     while ('%f' % number).split('.')[1][num_digits-1] == '0':
         num_digits += 1
