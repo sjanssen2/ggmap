@@ -567,7 +567,7 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, reference=None, stopdecomposition=None,
+def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
          ppn=10, pmem='20GB', walltime='12:00:00',
          **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
@@ -583,21 +583,28 @@ def sepp(counts, reference=None, stopdecomposition=None,
         Valid values are ['pynast']. Use a different alignment file for SEPP.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+    chunksize: int
+        Default: 30000
+        SEPP jobs seem to fail if too many sequences are submitted per job.
+        Therefore, we can split your sequences in chunks of chunksize.
 
     Returns
     -------
     ???"""
     def pre_execute(workdir, args):
-        # write all deblur sequences into one file
-        file_fragments = workdir + '/sequences.mfa'
-        f = open(file_fragments, 'w')
-        if type(args['seqs']) == pd.Series:
-            for header, sequence in args['seqs'].iteritems():
+        chunks = range(0, seqs.shape[0], args['chunksize'])
+        if len(chunks) > 1:
+            sys.stderr.write(
+                ('warning: input will be chunked, i.e. result will be '
+                 'several trees. Not useful for phylogenetic metrices!\n'))
+        for chunk, i in enumerate(chunks):
+            # write all deblur sequences into one file per chunk
+            file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
+            f = open(file_fragments, 'w')
+            chunk_seqs = seqs.iloc[i:i + args['chunksize']]
+            for header, sequence in chunk_seqs.iteritems():
                 f.write('>%s\n%s\n' % (header, sequence))
-        else:
-            for sequence in args['seqs']:
-                f.write('>%s\n%s\n' % (sequence, sequence))
-        f.close()
+            f.close()
 
     def commands(workdir, ppn, args):
         commands = []
@@ -608,45 +615,52 @@ def sepp(counts, reference=None, stopdecomposition=None,
         sdcomp = ''
         if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
-        commands.append('%srun-sepp.sh "%s" res -x %i %s %s' % (
+        commands.append('%srun-sepp.sh "%s" res${PBS_ARRAYID} -x %i %s %s' % (
             '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
-            workdir+'/sequences.mfa',
+            workdir+'/sequences${PBS_ARRAYID}.mfa',
             ppn,
             ref,
             sdcomp))
         return commands
 
     def post_execute(workdir, args, pre_data):
-        # read the resuling insertion tree as an skbio TreeNode object
-        tree = TreeNode.read(workdir+'/res_placement.tog.relabelled.tre')
+        trees = []
+        for file_tree in next(os.walk(workdir))[2]:
+            if 'placement.tog.relabelled.tre' in file_tree:
+                # read the resuling insertion tree as an skbio TreeNode object
+                trees.append(TreeNode.read(workdir+'/'+file_tree))
 
         # use the phylogeny to determine tips lineage
         lineages = []
         features = []
-        for i, tip in enumerate(tree.tips()):
-            if tip.name.isdigit():
-                continue
+        for tree in trees:
+            for i, tip in enumerate(tree.tips()):
+                if tip.name.isdigit():
+                    continue
 
-            lineage = []
-            for ancestor in tip.ancestors():
-                try:
-                    float(ancestor.name)
-                except TypeError:
-                    pass
-                except ValueError:
-                    lineage.append(ancestor.name)
+                lineage = []
+                for ancestor in tip.ancestors():
+                    try:
+                        float(ancestor.name)
+                    except TypeError:
+                        pass
+                    except ValueError:
+                        lineage.append(ancestor.name)
 
-            lineages.append("; ".join(reversed(lineage)))
-            features.append(tip.name)
+                lineages.append("; ".join(reversed(lineage)))
+                features.append(tip.name)
 
         # storing tree as newick string is necessary since large trees would
         # result in too many recursions for the python heap :-/
-        newick = StringIO()
-        tree.write(newick)
+        newicks = []
+        for tree in trees:
+            newick = StringIO()
+            tree.write(newick)
+            newicks.append(newick.getvalue())
         return {'taxonomy': pd.DataFrame(data=lineages,
                                          index=features,
                                          columns=['taxonomy']),
-                'tree': newick.getvalue(),
+                'trees': newicks,
                 'reference': args['reference']}
 
     inp = sorted(counts.index)
@@ -657,11 +671,18 @@ def sepp(counts, reference=None, stopdecomposition=None,
         inp = counts.sort_index()
 
     def post_cache(cache_results):
-        cache_results['tree'] = TreeNode.read(StringIO(cache_results['tree']))
+        newicks = []
+        for tree in cache_results['trees']:
+            newicks.append(TreeNode.read(StringIO(tree)))
+        cache_results['trees'] = newicks
         return cache_results
 
-    args = {'seqs': inp,
-            'reference': reference}
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp)
+    args = {'seqs': seqs,
+            'reference': reference,
+            'chunksize': chunksize}
     if stopdecomposition is not None:
         args['stopdecomposition'] = stopdecomposition
     return _executor('sepp',
@@ -670,6 +691,7 @@ def sepp(counts, reference=None, stopdecomposition=None,
                      commands,
                      post_execute,
                      ppn=ppn, pmem=pmem, walltime=walltime,
+                     array=len(range(0, seqs.shape[0], chunksize)),
                      **executor_args)
 
 
@@ -783,7 +805,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True, timing=True, verbose=True):
+              wait=True, timing=True, verbose=True, array=1):
     """
 
     Parameters
@@ -831,6 +853,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     verbose : bool
         Default: True
         If True, report progress on sys.stderr.
+    array : int
+        Default: 1 = deactivated.
+        Only for Torque submits: make the job an array job.
+        You need to take care of correct use of ${PBS_JOBID} !
 
     Returns
     -------
@@ -879,9 +905,15 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                     for x in os.walk(dir_tmp)
                     # shares same cache signature:
                     if results['file_cache'].split('/')[-1] in x[2]]
-    finished_workdirs = [wd
-                         for wd in pot_workdirs
-                         if os.path.exists(wd+'/finished.info')]
+    finished_workdirs = []
+    for wd in pot_workdirs:
+        all_finished = True
+        for i in range(array):
+            if not os.path.exists(wd+'/finished.info%i' % (i+1)):
+                all_finished = False
+                break
+        if all_finished:
+            finished_workdirs.append(wd)
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
         if verbose:
             sys.stderr.write(
@@ -915,7 +947,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s' % (results['workdir'], FILE_STATUS))
+        lst_commands.append('touch %s/%s${PBS_ARRAYID}' %
+                            (results['workdir'], FILE_STATUS))
         if not use_grid:
             if dry:
                 if verbose:
@@ -923,7 +956,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 return results
             if timing:
                 _add_timing_cmds(lst_commands,
-                                 results['workdir']+'/timing.txt')
+                                 results['workdir'] +
+                                 '/timing${PBS_ARRAYID}.txt')
             with subprocess.Popen("source activate %s && %s" %
                                   (environment, " && ".join(lst_commands)),
                                   shell=True,
@@ -943,7 +977,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 environment, ppn=ppn, wait=wait, dry=dry,
                 pmem=pmem, walltime=walltime,
                 file_qid=results['workdir']+'/cluster_job_id.txt',
-                timing=timing, file_timing=results['workdir']+'/timing.txt')
+                timing=timing,
+                file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
+                array=array)
             if dry:
                 return results
             if wait is False:
@@ -954,14 +990,17 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                       pre_data)
     results['created_on'] = datetime.datetime.fromtimestamp(
         time.time()).strftime('%Y-%m-%d %H:%M:%S')
-    if os.path.exists(results['workdir']+'/timing.txt'):
-        with open(results['workdir']+'/timing.txt', 'r') as content_file:
-            results['timing'] = content_file.readlines()
 
-    if results['results'] is not None:
-        shutil.rmtree(results['workdir'])
-        if verbose:
-            sys.stderr.write(" Was removed.\n")
+    results['timing'] = []
+    for timingfile in next(os.walk(results['workdir']))[2]:
+        if timingfile.startswith('timing'):
+            with open(results['workdir']+'/'+timingfile, 'r') as content_file:
+                results['timing'] += content_file.readlines()
+
+    # if results['results'] is not None:
+    #     shutil.rmtree(results['workdir'])
+    #     if verbose:
+    #         sys.stderr.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
     f = open(results['file_cache'], 'wb')
