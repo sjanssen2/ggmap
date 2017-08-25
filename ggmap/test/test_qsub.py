@@ -46,6 +46,7 @@ class QsubTests(TestCase):
 #SBATCH --cpus-per-task=10
 #SBATCH --mem-per-cpu=8GB
 #SBATCH --time=0-4:0
+#SBATCH --array=1-1
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=sjanssen@ucsd.edu
 
