@@ -113,7 +113,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
             file_pynast_alignment.split('/')[-1]))
 
     # load OTU map
-    otumap = read_otumap(file_otumap)[0]
+    (otumap, seqinfo) = read_otumap(file_otumap)
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
     if onlyrepr is False:
@@ -156,8 +156,10 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         if len(fragment) >= frg_expected_length:
             if len(fragment) > frg_expected_length:
                 num_frags_toolong += 1
-            fragments.append({'sequence': str(fragment)[:frg_expected_length],
-                              'OTUID': fragment_gapped.metadata['id']})
+            fragments.append({
+                'sequence': str(fragment)[:frg_expected_length],
+                'seqID': fragment_gapped.metadata['id'],
+                'otuID': seqinfo.loc[fragment_gapped.metadata['id']]})
     if verbose:
         out.write(("% 8i fragments with ungapped length >= %int. "
                    "Surprise: %i fragments are too short and %i fragments "
@@ -182,8 +184,8 @@ def add_mutations(fragments,
 
     Parameters
     ----------
-    fragments : [{'OTUID': str, 'sequence': str}]
-        A list of dicts holding OTUID and sequence.
+    fragments : [{'seqID': str, 'sequence': str, 'otuID': str}]
+        A list of dicts holding seqID, otuID and sequence.
         E.g. result of load_sequences_pynast()
     max_mutations : int
         Default 10.
@@ -202,10 +204,14 @@ def add_mutations(fragments,
 
     Returns
     -------
-    [{'OTUIDs': [str], 'sequence': str, 'num_pointmutations': int}]
+    [{'seqIDs': [str],
+      'otuIDs': [str],
+      'sequence': str,
+      'num_pointmutations': int}]
     A list of dicts, where every dict holds a fragment which consists of the
     three key-value pairs:
-    - 'OTUIDs': a list of OTU IDs this fragment belongs to,
+    - 'seqIDs': the list of sequence IDs this fragment belongs to,
+    - 'otuIDs': a list of OTU IDs this fragment belongs to,
     - 'sequence': the fragment sequence with X point mutations,
                   where X is num_pointmutations
     - 'num_pointmutations': number of introduced point mutations
@@ -230,7 +236,12 @@ def add_mutations(fragments,
     for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
         for num_mutations in range(0, max_mutations+1):
             frgs.append({'sequence': mutate_sequence(sequence, num_mutations),
-                         'OTUIDs': row['OTUID'],
+                         'seqIDs': row['seqID'],
+                         'otuIDs': sorted(list(set(row['otuID']))),
+                         'num_non-representative-seqs':
+                         len(set(row['seqID']) - set(row['otuID'])),
+                         'only_repr._sequences':
+                         len(set(row['seqID']) - set(row['otuID'])) == 0,
                          'num_pointmutations': num_mutations})
         if verbose:
             if i % divisor == 0:
