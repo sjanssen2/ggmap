@@ -6,6 +6,7 @@ from itertools import repeat, chain
 import numpy as np
 import matplotlib.patches as mpatches
 from matplotlib.font_manager import FontProperties
+import matplotlib.ticker as ticker
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -1216,6 +1217,30 @@ def _getfirstsigdigit(number):
     return num_digits
 
 
+def groups_is_significant(group_infos, pthresh=0.05):
+    """Checks if a network has significantly different groups.
+
+    Parameters
+    ----------
+    group_infos : dict()
+        result of a detect_distant_groups() run
+    pthresh : float
+        The maximal p-value of a group difference to be considered significant.
+        It will be corrected for multiple hypothesis testing in a naive way,
+        i.e. by dividing with number of all pairwise groups.
+
+    Returns
+    -------
+    Boolean.
+    """
+    numComp = len(list(combinations(group_infos['n_per_group'].keys(), 2)))
+    for a in group_infos['network'].keys():
+        for b in group_infos['network'][a].keys():
+            if group_infos['network'][a][b]['p-value'] <= pthresh / numComp:
+                return True
+    return False
+
+
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                        metric_name, group_name, pthresh=0.05, _type='beta',
                        draw_edgelabel=False, ax=None):
@@ -1516,6 +1541,8 @@ def mutate_sequence(sequence, num_mutations=1,
     return mut_sequence
 
 
+
+
 def cache(func):
     """Decorator: Cache results of a function call to disk.
 
@@ -1611,3 +1638,241 @@ def cache(func):
     # restore wrapped function name
     execute.__name__ = func_name
     return execute
+
+
+def _map_metadata_calout(metadata, calour_experiment, field):
+    """ Calour reads a metadata TSV not as dtype=str, therefore certain values change :-("""
+    _mapped_meta = pd.concat([metadata[field],
+                              calour_experiment.sample_metadata[field]],
+                             axis=1).dropna()
+    _mapped_meta.columns = ['meta', 'calour']
+    _map = dict()
+    for value_metadata in _mapped_meta['meta'].unique():
+        values_calour = _mapped_meta[_mapped_meta['meta'] == value_metadata]['calour'].unique()
+        if len(values_calour) > 1:
+            raise ValueError('More than one value map!!')
+        _map[value_metadata] = values_calour[0]
+    return _map
+
+
+def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
+                            out=sys.stdout):
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    metadata : pd.DataFrame
+        metadata for samples. Cannot use calour sample_metadata due to internal
+        datatype casts, e.g. int might become floats.
+    field : str
+        The metadata column along which samples should be separated and tested
+        for differentially abundant taxa.
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+
+    ns = metadata[field].value_counts()
+    e = calour_experiment.filter_ids(metadata.index, axis='s')
+    _map_values = _map_metadata_calout(metadata, e, field)
+    for (a, b) in combinations(ns.index, 2):
+        ediff = e.diff_abundance(field, _map_values[a], _map_values[b], fdr_method='dsfdr')
+        out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
+                  % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
+        if ediff.feature_metadata.shape[0] > 0:
+            if (a, b) not in diffTaxa:
+                diffTaxa[(a, b)] = dict()
+            for taxon in ediff.feature_metadata.index:
+                if taxon not in diffTaxa[(a, b)]:
+                    diffTaxa[(a, b)][taxon] = 0
+                diffTaxa[(a, b)][taxon] += 1
+
+    return diffTaxa
+
+
+def _find_diff_taxa_singlelevel(calour_experiment, metadata,
+                                groups, diffTaxa=None,
+                                out=sys.stdout):
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata group of fields, i.e. samples are controlled for the first :-1
+       fields and abundance is checked for the latest field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    metadata : pd.DataFrame
+        metadata for samples. Cannot use calour sample_metadata due to internal
+        datatype casts, e.g. int might become floats.
+    groups : [str]
+        The metadata columns for which samples should be controlled (first n-1)
+        and along which samples should be separated and tested for
+        differentially abundant taxa (last)
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+
+    if len(groups) > 1:
+        e = calour_experiment.filter_ids(
+            metadata.index, inplace=False, axis='s')
+        for n, g in metadata.groupby(groups[:-1]):
+            name = n
+            if type(n) != tuple:
+                name = [n]
+            out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
+                      + ", ")
+            out.write("'%s'" % groups[-1])
+            out.write("  (n=%i)\n" % g.shape[0])
+
+            # filter samples for calour
+            e_filtered = e
+            for (field, value) in zip(groups, name):
+                _map_values = _map_metadata_calout(metadata, e, field)
+                if value in _map_values:
+                    e_filtered = e_filtered.filter_samples(field, [_map_values[value]], inplace=False)
+
+            diffTaxa = _find_diff_taxa_runpfdr(e_filtered, metadata, groups[-1], diffTaxa)
+    else:
+        out.write("'%s'" % groups[0])
+        out.write("  (n=%i)\n" % metadata.shape[0])
+        diffTaxa = _find_diff_taxa_runpfdr(
+            calour_experiment, metadata, groups[0], diffTaxa)
+
+    return diffTaxa
+
+
+def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None, out=sys.stdout):
+    # TODO: rephrase docstring
+    # TODO: unit tests for all three functions
+    # TODO: include calour in requirements
+    # TODO: fully drag calour into function and pass counts and metadata instead
+    """Finds differentially abundant taxa in a calour experiment for the given
+       metadata group of fields, i.e. samples are controlled for the first :-1
+       fields and abundance is checked for the latest field.
+
+    Parameters
+    ----------
+    calour_experiment : calour.experiment
+        The calour experiment, holding the OTU table and all metadata
+        information.
+    metadata : pd.DataFrame
+        metadata for samples. Cannot use calour sample_metadata due to internal
+        datatype casts, e.g. int might become floats.
+    groups : [str]
+        The metadata columns for which samples should be controlled (first n-1)
+        and along which samples should be separated and tested for
+        differentially abundant taxa (last)
+    diffTaxa : dict(dict())
+        A prefilled return object, for cases where we want to combine evidence.
+    out : StringIO
+        The strem onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+        A dict of dict. First level key are the pairs of field values between
+        which has been tested, second level is the taxon, value is number of
+        times this taxon found to be differentially abundant.
+    """
+    if diffTaxa is None:
+        diffTaxa = dict()
+
+    for i in range(len(groups)):
+        sub_groups = groups[len(groups)-i-1:]
+        diffTaxa = _find_diff_taxa_singlelevel(
+            calour_experiment, metadata, sub_groups, diffTaxa)
+        out.write("\n")
+
+    return diffTaxa
+
+
+def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abundance=0.01):
+    # normalize counts to abundances
+    counts /= counts.sum()
+
+    fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
+
+    for i, (a, b) in enumerate(diffTaxa.keys()):
+        counts_fields = []
+        foldchange = []
+        for value in [a, b]:
+            # select counts for diff taxa and samples for field
+            counts_val =\
+                counts.loc[diffTaxa[(a, b)].keys(),
+                           metadata_field[metadata_field == value].index]
+
+            counts_val = counts_val[counts_val.mean(axis=1) >= min_mean_abundance]
+            if counts_val.shape[0] <= 0:
+                print("Warnings: no taxa left!")
+            foldchange.append(counts_val)
+
+            counts_val.index.name = 'feature'
+            counts_val.columns.name = 'sample_id'
+            counts_val = counts_val.unstack().to_frame()
+            counts_val.reset_index(inplace=True)
+            counts_val.set_index('sample_id', inplace=True)
+            counts_val['group'] = value
+            counts_fields.append(counts_val)
+        counts_taxa = pd.concat(counts_fields, axis=0)
+        counts_taxa = counts_taxa.rename(columns={0: 'relative abundance'})
+
+        curr_ax = ax[0]
+        if len(diffTaxa) > 1:
+            curr_ax = ax[i][0]
+        feature_order = sorted(counts_taxa['feature'].unique())
+        g = sns.boxplot(data=counts_taxa,
+                        x='relative abundance',
+                        y='feature',
+                        order=feature_order,
+                        hue='group',
+                        ax=curr_ax, orient='h')
+        # g.set_xscale('log')
+        g.set_xlim((0, 1))
+
+        curr_ax = ax[1]
+        if len(diffTaxa) > 1:
+            curr_ax = ax[i][1]
+        foldchange = np.log(foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
+        foldchange = foldchange.loc[feature_order]
+        foldchange = foldchange.to_frame().reset_index()
+        # return foldchange
+        # feature_order = foldchange.sort_index().index
+        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h', ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
+        g.set_ylabel('')
+        g.set(yticklabels=taxonomy.loc[feature_order].apply(lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
+        g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
+        g.yaxis.tick_right()
+        plt.suptitle(metadata_field.name)
+
+        #print()
+        #return foldchange
+    return fig
+    # return foldchange
