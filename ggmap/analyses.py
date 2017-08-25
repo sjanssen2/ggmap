@@ -606,7 +606,7 @@ def sepp(counts, reference=None, stopdecomposition=None,
         if args['reference'] is not None:
             ref = ' -r %s' % args['reference']
         sdcomp = ''
-        if args['stopdecomposition'] is not None:
+        if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
         commands.append('%srun-sepp.sh "%s" res -x %i %s %s' % (
             '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',

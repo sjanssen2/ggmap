@@ -64,7 +64,7 @@ def read_otumap(file_otumap):
 @cache
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
-                          verbose=True, out=sys.stdout):
+                          verbose=True, out=sys.stdout, onlyrepr=False):
     """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
@@ -88,6 +88,9 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         If True, print some info on stdout.
     out : StringIO
         Buffer onto which messages should be written. Default is sys.stdout.
+    onlyrepr : bool
+        Default: False.
+        If True, only fragments from representative sequences are returned.
 
     Returns
     -------
@@ -113,8 +116,9 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     otumap = read_otumap(file_otumap)[0]
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
-    # all non-representative seq IDs
-    seqids_to_use += [seqid for otu in otumap.values for seqid in otu]
+    if onlyrepr is False:
+        # all non-representative seq IDs
+        seqids_to_use += [seqid for otu in otumap.values for seqid in otu]
     if verbose:
         out.write("% 8i sequences in OTU map '%s'\n" % (
             len(seqids_to_use),
@@ -297,13 +301,18 @@ def _measure_distance_single(seppresults, seqinfo,
                 dist = min(dists)
             else:
                 raise ValueError('not a valid value for _type!')
-            xx.append({'distance': dist,
-                       'num_otus': len(trueOTUids),
-                       'num_mutations':
-                       int(fragment.name.split(';')[1].split(':')[-1]),
-                       'fragment': fragment.name,
-                       'num_non-representative-seqs':
-                       len(set(seqids) - set(trueOTUids))})
+            xx.append({
+                'distance': dist,
+                'num_otus': len(trueOTUids),
+                'true_otus': ",".join(trueOTUids),
+                'num_mutations':
+                int(fragment.name.split(';')[1].split(':')[-1]),
+                'fragment': fragment.name,
+                'num_non-representative-seqs':
+                len(set(seqids) - set(trueOTUids)),
+                'only repr. sequences':
+                len(set(seqids) - set(trueOTUids)) == 0,
+                })
         if verbose:
             if j % max(1, int(treesize/10)) == 0:
                 err.write('.')
