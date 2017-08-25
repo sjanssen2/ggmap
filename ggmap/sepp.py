@@ -255,75 +255,66 @@ def add_mutations(fragments,
     return frgs
 
 
-def _measure_distance_single(seppresults, seqinfo,
-                             err=sys.stderr, verbose=True, _type='lca'):
+def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
+    # TODO: replace np.inf by np.nan
+    # TODO: use header encoded information instead of seqinfo and .loc
     """Computes insertion distance error for given sepp results.
 
     Parameters
     ----------
-    seppresults : analyses.sepp['results']
-        Results of a SEPP run, i.e. resulting tree.
-    seqinfo : read_otumap[1] as pd.Series
-        Reverse OTU map, i.e. list OTU for every sequence
+    seppresults : analyses.sepp['results']['trees'][x]
+        One SEPP insertion tree.
     err : StringIO
         Default: sys.stderr
         Buffer onto which status information shall be written.
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
-    _type : str
-        Default: 'lca'
-        If 'lca': Distance is the path length between the inserted fragment
-        and the lowest common anchestor of all true OTUs.
-        If 'closest': Distance is the path length between the inserted fragment
-        and the closest true OTU.
 
     Returns
     -------
     Pandas.DataFrame:
     distance, num_otus, num_mutations, fragment, num_non-representative-seqs
+    If 'lca': Distance is the path length between the inserted fragment
+    and the lowest common anchestor of all true OTUs.
+    If 'closest': Distance is the path length between the inserted fragment
+    and the closest true OTU.
     """
     if verbose:
         err.write('read tree...')
-    tree = TreeNode.read(StringIO(seppresults['tree']))
+    tree = TreeNode.read(StringIO(seppresults))
     if verbose:
         err.write('OK: ')
     xx = []
     treesize = tree.count(tips=True)
     for j, fragment in enumerate(tree.tips()):
         if fragment.name.startswith('otuid'):
-            seqids = fragment.name.split(';')[0].split(':')[-1].split(',')
-            trueOTUids = list(seqinfo.loc[seqids].unique())
+            # >seqIDs:1000017;otuIDs:95093;num_pointmutations:0;num_non-repres
+            #  entative-seqs:1;only_repr._sequences:False
+            seq_data = {kv[0]: kv[1]
+                        for part in fragment.name.split(";")
+                        for kv in part.split(':')}
+            trueOTUids = seq_data['otuIDs'].split(',')
 
-            if _type == 'lca':
-                node_lca = tree.lca(trueOTUids)
-                dist = np.infty
+            # metric: 'lca':
+            node_lca = tree.lca(trueOTUids)
+            try:
+                dist_lca = node_lca.distance(fragment)
+            except NoLengthError:
+                dist_lca = np.nan
+
+            # metric: closest:
+            dists = []
+            for trueOTU in trueOTUids:
                 try:
-                    dist = node_lca.distance(fragment)
+                    dists.append(tree.find(trueOTU).distance(fragment))
                 except NoLengthError:
-                    pass
-            elif _type == 'closest':
-                dists = [np.infty]
-                for trueOTU in trueOTUids:
-                    try:
-                        dists.append(tree.find(trueOTU).distance(fragment))
-                    except NoLengthError:
-                        pass
-                dist = min(dists)
-            else:
-                raise ValueError('not a valid value for _type!')
-            xx.append({
-                'distance': dist,
-                'num_otus': len(trueOTUids),
-                'true_otus': ",".join(trueOTUids),
-                'num_mutations':
-                int(fragment.name.split(';')[1].split(':')[-1]),
-                'fragment': fragment.name,
-                'num_non-representative-seqs':
-                len(set(seqids) - set(trueOTUids)),
-                'only repr. sequences':
-                len(set(seqids) - set(trueOTUids)) == 0,
-                })
+                    dists.append(np.nan)
+            dist_closest = min(dists)
+
+            seq_data['distance_lca'] = dist_lca
+            seq_data['distance_closest'] = dist_closest
+            xx.append(seq_data)
         if verbose:
             if j % max(1, int(treesize/10)) == 0:
                 err.write('.')
@@ -333,42 +324,32 @@ def _measure_distance_single(seppresults, seqinfo,
 
 
 @cache
-def measure_distance(sepp_results, filename_otumap,
-                     err=sys.stderr, verbose=True, _type='lca'):
+def measure_distance(sepp_results,
+                     err=sys.stderr, verbose=True):
     """Computes SEPP insertion distance of fragments to true nodes.
 
     Parameters
     ----------
     sepp_results : [analyses.sepp['results']]
         A list of results of a SEPP run, i.e. resulting tree.
-    filename_otumap : str
-        Pathname to GreenGenes OTU map.
     err : StringIO
         Default: sys.stderr
         Buffer onto which status information shall be written.
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
-    _type : str
-        Default: 'lca'
-        If 'lca': Distance is the path length between the inserted fragment
-        and the lowest common anchestor of all true OTUs.
-        If 'closest': Distance is the path length between the inserted fragment
-        and the closest true OTU.
 
     Returns
     -------
     Pandas.DataFrame:
     distance, num_otus, num_mutations, fragment, num_non-representative-seqs
     """
-    (otumap, seqinfo) = read_otumap(filename_otumap)
     d = []
     for i, r in enumerate(sepp_results):
         if verbose:
             err.write('part %i/%i: ' % (i+1, len(sepp_results)))
-        d.append(_measure_distance_single(r, seqinfo,
-                                          err=err, verbose=verbose,
-                                          _type=_type))
+        d.append(_measure_distance_single(r,
+                                          err=err, verbose=verbose))
     return pd.concat(d)
 
 
