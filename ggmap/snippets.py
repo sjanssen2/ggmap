@@ -1075,8 +1075,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                                 "%s/qstat %s" %
                                 (gebin, qid.replace('[]', '[%i]' % (i+1))),
                                 shell=True)
-                            poll_stati.append(p != 0)
-                        if all(poll_stati):
+                            poll_stati.append(p == 0)
+                        if any(poll_stati):
                             poll_status = 0
                         else:
                             poll_status = 127  # some number != 0
