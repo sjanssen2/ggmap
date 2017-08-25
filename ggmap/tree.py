@@ -254,7 +254,9 @@ def _get_otus_from_clade(metaphlan_clade, tree_metaphlan, attr_metaphlan,
 
 
 def distance_seppinsertion(tree_orig, tree_changed,
-                           nodename_orig, nodename_changed):
+                           nodename_orig, nodename_changed=None):
+    if nodename_changed is None:
+        nodename_changed = nodename_orig
     node_orig = tree_orig.find(nodename_orig)
     node_changed = tree_changed.find(nodename_changed)
 
