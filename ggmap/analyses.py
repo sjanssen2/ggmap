@@ -997,10 +997,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             with open(results['workdir']+'/'+timingfile, 'r') as content_file:
                 results['timing'] += content_file.readlines()
 
-    # if results['results'] is not None:
-    #     shutil.rmtree(results['workdir'])
-    #     if verbose:
-    #         sys.stderr.write(" Was removed.\n")
+    if results['results'] is not None:
+        shutil.rmtree(results['workdir'])
+        if verbose:
+            sys.stderr.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
     f = open(results['file_cache'], 'wb')
