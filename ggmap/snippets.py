@@ -6,7 +6,6 @@ from itertools import repeat, chain
 import numpy as np
 import matplotlib.patches as mpatches
 from matplotlib.font_manager import FontProperties
-import matplotlib.ticker as ticker
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -1541,8 +1540,6 @@ def mutate_sequence(sequence, num_mutations=1,
     return mut_sequence
 
 
-
-
 def cache(func):
     """Decorator: Cache results of a function call to disk.
 
@@ -1641,14 +1638,16 @@ def cache(func):
 
 
 def _map_metadata_calout(metadata, calour_experiment, field):
-    """ Calour reads a metadata TSV not as dtype=str, therefore certain values change :-("""
+    """Calour reads a metadata TSV not as dtype=str,
+       therefore certain values change :-("""
     _mapped_meta = pd.concat([metadata[field],
                               calour_experiment.sample_metadata[field]],
                              axis=1).dropna()
     _mapped_meta.columns = ['meta', 'calour']
     _map = dict()
     for value_metadata in _mapped_meta['meta'].unique():
-        values_calour = _mapped_meta[_mapped_meta['meta'] == value_metadata]['calour'].unique()
+        values_calour = _mapped_meta[
+            _mapped_meta['meta'] == value_metadata]['calour'].unique()
         if len(values_calour) > 1:
             raise ValueError('More than one value map!!')
         _map[value_metadata] = values_calour[0]
@@ -1692,7 +1691,10 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
     e = calour_experiment.filter_ids(metadata.index, axis='s')
     _map_values = _map_metadata_calout(metadata, e, field)
     for (a, b) in combinations(ns.index, 2):
-        ediff = e.diff_abundance(field, _map_values[a], _map_values[b], fdr_method='dsfdr')
+        ediff = e.diff_abundance(field,
+                                 _map_values[a],
+                                 _map_values[b],
+                                 fdr_method='dsfdr')
         out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
                   % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
@@ -1758,9 +1760,13 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             for (field, value) in zip(groups, name):
                 _map_values = _map_metadata_calout(metadata, e, field)
                 if value in _map_values:
-                    e_filtered = e_filtered.filter_samples(field, [_map_values[value]], inplace=False)
+                    e_filtered = e_filtered.filter_samples(
+                        field, [_map_values[value]], inplace=False)
 
-            diffTaxa = _find_diff_taxa_runpfdr(e_filtered, metadata, groups[-1], diffTaxa)
+            diffTaxa = _find_diff_taxa_runpfdr(e_filtered,
+                                               metadata,
+                                               groups[-1],
+                                               diffTaxa)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
@@ -1770,11 +1776,12 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
     return diffTaxa
 
 
-def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None, out=sys.stdout):
+def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
+                   out=sys.stdout):
     # TODO: rephrase docstring
     # TODO: unit tests for all three functions
     # TODO: include calour in requirements
-    # TODO: fully drag calour into function and pass counts and metadata instead
+    # TODO: fully drag calour into function and pass counts and metadata instea
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata group of fields, i.e. samples are controlled for the first :-1
        fields and abundance is checked for the latest field.
@@ -1814,7 +1821,8 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None, out=sys.s
     return diffTaxa
 
 
-def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abundance=0.01):
+def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
+                   min_mean_abundance=0.01):
     # normalize counts to abundances
     counts /= counts.sum()
 
@@ -1829,7 +1837,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abu
                 counts.loc[diffTaxa[(a, b)].keys(),
                            metadata_field[metadata_field == value].index]
 
-            counts_val = counts_val[counts_val.mean(axis=1) >= min_mean_abundance]
+            counts_val = counts_val[
+                counts_val.mean(axis=1) >= min_mean_abundance]
             if counts_val.shape[0] <= 0:
                 print("Warnings: no taxa left!")
             foldchange.append(counts_val)
@@ -1860,19 +1869,19 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None, min_mean_abu
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
-        foldchange = np.log(foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
+        foldchange = np.log(
+            foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
         foldchange = foldchange.loc[feature_order]
         foldchange = foldchange.to_frame().reset_index()
         # return foldchange
         # feature_order = foldchange.sort_index().index
-        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h', ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
+        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h',
+                        ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
         g.set_ylabel('')
-        g.set(yticklabels=taxonomy.loc[feature_order].apply(lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
+        g.set(yticklabels=taxonomy.loc[feature_order].apply(
+            lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
         g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
         g.yaxis.tick_right()
         plt.suptitle(metadata_field.name)
 
-        #print()
-        #return foldchange
     return fig
-    # return foldchange
