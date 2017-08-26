@@ -899,7 +899,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
                 file_qid=None, slurm=False, out=sys.stdout, err=sys.stderr,
-                timing=False, file_timing=None):
+                timing=False, file_timing=None, array=1):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -948,6 +948,11 @@ def cluster_run(cmds, jobname, result, environment=None,
     file_timing : str
         Default: None
         Define filepath into which timeing information shall be written.
+    array : int
+        Default: 1
+        If > 1 than an array job is submitted. Make sure in- and outputs can
+        deal with ${PBS_ARRAYID}!
+        Only available for Torque.
 
     Returns
     -------
@@ -992,8 +997,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         if ppn * int(pmem[:-2]) > 250:
             highmem = ':highmem'
         ge_cmd = (("%s/qsub -d '%s' -V -l "
-                   "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s") %
-                  (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname))
+                   "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
+                  (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
+                   array))
         full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
     else:
         slurm_script = "#!/bin/bash\n\n"
@@ -1004,6 +1010,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
         slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
         slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(walltime)
+        slurm_script += '#SBATCH --array=1-%i\n' % array
         slurm_script += '#SBATCH --mail-type=END,FAIL\n'
         slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
         slurm_script += 'srun uname -a\n'
@@ -1062,8 +1069,17 @@ def cluster_run(cmds, jobname, result, environment=None,
                         else:
                             poll_status = 1
                     else:
-                        poll_status = subprocess.call(
-                            "%s/qstat %s" % (gebin, qid), shell=True)
+                        poll_stati = []
+                        for i in range(array):
+                            p = subprocess.call(
+                                "%s/qstat %s" %
+                                (gebin, qid.replace('[]', '[%i]' % (i+1))),
+                                shell=True)
+                            poll_stati.append(p == 0)
+                        if any(poll_stati):
+                            poll_status = 0
+                        else:
+                            poll_status = 127  # some number != 0
                     if (poll_status != 0) and job_ever_seen:
                         err.write(' finished.')
                         break

@@ -246,6 +246,8 @@ def add_mutations(fragments,
 
 def _measure_distance_single(seppresults, seqinfo,
                              err=sys.stderr, verbose=True, _type='lca'):
+    # TODO: replace np.inf by np.nan
+    # TODO: use header encoded information instead of seqinfo and .loc
     """Computes insertion distance error for given sepp results.
 
     Parameters
