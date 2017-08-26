@@ -288,12 +288,13 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
     xx = []
     treesize = tree.count(tips=True)
     for j, fragment in enumerate(tree.tips()):
-        if fragment.name.startswith('otuid'):
+        if fragment.name.startswith('seqIDs:'):
             # >seqIDs:1000017;otuIDs:95093;num_pointmutations:0;num_non-repres
             #  entative-seqs:1;only_repr._sequences:False
-            seq_data = {kv[0]: kv[1]
-                        for part in fragment.name.split(";")
-                        for kv in part.split(':')}
+            seq_data = {}
+            for part in fragment.name.split(";"):
+                kv = part.split(':')
+                seq_data[kv[0]] = kv[1]
             trueOTUids = seq_data['otuIDs'].split(',')
 
             # metric: 'lca':
