@@ -593,10 +593,6 @@ def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
     ???"""
     def pre_execute(workdir, args):
         chunks = range(0, seqs.shape[0], args['chunksize'])
-        if len(chunks) > 1:
-            sys.stderr.write(
-                ('warning: input will be chunked, i.e. result will be '
-                 'several trees. Not useful for phylogenetic metrices!\n'))
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
             file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
@@ -624,43 +620,99 @@ def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
         return commands
 
     def post_execute(workdir, args, pre_data):
-        trees = []
-        for file_tree in next(os.walk(workdir))[2]:
-            if 'placement.tog.relabelled.tre' in file_tree:
-                # read the resuling insertion tree as an skbio TreeNode object
-                trees.append(TreeNode.read(workdir+'/'+file_tree))
+        files_placement = sorted(
+            [workdir + '/' + file_placement
+             for file_placement in next(os.walk(workdir))[2]
+             if file_placement.endswith('_placement.json')])
+        if len(files_placement) > 1:
+            file_mergedplacements = workdir + '/merged_placements.json'
+            if not os.path.exists(file_mergedplacements):
+                sys.stderr.write("step 1) merging placement files: ")
+                fout = open(file_mergedplacements, 'w')
+                for i, file_placement in enumerate(files_placement):
+                    sys.stderr.write('.')
+                    fin = open(file_placement, 'r')
+                    write = i == 0
+                    for line in fin.readlines():
+                        if '"placements": [{' in line:
+                            write = True
+                            if i != 0:
+                                continue
+                        if '}],' in line:
+                            write = i+1 == len(files_placement)
+                        if write is True:
+                            fout.write(line)
+                    fin.close()
+                    if i+1 != len(files_placement):
+                        fout.write('    },\n')
+                        fout.write('    {\n')
+                fout.close()
+                sys.stderr.write(' done.\n')
 
-        # use the phylogeny to determine tips lineage
+            sys.stderr.write("step 2) placing fragments into tree: ...")
+            # guppy ran for: and consumed 45 GB of memory for 2M, chunked 10k
+            # sepp benchmark:
+            # real	37m39.772s
+            # user	31m3.906s
+            # sys	3m49.602s
+            file_merged_tree = file_mergedplacements[:-5] +\
+                '.tog.relabelled.tre'
+            cluster_run([
+                'cd %s' % workdir,
+                '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/'
+                'sepp/.sepp/bundled-v4.3.0/guppy tog %s' %
+                file_mergedplacements,
+                'cat %s | python %s > %s' % (
+                    file_mergedplacements,  # .replace('.json', '.tog.tre'),
+                    files_placement[0].replace('placement.json',
+                                               'rename-json.py'),
+                    file_merged_tree)],
+                environment='seppGG_py3',
+                jobname='guppy_rename',
+                result=file_merged_tree,
+                ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
+                wait=True)
+            sys.stderr.write(' done.\n')
+        else:
+            file_merged_tree = files_placement[0].replace(
+                '.json', '.tog.relabelled.tre')
+
+        sys.stderr.write("step 3) reading skbio tree: ...")
+        tree = TreeNode.read(file_merged_tree)
+        sys.stderr.write(' done.\n')
+
+        sys.stderr.write("step 4) use the phylogeny to det"
+                         "ermine tips lineage: ")
         lineages = []
         features = []
-        for tree in trees:
-            for i, tip in enumerate(tree.tips()):
-                if tip.name.isdigit():
-                    continue
+        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
+        for i, tip in enumerate(tree.tips()):
+            if i % divisor == 0:
+                sys.stderr.write('.')
+            if tip.name.isdigit():
+                continue
 
-                lineage = []
-                for ancestor in tip.ancestors():
-                    try:
-                        float(ancestor.name)
-                    except TypeError:
-                        pass
-                    except ValueError:
-                        lineage.append(ancestor.name)
+            lineage = []
+            for ancestor in tip.ancestors():
+                try:
+                    float(ancestor.name)
+                except TypeError:
+                    pass
+                except ValueError:
+                    lineage.append(ancestor.name)
 
-                lineages.append("; ".join(reversed(lineage)))
-                features.append(tip.name)
+            lineages.append("; ".join(reversed(lineage)))
+            features.append(tip.name)
+        sys.stderr.write(' done.\n')
 
         # storing tree as newick string is necessary since large trees would
         # result in too many recursions for the python heap :-/
-        newicks = []
-        for tree in trees:
-            newick = StringIO()
-            tree.write(newick)
-            newicks.append(newick.getvalue())
+        newick = StringIO()
+        tree.write(newick)
         return {'taxonomy': pd.DataFrame(data=lineages,
                                          index=features,
                                          columns=['taxonomy']),
-                'trees': newicks,
+                'tree': newick.getvalue(),
                 'reference': args['reference']}
 
     inp = sorted(counts.index)
@@ -679,7 +731,7 @@ def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
 
     seqs = inp
     if type(inp) != pd.Series:
-        seqs = pd.Series(inp, index=inp)
+        seqs = pd.Series(inp, index=inp).sort_index()
     args = {'seqs': seqs,
             'reference': reference,
             'chunksize': chunksize}
