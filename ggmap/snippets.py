@@ -1768,8 +1768,8 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             name = n
             if type(n) != tuple:
                 name = [n]
-            out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
-                      + ", ")
+            out.write(", ".join(map(lambda x: "%s: %s" % x,
+                                    zip(groups, name))) + ", ")
             out.write("'%s'" % groups[-1])
             out.write("  (n=%i)\n" % g.shape[0])
 
@@ -1840,7 +1840,10 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
-                   min_mean_abundance=0.01):
+                   min_mean_abundance=0.01, title_suffix=""):
+    # add pseudocounts for foldchanges
+    counts += 1
+
     # normalize counts to abundances
     counts /= counts.sum()
 
@@ -1849,57 +1852,72 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     for i, (a, b) in enumerate(diffTaxa.keys()):
         counts_fields = []
         foldchange = []
-        for value in [a, b]:
+        for value in sorted([a, b]):
             # select counts for diff taxa and samples for field
-            counts_val =\
-                counts.loc[diffTaxa[(a, b)].keys(),
-                           metadata_field[metadata_field == value].index]
+            try:
+                counts_val =\
+                    counts.loc[diffTaxa[(a, b)].keys(),
+                               metadata_field[metadata_field == value].index]
 
-            counts_val = counts_val[
-                counts_val.mean(axis=1) >= min_mean_abundance]
-            if counts_val.shape[0] <= 0:
-                print("Warnings: no taxa left!")
-            foldchange.append(counts_val)
+                counts_val = counts_val[
+                    counts_val.mean(axis=1) >= min_mean_abundance]
+                if counts_val.shape[0] <= 0:
+                    print("Warnings: no taxa left!")
+                    break
+                foldchange.append(counts_val)
 
-            counts_val.index.name = 'feature'
-            counts_val.columns.name = 'sample_id'
-            counts_val = counts_val.unstack().to_frame()
-            counts_val.reset_index(inplace=True)
-            counts_val.set_index('sample_id', inplace=True)
-            counts_val['group'] = value
-            counts_fields.append(counts_val)
-        counts_taxa = pd.concat(counts_fields, axis=0)
-        counts_taxa = counts_taxa.rename(columns={0: 'relative abundance'})
+                counts_val.index.name = 'feature'
+                counts_val.columns.name = 'sample_id'
+                counts_val = counts_val.unstack().to_frame()
+                counts_val.reset_index(inplace=True)
+                counts_val.set_index('sample_id', inplace=True)
+                counts_val['group'] = value
+                counts_fields.append(counts_val)
+            except KeyError:
+                sys.stderr.write(
+                    'none of the features found in count table: %s\n' %
+                    ", ".join(list(diffTaxa[(a, b)].keys())))
+        if len(counts_fields) > 0:
+            counts_taxa = pd.concat(counts_fields, axis=0)
+            counts_taxa = counts_taxa.rename(columns={0: 'relative abundance'})
 
-        curr_ax = ax[0]
-        if len(diffTaxa) > 1:
-            curr_ax = ax[i][0]
-        feature_order = sorted(counts_taxa['feature'].unique())
-        g = sns.boxplot(data=counts_taxa,
-                        x='relative abundance',
-                        y='feature',
-                        order=feature_order,
-                        hue='group',
-                        ax=curr_ax, orient='h')
-        # g.set_xscale('log')
-        g.set_xlim((0, 1))
+            curr_ax = ax[0]
+            if len(diffTaxa) > 1:
+                curr_ax = ax[i][0]
+            feature_order = sorted(counts_taxa['feature'].unique())
+            g = sns.boxplot(data=counts_taxa,
+                            x='relative abundance',
+                            y='feature',
+                            order=feature_order,
+                            hue='group',
+                            ax=curr_ax, orient='h')
+            # g.set_xscale('log')
+            g.set_xlim((0, 1))
 
-        curr_ax = ax[1]
-        if len(diffTaxa) > 1:
-            curr_ax = ax[i][1]
-        foldchange = np.log(
-            foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
-        foldchange = foldchange.loc[feature_order]
-        foldchange = foldchange.to_frame().reset_index()
-        # return foldchange
-        # feature_order = foldchange.sort_index().index
-        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h',
-                        ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
-        g.set_ylabel('')
-        g.set(yticklabels=taxonomy.loc[feature_order].apply(
-            lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
-        g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
-        g.yaxis.tick_right()
-        plt.suptitle(metadata_field.name)
+            curr_ax = ax[1]
+            if len(diffTaxa) > 1:
+                curr_ax = ax[i][1]
+            foldchange = np.log(
+                foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
+            foldchange = foldchange.loc[feature_order]
+            foldchange = foldchange.to_frame().reset_index()
+            # return foldchange
+            # feature_order = foldchange.sort_index().index
+            g = sns.barplot(data=foldchange, x=0, y='feature', orient='h',
+                            ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
+            g.set_ylabel('')
+            g.set(yticklabels=taxonomy.loc[feature_order].apply(
+                lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
+            g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
+            g.yaxis.tick_right()
+        else:
+            for a in range(len(diffTaxa)+1):
+                curr_ax = ax[a]
+                curr_ax.text(0.5, 0.5,
+                             'no diff taxa found!',
+                             ha='center', va='center', fontsize=15)
+                curr_ax.axis('off')
+
+        plt.suptitle(metadata_field.name + title_suffix)
 
     return fig
