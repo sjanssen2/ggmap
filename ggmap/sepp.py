@@ -94,9 +94,15 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
 
     Returns
     -------
-    [{'OTUID': str, 'sequence': str}] A list of dicts holding OTUID and
-    sequence.
-    Note: sequences might come in duplicates, due to degapping.
+    A list of dicts with following information
+    [{'sequence': the nucleotide sequence
+      'seqIDs': GreenGenes sequence IDs that contain this fragment
+      'otuIDs': GreenGenes OTU IDs that fragment belongs to
+      'num_non-representative-seqs': number of sequences the fragment is
+                                     sub-sequence in, which are NOT used to
+                                     represent an OTU of GreenGenes 99%
+      'only_repr._sequences': True if num_non-representative-seqs==0
+      'num_pointmutations': number of artifically introduced point mutations}]
     """
     # load the full pynast GreenGenes alignment with
     # sequences=1261500 and position=7682
@@ -172,7 +178,29 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         # distribution plot. I checked with Daniel and we decided to omit
         # frgaments smaller than 150nt and timm all other to 150nt.
 
-    return fragments
+    # convert fragments into Pandas.DataFrame
+    fragments = pd.DataFrame(fragments)
+    if verbose:
+        out.write('% 8i fragments remaining.\n' % fragments.shape[0])
+    # group fragments by sequence and list true OTUids
+    unique_fragments = fragments.groupby('sequence').agg(lambda x:
+                                                         list(x.values))
+    if verbose:
+        out.write('% 8i unique fragments after collapsing by sequence.\n' %
+                  unique_fragments.shape[0])
+
+    frgs = []
+    for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
+        frgs.append({'sequence': sequence,
+                     'seqIDs': row['seqID'],
+                     'otuIDs': sorted(list(set(row['otuID']))),
+                     'num_non-representative-seqs':
+                     len(set(row['seqID']) - set(row['otuID'])),
+                     'only_repr._sequences':
+                     len(set(row['seqID']) - set(row['otuID'])) == 0,
+                     'num_pointmutations': 0})
+
+    return frgs
 
 
 @cache
@@ -184,9 +212,11 @@ def add_mutations(fragments,
 
     Parameters
     ----------
-    fragments : [{'seqID': str, 'sequence': str, 'otuID': str}]
+    fragments : [{'sequence', 'seqIDs', 'otuIDs',
+                  'num_non-representative-seqs', 'only_repr._sequences',
+                  'num_pointmutations'}]
         A list of dicts holding seqID, otuID and sequence.
-        E.g. result of load_sequences_pynast()
+        I.e. the result of load_sequences_pynast()
     max_mutations : int
         Default 10.
         Maximum number of point mutations introduced to fragment sequences.
@@ -204,45 +234,35 @@ def add_mutations(fragments,
 
     Returns
     -------
-    [{'seqIDs': [str],
-      'otuIDs': [str],
-      'sequence': str,
-      'num_pointmutations': int}]
-    A list of dicts, where every dict holds a fragment which consists of the
-    three key-value pairs:
-    - 'seqIDs': the list of sequence IDs this fragment belongs to,
-    - 'otuIDs': a list of OTU IDs this fragment belongs to,
-    - 'sequence': the fragment sequence with X point mutations,
-                  where X is num_pointmutations
-    - 'num_pointmutations': number of introduced point mutations
+    A list of dicts with following information
+    [{'sequence': the nucleotide sequence
+      'seqIDs': GreenGenes sequence IDs that contain this fragment
+      'otuIDs': GreenGenes OTU IDs that fragment belongs to
+      'num_non-representative-seqs': number of sequences the fragment is
+                                     sub-sequence in, which are NOT used to
+                                     represent an OTU of GreenGenes 99%
+      'only_repr._sequences': True if num_non-representative-seqs==0
+      'num_pointmutations': number of artifically introduced point mutations}]
     """
     frgs = []
-
-    # convert fragments into Pandas.DataFrame
-    fragments = pd.DataFrame(fragments)
-    if verbose:
-        out.write('% 8i fragments to start with\n' % fragments.shape[0])
-    # group fragments by sequence and list true OTUids
-    unique_fragments = fragments.groupby('sequence').agg(lambda x:
-                                                         list(x.values))
-    if verbose:
-        out.write('% 8i fragments after collapsing by sequence\n' %
-                  unique_fragments.shape[0])
 
     # add point mutated sequences to the fragment list
     seed(seednr)  # make sure repeated runs produce the same mutated sequences
     frgs = []
-    divisor = int(unique_fragments.shape[0]/min(10, unique_fragments.shape[0]))
-    for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
-        for num_mutations in range(0, max_mutations+1):
-            frgs.append({'sequence': mutate_sequence(sequence, num_mutations),
-                         'seqIDs': row['seqID'],
-                         'otuIDs': sorted(list(set(row['otuID']))),
-                         'num_non-representative-seqs':
-                         len(set(row['seqID']) - set(row['otuID'])),
-                         'only_repr._sequences':
-                         len(set(row['seqID']) - set(row['otuID'])) == 0,
-                         'num_pointmutations': num_mutations})
+    divisor = int(len(fragments)/min(10, len(fragments)))
+    for i, fragment in enumerate(fragments):
+        frgs.append(fragment)
+        for num_mutations in range(1, max_mutations+1):
+            mut_fragment = dict()
+            for field in fragment.keys():
+                if field == 'sequence':
+                    mut_fragment[field] = mutate_sequence(fragment[field],
+                                                          num_mutations)
+                elif field == 'num_pointmutations':
+                    mut_fragment[field] = num_mutations
+                else:
+                    mut_fragment[field] = fragment[field]
+            frgs.append(mut_fragment)
         if verbose:
             if i % divisor == 0:
                 err.write('.')
@@ -255,15 +275,14 @@ def add_mutations(fragments,
     return frgs
 
 
+@cache
 def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
-    # TODO: replace np.inf by np.nan
-    # TODO: use header encoded information instead of seqinfo and .loc
     """Computes insertion distance error for given sepp results.
 
     Parameters
     ----------
-    seppresults : analyses.sepp['results']['trees'][x]
-        One SEPP insertion tree.
+    seppresults : analyses.sepp['results']['tree']
+        The SEPP insertion tree.
     err : StringIO
         Default: sys.stderr
         Buffer onto which status information shall be written.
@@ -285,26 +304,32 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
     tree = TreeNode.read(StringIO(seppresults))
     if verbose:
         err.write('OK: ')
-    xx = []
+    results = []
     treesize = tree.count(tips=True)
     for j, fragment in enumerate(tree.tips()):
         if fragment.name.startswith('seqIDs:'):
-            # >seqIDs:1000017;otuIDs:95093;num_pointmutations:0;num_non-repres
-            #  entative-seqs:1;only_repr._sequences:False
+            # seqIDs:2789969,2491172,4462991,4456388;
+            # otuIDs:4462991;
+            # num_pointmutations:6;
+            # num_non-representative-seqs:3;
+            # only_repr._sequences:False
             seq_data = {}
-            for part in fragment.name.split(";"):
-                kv = part.split(':')
-                seq_data[kv[0]] = kv[1]
-            trueOTUids = seq_data['otuIDs'].split(',')
+            for field in fragment.name.split(';'):
+                kv = field.split(':')
+                if kv[0] in ['seqIDs', 'otuIDs']:
+                    seq_data[kv[0]] = list(map(str, kv[1].split(',')))
+                else:
+                    seq_data[kv[0]] = kv[1]
+            trueOTUids = seq_data['otuIDs']
 
-            # metric: 'lca':
+            # metric 'lca':
             node_lca = tree.lca(trueOTUids)
             try:
                 dist_lca = node_lca.distance(fragment)
             except NoLengthError:
                 dist_lca = np.nan
 
-            # metric: closest:
+            # metric 'closest':
             dists = []
             for trueOTU in trueOTUids:
                 try:
@@ -315,13 +340,13 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
 
             seq_data['distance_lca'] = dist_lca
             seq_data['distance_closest'] = dist_closest
-            xx.append(seq_data)
+            results.append(seq_data)
         if verbose:
-            if j % max(1, int(treesize/10)) == 0:
+            if j % max(1, int(treesize/100)) == 0:
                 err.write('.')
     if verbose:
         err.write(' done.\n')
-    return pd.DataFrame(xx)
+    return pd.DataFrame(results)
 
 
 @cache
