@@ -466,7 +466,8 @@ def plotTaxonomy(file_otutable,
                  taxonomy_from_biom=False,
                  no_sample_numbers=False,
                  colors=None,
-                 min_abundance_grayscale=0):
+                 min_abundance_grayscale=0,
+                 ax=None):
     """Plot taxonomy.
 
     Parameters
@@ -510,6 +511,9 @@ def plotTaxonomy(file_otutable,
     min_abundance_grayscale : float
         Stop drawing gray rectangles for low abundant taxa if their relative
         abundance is below this threshold. Saves time and space.
+    ax : plt.axis
+        Plot on this axis instead of creating a new figure. Only works if
+        number of group levels is <= 2.
 
     Returns
     -------
@@ -663,7 +667,15 @@ def plotTaxonomy(file_otutable,
             colors[taxon] = availColors[len(colors) % len(availColors)]
 
     # plot the actual thing
-    fig, axarr = plt.subplots(len(grps0), 1)
+    if (ax is not None):
+        if len(grps0) > 1:
+            raise Exception('You cannot provide an ax if number of '
+                            'grouping levels is > 2!')
+        else:
+            axarr = ax
+            fig = ax
+    else:
+        fig, axarr = plt.subplots(len(grps0), 1)
     num_saved_boxes = 0
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
         if group_l0 is None:
