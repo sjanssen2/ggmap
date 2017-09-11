@@ -567,8 +567,8 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
-         ppn=10, pmem='20GB', walltime='12:00:00',
+def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
+         ppn=20, pmem='8GB', walltime='12:00:00',
          **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
@@ -663,7 +663,7 @@ def sepp(counts, chunksize=30000, reference=None, stopdecomposition=None,
                 'sepp/.sepp/bundled-v4.3.0/guppy tog %s' %
                 file_mergedplacements,
                 'cat %s | python %s > %s' % (
-                    file_mergedplacements,  # .replace('.json', '.tog.tre'),
+                    file_mergedplacements.replace('.json', '.tog.tre'),
                     files_placement[0].replace('placement.json',
                                                'rename-json.py'),
                     file_merged_tree)],
