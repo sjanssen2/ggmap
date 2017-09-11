@@ -11,7 +11,7 @@ from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
 from skbio.stats.distance import DistanceMatrix, MissingIDError
-from skbio.tree import TreeNode, NoLengthError
+from skbio.tree import TreeNode, NoLengthError, MissingNodeError
 
 from ggmap.snippets import mutate_sequence, biom2pandas, RANKS, cache
 
@@ -203,6 +203,16 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     return frgs
 
 
+def parse_fragment_header(header):
+    info = dict()
+    for field in header.split(';'):
+        kv = field.split(':')
+        info[kv[0]] = kv[1]
+        if kv[0] in ['seqIDs', 'otuIDs']:
+            info[kv[0]] = list(map(str, kv[1].split(',')))
+    return info
+
+
 @cache
 def add_mutations(fragments,
                   max_mutations=10, seednr=42,
@@ -276,6 +286,26 @@ def add_mutations(fragments,
 
 
 @cache
+def toDF(mut_fragments):
+    x = pd.DataFrame(mut_fragments)
+    x['header'] = x.apply(lambda row: (
+        "seqIDs:%s;"
+        "otuIDs:%s;"
+        "num_pointmutations:%i;"
+        "num_non-representative-seqs:%i;"
+        "only_repr._sequences:%s") % (
+
+        ",".join(row['seqIDs']),
+        ",".join(row['otuIDs']),
+        row['num_pointmutations'],
+        row['num_non-representative-seqs'],
+        row['only_repr._sequences']), axis=1)
+
+    x.set_index('header', inplace=True)
+    return x
+
+
+@cache
 def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
     """Computes insertion distance error for given sepp results.
 
@@ -323,10 +353,13 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
             trueOTUids = seq_data['otuIDs']
 
             # metric 'lca':
-            node_lca = tree.lca(trueOTUids)
             try:
-                dist_lca = node_lca.distance(fragment)
-            except NoLengthError:
+                node_lca = tree.lca(trueOTUids)
+                try:
+                    dist_lca = node_lca.distance(fragment)
+                except NoLengthError:
+                    dist_lca = np.nan
+            except MissingNodeError:
                 dist_lca = np.nan
 
             # metric 'closest':
@@ -335,6 +368,8 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
                 try:
                     dists.append(tree.find(trueOTU).distance(fragment))
                 except NoLengthError:
+                    dists.append(np.nan)
+                except MissingNodeError:
                     dists.append(np.nan)
             dist_closest = min(dists)
 
@@ -346,6 +381,46 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
                 err.write('.')
     if verbose:
         err.write(' done.\n')
+    return pd.DataFrame(results)
+
+
+@cache
+def measure_distance_closedref(closedref_results, reference_tree):
+    results = []
+    for i, (idx, row) in enumerate(closedref_results.iterrows()):
+        try:
+            frag_info = parse_fragment_header(idx)
+            if frag_info['otuIDs'] == [row['otuid']]:
+                dist_lca = 0
+                dist_closest = 0
+            else:
+                node_insert = reference_tree.find(row['otuid'])
+                dist_lca = reference_tree.lca(frag_info['otuIDs']).distance(
+                    node_insert)
+
+                dists = []
+                for trueOTU in frag_info['otuIDs']:
+                    try:
+                        dists.append(reference_tree.find(trueOTU).distance(
+                            node_insert))
+                    except NoLengthError:
+                        dists.append(np.nan)
+                    except MissingNodeError:
+                        dists.append(np.nan)
+                dist_closest = min(dists)
+        except IndexError:
+            dist_lca = np.nan
+            dist_closest = np.nan
+
+        frag_info['distance_lca'] = dist_lca
+        frag_info['distance_closest'] = dist_closest
+        frag_info['assignedOTU'] = row['otuid']
+        frag_info['num_otus'] = len(frag_info['otuIDs'])
+        # frag_info['binned_num_otus'] = binning(frag_info['num_otus'])
+        results.append(frag_info)
+        if i % int(closedref_results.shape[0] / 100) == 0:
+            sys.stderr.write('.')
+    sys.stderr.write(' done.\n')
     return pd.DataFrame(results)
 
 
