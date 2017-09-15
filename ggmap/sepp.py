@@ -5,6 +5,8 @@ import os.path
 from io import StringIO
 import string
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import seaborn as sns
 from itertools import combinations
 from scipy.stats import mannwhitneyu
@@ -13,7 +15,8 @@ from skbio import TabularMSA, DNA
 from skbio.stats.distance import DistanceMatrix, MissingIDError
 from skbio.tree import TreeNode, NoLengthError, MissingNodeError
 
-from ggmap.snippets import mutate_sequence, biom2pandas, RANKS, cache
+from ggmap.snippets import (mutate_sequence, biom2pandas, RANKS, cache,
+                            collapseCounts, pandas2biom)
 
 
 def read_otumap(file_otumap):
@@ -385,7 +388,14 @@ def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
 
 
 @cache
-def measure_distance_closedref(closedref_results, reference_tree):
+def measure_distance_closedref(closedref_results, reference_tree, run=None):
+    """
+    Parameters
+    ----------
+    run : int
+        Default: None
+        Just a label to keep track of a 'run'
+    """
     results = []
     for i, (idx, row) in enumerate(closedref_results.iterrows()):
         try:
@@ -416,6 +426,10 @@ def measure_distance_closedref(closedref_results, reference_tree):
         frag_info['distance_closest'] = dist_closest
         frag_info['assignedOTU'] = row['otuid']
         frag_info['num_otus'] = len(frag_info['otuIDs'])
+        frag_info['algorithm'] = 'sortmerna(99%)'
+        frag_info['fragname'] = idx
+        if run is not None:
+            frag_info['run'] = run
         # frag_info['binned_num_otus'] = binning(frag_info['num_otus'])
         results.append(frag_info)
         if i % int(closedref_results.shape[0] / 100) == 0:
@@ -556,7 +570,7 @@ def check_qiita_studies(dir_base):
     return True
 
 
-def analyse_2014(dir_study, err=sys.stderr):
+def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
     """Replicating figure 1a) of 'Human genetics shape the gut microbiome'.
     Beta distances are piled up comparing pairs of MonoZygotic (MZ) twins,
     DiZygotic (DZ) twins and between individuals NOT from the same family
@@ -568,8 +582,6 @@ def analyse_2014(dir_study, err=sys.stderr):
 
     Parameters
     ----------
-    dir_study : dir as str
-        Filepath to directory of Qiita study 2014 (containing prep1).
     err : StringIO
         Default sys.stderr. Where to report status.
 
@@ -578,66 +590,45 @@ def analyse_2014(dir_study, err=sys.stderr):
     (fig, stats), where fig is a seaborn facetgrid and stats a Pandas.DataFrame
     with statistics about significance of every test.
     """
-    NUMSTEPS = 6
-    PREP = 'prep1'
+    NUMSTEPS = 3  # for err messages: total number of steps
+    study_id = '2014'
 
-    err.write('Running analysis for study 2014:\n')
-    err.write('  step 1/%i: loading metadata ...' % NUMSTEPS)
-    metadata = pd.read_csv(dir_study + 'qiita2014_sampleinfo.txt',
-                           sep='\t', dtype=str, index_col=0)
-    err.write(' done.\n')
-
-    err.write('  step 2/%i: load available beta distance matrices ...'
+    err.write('  step 1/%i: obtain beta distance for specific classes ...'
               % NUMSTEPS)
-    files_dm = [dir_study+'/'+PREP+'/'+d
-                for d in next(os.walk(dir_study+'/' + PREP + '/'))[2]
-                if d.endswith('.dm')]
-    betas = dict()
-    for file_dm in files_dm:
-        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
-        if technique not in betas:
-            betas[technique] = dict()
-        metric = file_dm.split('/')[-1].split('.')[-2]
-        betas[technique][metric] = DistanceMatrix.read(file_dm)
-    err.write(' done.\n')
+    @cache
+    def _get_distances(study_results, study_id, meta):
+        dists = []
+        for _type in study_results[study_id].keys():
+            for metric in study_results[study_id][_type]['beta']['results'].keys():
+                for zyg in ['MZ', 'DZ']:
+                    m_class = meta[meta['zygosity'] == zyg]
+                    for (familyid, age), g in m_class.groupby(['familyid', 'age']):
+                        if g.shape[0] != 2:
+                            continue
+                        try:
+                            dists.append({'type': _type,
+                                          'class': zyg,
+                                          'distance':
+                                          study_results[study_id][_type]['beta']['results'][metric][g.index[0],
+                                                                                                    g.index[1]],
+                                          'metric': metric})
+                        except MissingIDError:
+                            pass
 
-    err.write('  step 3/%i: obtain beta distance for specific classes ...'
-              % NUMSTEPS)
-    dists = []
-    for file_dm in files_dm:
-        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
-        metric = file_dm.split('/')[-1].split('.')[-2]
-        for zyg in ['MZ', 'DZ']:
-            m_class = metadata[metadata['zygosity'] == zyg]
-            for (familyid, age), g in m_class.groupby(['familyid', 'age']):
-                if g.shape[0] != 2:
-                    continue
-                try:
-                    dists.append({'technique': technique,
-                                  'class': zyg,
-                                  'distance':
-                                  betas[technique][metric][g.index[0],
-                                                           g.index[1]],
+                pddm = study_results[study_id][_type]['beta']['results'][metric].to_data_frame()
+                for n, g in meta.loc[pddm.index, :].groupby('familyid'):
+                    pddm.loc[g.index, g.index] = np.nan
+                for dist in pddm.stack().values:
+                    dists.append({'type': _type,
+                                  'class': 'unrelated',
+                                  'distance': dist,
                                   'metric': metric})
-                except MissingIDError:
-                    pass
+        err.write(' done.\n')
+        return pd.DataFrame(dists)
+    distances = _get_distances(study_results, study_id, meta,
+                               cache_filename='%s/%s/.cache_dists' % (dir_studies, study_id))
 
-        pddm = betas[technique][metric].to_data_frame()
-        for n, g in metadata.loc[pddm.index, :].groupby('familyid'):
-            pddm.loc[g.index, g.index] = np.nan
-        for dist in pddm.stack().values:
-            dists.append({'technique': technique,
-                          'class': 'unrelated',
-                          'distance': dist,
-                          'metric': metric})
-    err.write(' done.\n')
-
-    err.write('  step 4/%i: convert dist array to pandas DataFrame ...'
-              % NUMSTEPS)
-    distances = pd.DataFrame(dists)
-    err.write(' done.\n')
-
-    err.write(('  step 5/%i: generate graphical overview '
+    err.write(('  step 2/%i: generate graphical overview '
                'in terms of boxplots ...')
               % NUMSTEPS)
     fig = sns.FacetGrid(distances, col="metric",
@@ -646,22 +637,22 @@ def analyse_2014(dir_study, err=sys.stderr):
                                    'unweighted_unifrac',
                                    'weighted_unifrac'],
                         hue_order=['closedref', 'deblurall'])
-    fig = fig.map(sns.boxplot, "class", "distance", "technique").add_legend()
+    fig = fig.map(sns.boxplot, "class", "distance", "type").add_legend()
     err.write(' done.\n')
 
     # generate statistical summary of class comparisons, i.e. did the
     # significance improve?
-    err.write(('  step 6/%i: generate statistical summary of '
+    err.write(('  step 3/%i: generate statistical summary of '
                'class comparisons ...') % NUMSTEPS)
     stats = []
-    for (metric, technique), g in distances.groupby(['metric', 'technique']):
+    for (metric, _type), g in distances.groupby(['metric', 'type']):
         for (a, b) in combinations(g['class'].unique(), 2):
             t = mannwhitneyu(g[(g['class'] == a)]['distance'].values,
                              g[(g['class'] == b)]['distance'].values,
                              alternative='two-sided')
-            stats.append({'technique': technique,
+            stats.append({'type': _type,
                           'metric': metric,
-                          'comparison': '%s vs %s' % (a, b),
+                          'pair': '%s - %s' % (a, b),
                           'p-value': t.pvalue,
                           'test-statistic': t.statistic})
     stats = pd.DataFrame(stats)
@@ -706,3 +697,151 @@ def get_taxa_radia(file_tree, err=sys.stderr):
                     'rank': rank,
                     'max_tip_tip_dist': node.get_max_distance()[0]}
     return pd.DataFrame(taxa_radia).T
+
+
+def binning(value, getorder=False):
+    bins = [((1, 1), '1'),
+            ((2, 2), '2'),
+            ((3, 3), '3'),
+            ((4, 4), '4'),
+            ((5, 5), '5'),
+            ((6, 6), '6'),
+            ((7, 7), '7'),
+            ((8, 16), '8-16'),
+            ((17, 100), '17-100'),
+            ((100, np.infty), '>100')]
+    if getorder:
+        return [n for (_, n) in bins]
+
+    for _bin in bins:
+        if value >= _bin[0][0] and value <= _bin[0][1]:
+            return _bin[1]
+    raise ValueError('no suitable bin found')
+
+
+def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
+                _type='single', hue=None):
+    YLIM = (0, 0.45)
+    filtered_distances = distances.dropna()
+
+    color = None
+    if _type == 'all':
+        color = sns.xkcd_rgb["denim blue"]
+
+    fig = plt.figure(figsize=(25, 10))
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 8], height_ratios=[5, 2])
+
+    # taxonomy reference
+    ax = plt.subplot(gs[0, 0])
+    g = sns.barplot(data=taxa_radia, x='rank', y='max_tip_tip_dist',
+                    order=RANKS, ax=ax, color=color)
+    ax.set_xticklabels(ax.xaxis.get_majorticklabels(), rotation=90)
+    g.set_xlabel('')
+    g.set_ylim(YLIM)
+
+    value_hue = 'only_repr._sequences'
+    value_hue_order = [True, False]
+    if hue is not None:
+        value_hue = 'algorithm'
+        value_hue_order = sorted(filtered_distances[value_hue].unique())
+
+    # tag stats
+    ax = plt.subplot(gs[0, 1])
+    if _type == 'single':
+        g = sns.boxplot(data=filtered_distances,
+                        x='binned_num_otus',
+                        order=binning(None, getorder=True),
+                        y='distance_'+distance_type,
+                        # hue='only_repr._sequences', hue_order=[True, False],
+                        hue=value_hue, hue_order=value_hue_order,
+                        ax=ax)
+    elif _type == 'mutations':
+        g = sns.pointplot(
+            data=filtered_distances.groupby([
+                'num_pointmutations',
+                'binned_num_otus']).mean().reset_index(),
+            x='binned_num_otus', order=binning(None, getorder=True),
+            y='distance_'+distance_type,
+            hue="num_pointmutations",
+            markers='o', join=False)
+    else:
+        g = sns.boxplot(
+            data=filtered_distances.groupby([
+                'num_pointmutations',
+                'binned_num_otus',
+                'only_repr._sequences']).mean().reset_index(),
+            x='binned_num_otus', order=binning(None, getorder=True),
+            y='distance_'+distance_type,
+            hue=value_hue, hue_order=value_hue_order)
+    ax.set_xticklabels(ax.xaxis.get_majorticklabels(), rotation=0)
+    g.set_xlabel('number "99% OTUs" a V4.150 sequence belongs to')
+    g.set_ylabel('mean (lca(OTUs) to insertion-tip distance)')
+    g.set_ylim(YLIM)
+
+    # fragment uniqueness histogram
+    ax = plt.subplot(gs[1, 1])
+    num_frag_uniqueness = []
+    for (n, reprstatus), g in filtered_distances.groupby([
+            'binned_num_otus', value_hue]):
+        num_frag_uniqueness.append({'num': g.shape[0],
+                                    'uniqueness': n,
+                                    value_hue: reprstatus})
+    num_frag_uniqueness = pd.DataFrame(num_frag_uniqueness)
+    g = sns.barplot(data=num_frag_uniqueness,
+                    x='uniqueness', order=binning(None, getorder=True),
+                    y='num',
+                    hue=value_hue, hue_order=value_hue_order,
+                    ax=ax, color=color)
+    g.set_xlabel('')
+    g.set_ylabel('# fragments (log-scale)')
+    g.set_yscale('log')
+    ax.tick_params(
+        axis='x',           # changes apply to the x-axis
+        which='both',       # both major and minor ticks are affected
+        bottom='off',       # ticks along the bottom edge are off
+        top='off',          # ticks along the top edge are off
+        labelbottom='off')  # labels along the bottom edge are off
+
+    fig.suptitle(name)
+    return fig
+
+
+def plot_errordistribution(distances, distance_type, plotfile_prefix,
+                           lim=3, err=sys.stderr):
+    err.write('plot "error distribution" ')
+
+    # restrict to those fragments that map to only one true OTU and have no
+    # point mutations
+    errdistances = distances[
+        (distances['num_otus'] == 1) &
+        (distances['num_pointmutations'] == 0) &
+        (pd.notnull(distances['distance_' + distance_type]))]
+
+    # group and sum up distances by true OTUs and write to biom file, such that
+    # it can be assessed by "collapseCounts()"
+    countshack = errdistances[['num_otus',
+                               'distance_' + distance_type,
+                               'otuIDs']].copy(deep=True)
+    countshack['otuIDs'] = countshack['otuIDs'].apply(lambda t: ','.join(t))
+    pandas2biom('help.biom', countshack.groupby('otuIDs').sum())
+
+    # actuall plotting
+    for i, rank in enumerate(RANKS[:lim]):
+        err.write('.')
+        t = collapseCounts('help.biom',
+                           rank,
+                           file_taxonomy=('/home/sjanssen/GreenGenes/gg_13_5_'
+                                          'otus/taxonomy/99_otu_taxonomy.txt'),
+                           astype=float,
+                           verbose=False)
+        t['avg. dist. %s' % distance_type] =\
+            t['distance_' + distance_type] / t['num_otus']
+
+        plt.figure(figsize=(5, max(2, 0.15 * t.shape[0])))
+        sns.barplot(data=t,
+                    x='avg. dist. %s' % distance_type,
+                    y=t.index,
+                    order=t.sort_values('num_otus', ascending=False).index,
+                    orient='h', label=rank)
+        plt.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
+    err.write(' done.')
