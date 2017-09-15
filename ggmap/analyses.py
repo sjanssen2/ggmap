@@ -748,6 +748,8 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
 
 
 def sortmerna(sequences,
+              reference='/projects/emp/03-otus/reference/97_otus.fasta',
+              sortmerna_db='/projects/emp/03-otus/reference/97_otus.idx',
               ppn=5, pmem='20GB', walltime='2:00:00', **executor_args):
     """Assigns closed ref GreenGenes OTUids to sequences.
 
@@ -756,6 +758,14 @@ def sortmerna(sequences,
     sequences : Pd.Series
         Set of sequences with header as index and nucleotide sequences as
         values.
+    reference : filename
+        Default: /projects/emp/03-otus/reference/97_otus.fasta
+        Multiple fasta collection that serves as reference for sortmerna
+        homology searches.
+    sortmerna_db : filename
+        Default: /projects/emp/03-otus/reference/97_otus.idx
+        Can point to a precompiled reference DB. Make sure it matches your
+        reference collection! Saves ~25min compute.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -776,17 +786,21 @@ def sortmerna(sequences,
 
     def commands(workdir, ppn, args):
         commands = []
+        precompileddb = ''
+        if args['sortmerna_db'] is not None:
+            precompileddb = ' --sortmerna_db %s ' % args['sortmerna_db']
         commands.append(('pick_otus.py '
                          '-m sortmerna '
                          '-i %s '
-                         '-r /projects/emp/03-otus/reference/97_otus.fasta '
-                         '--sortmerna_db '
-                         '/projects/emp/03-otus/reference/97_otus.idx '
+                         '-r %s '
+                         '%s'
                          '-o %s '
                          '--sortmerna_e_value 1 '
                          '-s 0.97 '
                          '--threads %i ') % (
             workdir + '/sequences.mfa',
+            args['reference'],
+            precompileddb,
             workdir + '/sortmerna/',
             ppn))
         return commands
@@ -814,11 +828,21 @@ def sortmerna(sequences,
 
         return pd.DataFrame(assignments).set_index('header')
 
+    if not os.path.exists(reference):
+        raise ValueError('Reference multiple fasta file "%s" does not exist!' %
+                         reference)
+
+    if sortmerna_db is not None:
+        if not os.path.exists(sortmerna_db+'.stasts'):
+            sys.stderr.write('Could not find SortMeRNA precompiled DB. '
+                             'I continue by creating a new DB.')
     # core dump with 8GB with 10 nodes, 4h
     # trying 20GB with 10 nodes ..., 4h (long wait for scheduler)
     # trying 20GB with 5 nodes, 2h ...
     return _executor('sortmerna',
-                     {'seqs': sequences.drop_duplicates().sort_index()},
+                     {'seqs': sequences.drop_duplicates().sort_index(),
+                      'reference': reference,
+                      'sortmerna_db': sortmerna_db},
                      pre_execute,
                      commands,
                      post_execute,
