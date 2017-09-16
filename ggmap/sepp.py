@@ -12,7 +12,7 @@ from itertools import combinations
 from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
-from skbio.stats.distance import DistanceMatrix, MissingIDError
+from skbio.stats.distance import MissingIDError
 from skbio.tree import TreeNode, NoLengthError, MissingNodeError
 
 from ggmap.snippets import (mutate_sequence, biom2pandas, RANKS, cache,
@@ -595,27 +595,30 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
 
     err.write('  step 1/%i: obtain beta distance for specific classes ...'
               % NUMSTEPS)
+
     @cache
     def _get_distances(study_results, study_id, meta):
         dists = []
         for _type in study_results[study_id].keys():
-            for metric in study_results[study_id][_type]['beta']['results'].keys():
+            betas = study_results[study_id][_type]['beta']['results']
+            for metric in betas.keys():
                 for zyg in ['MZ', 'DZ']:
                     m_class = meta[meta['zygosity'] == zyg]
-                    for (familyid, age), g in m_class.groupby(['familyid', 'age']):
+                    for (familyid, age), g in m_class.groupby(['familyid',
+                                                               'age']):
                         if g.shape[0] != 2:
                             continue
                         try:
                             dists.append({'type': _type,
                                           'class': zyg,
                                           'distance':
-                                          study_results[study_id][_type]['beta']['results'][metric][g.index[0],
-                                                                                                    g.index[1]],
+                                          betas[metric][g.index[0],
+                                                        g.index[1]],
                                           'metric': metric})
                         except MissingIDError:
                             pass
 
-                pddm = study_results[study_id][_type]['beta']['results'][metric].to_data_frame()
+                pddm = betas[metric].to_data_frame()
                 for n, g in meta.loc[pddm.index, :].groupby('familyid'):
                     pddm.loc[g.index, g.index] = np.nan
                 for dist in pddm.stack().values:
@@ -626,7 +629,8 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
         err.write(' done.\n')
         return pd.DataFrame(dists)
     distances = _get_distances(study_results, study_id, meta,
-                               cache_filename='%s/%s/.cache_dists' % (dir_studies, study_id))
+                               cache_filename='%s/%s/.cache_dists' %
+                               (dir_studies, study_id))
 
     err.write(('  step 2/%i: generate graphical overview '
                'in terms of boxplots ...')
