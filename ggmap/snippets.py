@@ -1782,8 +1782,8 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             name = n
             if type(n) != tuple:
                 name = [n]
-            out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
-                      + ", ")
+            out.write(", ".join(
+                map(lambda x: "%s: %s" % x, zip(groups, name))) + ", ")
             out.write("'%s'" % groups[-1])
             out.write("  (n=%i)\n" % g.shape[0])
 
