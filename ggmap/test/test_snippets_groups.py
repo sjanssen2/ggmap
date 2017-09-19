@@ -494,7 +494,8 @@ class SnippetTests(TestCase):
                                     b_x, b_y = a_y, a_x
 
                         for field in a['network'][a_x][a_y].keys():
-                            if field == 'p-value':
+                            if (field == 'p-value') |\
+                                    (field == 'test-statistic'):
                                 continue
                             elif field == 'avgdist':
                                 self.assertTrue(

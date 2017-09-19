@@ -1156,7 +1156,8 @@ def detect_distant_groups_alpha(alpha, groupings,
 
         if a not in network:
             network[a] = dict()
-        network[a][b] = {'p-value': res.pvalue}
+        network[a][b] = {'p-value': res.pvalue,
+                         'test-statistic': res.statistic}
 
     ns = groupings.value_counts()
     return ({'network': network,
@@ -1220,6 +1221,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
         if a not in network:
             network[a] = dict()
         network[a][b] = {'p-value': res["p-value"],
+                         'test-statistic': res["test statistic"],
                          'avgdist':
                          np.mean([group_dm[x, y]
                                   for x in group[group == a].index
@@ -1780,8 +1782,8 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             name = n
             if type(n) != tuple:
                 name = [n]
-            out.write(", ".join(map(lambda x: "%s: %s" % x, zip(groups, name)))
-                      + ", ")
+            out.write(", ".join(
+                map(lambda x: "%s: %s" % x, zip(groups, name))) + ", ")
             out.write("'%s'" % groups[-1])
             out.write("  (n=%i)\n" % g.shape[0])
 

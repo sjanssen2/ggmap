@@ -13,41 +13,69 @@ class SeppTests(TestCase):
         self.file_pynast = get_data_path('gg_13_5_pynast.fasta')
         self.file_otumap = get_data_path('61_otu_map.txt')
         self.exp_fragments = [
-            {'sequence':
-             ('TACGAAGGGACCTAGCGTAGTTCGGAATTACTGGGCTTAAAGAGTTCGTAGGTGGTTAAAAAA'
-              'GTTGGTGGTGAAAGCCCAGAGCTTAACTCTGGAACGGCCATCAAAACTTTTTAGCTAGAGTAT'
-              'GATAGAGGAAAGCAGAATTTCTAG'),
-             'OTUID': '4336814'},
-            {'sequence':
-             ('TACGGAGGTGGCACGCGTTGTCCGGAATTATTGGGCGTAAAGCGCGCGGGTGCCCGCACTAGC'
-              'TGGAGTGGGCGTATAGCTCGCGATGGTGGTTCCTTAAGTGTGATGTGAAAAGCTCCCGGCTCA'
-              'ACCGGGGAGAGTCATTGGAACTGG'),
-             'OTUID': '734152'},
-            {'sequence':
-             ('AACCAGCTCTTCAAGTGGTCGGGATAATTATTGGGCTTAAAGTGTCCGTAGCTTGTATAATAA'
-              'GTTCCTGGTAAAATCTAATAGCTTAACTATNAGTATGCTAGGAATACTGTTGTACTAGAGGGC'
-              'GGGAGAGGTCTGAGGTACTTCAGG'),
-             'OTUID': '1928988'},
-            {'sequence':
-             ('GACATAGGTCGCGAACGTTATCCGGAATTATTGGGCGTAAAGGATGCGTAGATGGTTCAGTAA'
-              'GTTACTGGTGGGAAATCGAGGCCTAACCTCGTGGAAGTCAGTAATACTGTTGAACTTGAGTGC'
-              'AGGAGAGGTTAACGGAACTTCATG'),
-             'OTUID': '696036'},
-            {'sequence':
-             ('TACGGAGGGGGCAAGCGTTGTCGGAATAACTGGGCCTAAAGCCGCGCCGTAGGCGGGTTTGTT'
-              'AAGTCAGATGTGAAAGCCCTCGGCTCAACCGGGGACGTGGCATTTGAACTGGCCAACTTGAGT'
-              'ACTGGAGGGGGGGGGAATCCCGTG'),
-             'OTUID': '4459468'},
-            {'sequence':
+            {'num_pointmutations': 0,
+             'seqIDs': ['1928988'],
+             'only_repr._sequences': True,
+             'sequence':
+             ('AACCAGCTCTTCAAGTGGTCGGGATAATTATTGGGCTTAAAGTGTCCGTAGCTTGTATAATA'
+              'AGTTCCTGGTAAAATCTAATAGCTTAACTATNAGTATGCTAGGAATACTGTTGTACTAGAGG'
+              'GCGGGAGAGGTCTGAGGTACTTCAGG'),
+             'otuIDs': ['1928988'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['1128285'],
+             'only_repr._sequences': True,
+             'sequence':
              ('CACCGGCGGCCCGAGTGGTGACCGTTATTATTGGGTCTAAAGGGTCCGTAGCCGGTTTGGTCA'
               'GTCCTCCGGGAAATCTGATAGCTTAACTGTTAGGCTTTCGGGGGATACTGCCAGGCTTGGAAC'
               'CGGGAGAGGTAAGAGGTACTACAG'),
-             'OTUID': '1128285'},
-            {'sequence':
+             'otuIDs': ['1128285'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['4455990'],
+             'only_repr._sequences': True,
+             'sequence':
              ('GAACCTCGGCTCGAGTGGTGGCCGCTTTTATTGGGCTTAAAGCGTTCGTAGCTGGGTTGTTAA'
               'GTCTCTTGGGAAATCTGGCGGCTTAACCGTCAGGCGTCTAAGGGATACTGGCAATCTTGGAAC'
               'CGGGAGAGGTGAGGGGTACTTCGG'),
-             'OTUID': '4455990'}]
+             'otuIDs': ['4455990'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['696036'],
+             'only_repr._sequences': True,
+             'sequence':
+             ('GACATAGGTCGCGAACGTTATCCGGAATTATTGGGCGTAAAGGATGCGTAGATGGTTCAGTAA'
+              'GTTACTGGTGGGAAATCGAGGCCTAACCTCGTGGAAGTCAGTAATACTGTTGAACTTGAGTGC'
+              'AGGAGAGGTTAACGGAACTTCATG'),
+             'otuIDs': ['696036'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['4336814'],
+             'only_repr._sequences': True,
+             'sequence':
+             ('TACGAAGGGACCTAGCGTAGTTCGGAATTACTGGGCTTAAAGAGTTCGTAGGTGGTTAAAAAA'
+              'GTTGGTGGTGAAAGCCCAGAGCTTAACTCTGGAACGGCCATCAAAACTTTTTAGCTAGAGTAT'
+              'GATAGAGGAAAGCAGAATTTCTAG'),
+             'otuIDs': ['4336814'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['4459468'],
+             'only_repr._sequences': True,
+             'sequence':
+             ('TACGGAGGGGGCAAGCGTTGTCGGAATAACTGGGCCTAAAGCCGCGCCGTAGGCGGGTTTGTT'
+              'AAGTCAGATGTGAAAGCCCTCGGCTCAACCGGGGACGTGGCATTTGAACTGGCCAACTTGAGT'
+              'ACTGGAGGGGGGGGGAATCCCGTG'),
+             'otuIDs': ['4459468'],
+             'num_non-representative-seqs': 0},
+            {'num_pointmutations': 0,
+             'seqIDs': ['734152'],
+             'only_repr._sequences': False,
+             'sequence':
+             ('TACGGAGGTGGCACGCGTTGTCCGGAATTATTGGGCGTAAAGCGCGCGGGTGCCCGCACTAGC'
+              'TGGAGTGGGCGTATAGCTCGCGATGGTGGTTCCTTAAGTGTGATGTGAAAAGCTCCCGGCTCA'
+              'ACCGGGGAGAGTCATTGGAACTGG'),
+             'otuIDs': ['229854'],
+             'num_non-representative-seqs': 1}]
 
     def test_read_otumap(self):
         with self.assertRaisesRegex(IOError, "Cannot read file"):
@@ -120,15 +148,9 @@ class SeppTests(TestCase):
         err = StringIO()
         obs = add_mutations(self.exp_fragments, out=out, err=err,
                             cache_verbose=False)
-        self.assertIn(("%i fragments to start with") % (7),
-                      out.getvalue())
-        self.assertIn(("%i fragments after collapsing by sequence") % (7),
-                      out.getvalue())
-        self.assertIn(("%i fragments generated with 0 to "
-                       "%i point mutations.") % (77, 10),
-                      out.getvalue())
+        self.assertIn(('%i fragments generated with %i to %i'
+                       ' point mutations.') % (77, 0, 10), out.getvalue())
         self.assertEqual(len(obs), 77)
-
         self.assertEqual(_get_num_snips(obs[0]['sequence'],
                                         obs[0]['sequence']),
                          obs[0]['num_pointmutations'])

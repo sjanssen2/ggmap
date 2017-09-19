@@ -5,15 +5,18 @@ import os.path
 from io import StringIO
 import string
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import seaborn as sns
 from itertools import combinations
 from scipy.stats import mannwhitneyu
 
 from skbio import TabularMSA, DNA
-from skbio.stats.distance import DistanceMatrix, MissingIDError
-from skbio.tree import TreeNode, NoLengthError
+from skbio.stats.distance import MissingIDError
+from skbio.tree import TreeNode, NoLengthError, MissingNodeError
 
-from ggmap.snippets import mutate_sequence, biom2pandas, RANKS, cache
+from ggmap.snippets import (mutate_sequence, biom2pandas, RANKS, cache,
+                            collapseCounts, pandas2biom)
 
 
 def read_otumap(file_otumap):
@@ -94,9 +97,15 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
 
     Returns
     -------
-    [{'OTUID': str, 'sequence': str}] A list of dicts holding OTUID and
-    sequence.
-    Note: sequences might come in duplicates, due to degapping.
+    A list of dicts with following information
+    [{'sequence': the nucleotide sequence
+      'seqIDs': GreenGenes sequence IDs that contain this fragment
+      'otuIDs': GreenGenes OTU IDs that fragment belongs to
+      'num_non-representative-seqs': number of sequences the fragment is
+                                     sub-sequence in, which are NOT used to
+                                     represent an OTU of GreenGenes 99%
+      'only_repr._sequences': True if num_non-representative-seqs==0
+      'num_pointmutations': number of artifically introduced point mutations}]
     """
     # load the full pynast GreenGenes alignment with
     # sequences=1261500 and position=7682
@@ -113,7 +122,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
             file_pynast_alignment.split('/')[-1]))
 
     # load OTU map
-    otumap = read_otumap(file_otumap)[0]
+    (otumap, seqinfo) = read_otumap(file_otumap)
     # all representative seq IDs
     seqids_to_use = list(otumap.index)
     if onlyrepr is False:
@@ -156,8 +165,10 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         if len(fragment) >= frg_expected_length:
             if len(fragment) > frg_expected_length:
                 num_frags_toolong += 1
-            fragments.append({'sequence': str(fragment)[:frg_expected_length],
-                              'OTUID': fragment_gapped.metadata['id']})
+            fragments.append({
+                'sequence': str(fragment)[:frg_expected_length],
+                'seqID': fragment_gapped.metadata['id'],
+                'otuID': seqinfo.loc[fragment_gapped.metadata['id']]})
     if verbose:
         out.write(("% 8i fragments with ungapped length >= %int. "
                    "Surprise: %i fragments are too short and %i fragments "
@@ -170,7 +181,39 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
         # distribution plot. I checked with Daniel and we decided to omit
         # frgaments smaller than 150nt and timm all other to 150nt.
 
-    return fragments
+    # convert fragments into Pandas.DataFrame
+    fragments = pd.DataFrame(fragments)
+    if verbose:
+        out.write('% 8i fragments remaining.\n' % fragments.shape[0])
+    # group fragments by sequence and list true OTUids
+    unique_fragments = fragments.groupby('sequence').agg(lambda x:
+                                                         list(x.values))
+    if verbose:
+        out.write('% 8i unique fragments after collapsing by sequence.\n' %
+                  unique_fragments.shape[0])
+
+    frgs = []
+    for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
+        frgs.append({'sequence': sequence,
+                     'seqIDs': row['seqID'],
+                     'otuIDs': sorted(list(set(row['otuID']))),
+                     'num_non-representative-seqs':
+                     len(set(row['seqID']) - set(row['otuID'])),
+                     'only_repr._sequences':
+                     len(set(row['seqID']) - set(row['otuID'])) == 0,
+                     'num_pointmutations': 0})
+
+    return frgs
+
+
+def parse_fragment_header(header):
+    info = dict()
+    for field in header.split(';'):
+        kv = field.split(':')
+        info[kv[0]] = kv[1]
+        if kv[0] in ['seqIDs', 'otuIDs']:
+            info[kv[0]] = list(map(str, kv[1].split(',')))
+    return info
 
 
 @cache
@@ -182,9 +225,11 @@ def add_mutations(fragments,
 
     Parameters
     ----------
-    fragments : [{'OTUID': str, 'sequence': str}]
-        A list of dicts holding OTUID and sequence.
-        E.g. result of load_sequences_pynast()
+    fragments : [{'sequence', 'seqIDs', 'otuIDs',
+                  'num_non-representative-seqs', 'only_repr._sequences',
+                  'num_pointmutations'}]
+        A list of dicts holding seqID, otuID and sequence.
+        I.e. the result of load_sequences_pynast()
     max_mutations : int
         Default 10.
         Maximum number of point mutations introduced to fragment sequences.
@@ -202,36 +247,35 @@ def add_mutations(fragments,
 
     Returns
     -------
-    [{'OTUIDs': [str], 'sequence': str, 'num_pointmutations': int}]
-    A list of dicts, where every dict holds a fragment which consists of the
-    three key-value pairs:
-    - 'OTUIDs': a list of OTU IDs this fragment belongs to,
-    - 'sequence': the fragment sequence with X point mutations,
-                  where X is num_pointmutations
-    - 'num_pointmutations': number of introduced point mutations
+    A list of dicts with following information
+    [{'sequence': the nucleotide sequence
+      'seqIDs': GreenGenes sequence IDs that contain this fragment
+      'otuIDs': GreenGenes OTU IDs that fragment belongs to
+      'num_non-representative-seqs': number of sequences the fragment is
+                                     sub-sequence in, which are NOT used to
+                                     represent an OTU of GreenGenes 99%
+      'only_repr._sequences': True if num_non-representative-seqs==0
+      'num_pointmutations': number of artifically introduced point mutations}]
     """
     frgs = []
-
-    # convert fragments into Pandas.DataFrame
-    fragments = pd.DataFrame(fragments)
-    if verbose:
-        out.write('% 8i fragments to start with\n' % fragments.shape[0])
-    # group fragments by sequence and list true OTUids
-    unique_fragments = fragments.groupby('sequence').agg(lambda x:
-                                                         list(x.values))
-    if verbose:
-        out.write('% 8i fragments after collapsing by sequence\n' %
-                  unique_fragments.shape[0])
 
     # add point mutated sequences to the fragment list
     seed(seednr)  # make sure repeated runs produce the same mutated sequences
     frgs = []
-    divisor = int(unique_fragments.shape[0]/min(10, unique_fragments.shape[0]))
-    for i, (sequence, row) in enumerate(unique_fragments.iterrows()):
-        for num_mutations in range(0, max_mutations+1):
-            frgs.append({'sequence': mutate_sequence(sequence, num_mutations),
-                         'OTUIDs': row['OTUID'],
-                         'num_pointmutations': num_mutations})
+    divisor = int(len(fragments)/min(10, len(fragments)))
+    for i, fragment in enumerate(fragments):
+        frgs.append(fragment)
+        for num_mutations in range(1, max_mutations+1):
+            mut_fragment = dict()
+            for field in fragment.keys():
+                if field == 'sequence':
+                    mut_fragment[field] = mutate_sequence(fragment[field],
+                                                          num_mutations)
+                elif field == 'num_pointmutations':
+                    mut_fragment[field] = num_mutations
+                else:
+                    mut_fragment[field] = fragment[field]
+            frgs.append(mut_fragment)
         if verbose:
             if i % divisor == 0:
                 err.write('.')
@@ -244,122 +288,183 @@ def add_mutations(fragments,
     return frgs
 
 
-def _measure_distance_single(seppresults, seqinfo,
-                             err=sys.stderr, verbose=True, _type='lca'):
-    # TODO: replace np.inf by np.nan
-    # TODO: use header encoded information instead of seqinfo and .loc
+@cache
+def toDF(mut_fragments):
+    x = pd.DataFrame(mut_fragments)
+    x['header'] = x.apply(lambda row: (
+        "seqIDs:%s;"
+        "otuIDs:%s;"
+        "num_pointmutations:%i;"
+        "num_non-representative-seqs:%i;"
+        "only_repr._sequences:%s") % (
+
+        ",".join(row['seqIDs']),
+        ",".join(row['otuIDs']),
+        row['num_pointmutations'],
+        row['num_non-representative-seqs'],
+        row['only_repr._sequences']), axis=1)
+
+    x.set_index('header', inplace=True)
+    return x
+
+
+@cache
+def _measure_distance_single(seppresults, err=sys.stderr, verbose=True):
     """Computes insertion distance error for given sepp results.
 
     Parameters
     ----------
-    seppresults : analyses.sepp['results']
-        Results of a SEPP run, i.e. resulting tree.
-    seqinfo : read_otumap[1] as pd.Series
-        Reverse OTU map, i.e. list OTU for every sequence
+    seppresults : analyses.sepp['results']['tree']
+        The SEPP insertion tree.
     err : StringIO
         Default: sys.stderr
         Buffer onto which status information shall be written.
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
-    _type : str
-        Default: 'lca'
-        If 'lca': Distance is the path length between the inserted fragment
-        and the lowest common anchestor of all true OTUs.
-        If 'closest': Distance is the path length between the inserted fragment
-        and the closest true OTU.
 
     Returns
     -------
     Pandas.DataFrame:
     distance, num_otus, num_mutations, fragment, num_non-representative-seqs
+    If 'lca': Distance is the path length between the inserted fragment
+    and the lowest common anchestor of all true OTUs.
+    If 'closest': Distance is the path length between the inserted fragment
+    and the closest true OTU.
     """
     if verbose:
         err.write('read tree...')
-    tree = TreeNode.read(StringIO(seppresults['tree']))
+    tree = TreeNode.read(StringIO(seppresults))
     if verbose:
         err.write('OK: ')
-    xx = []
+    results = []
     treesize = tree.count(tips=True)
     for j, fragment in enumerate(tree.tips()):
-        if fragment.name.startswith('otuid'):
-            seqids = fragment.name.split(';')[0].split(':')[-1].split(',')
-            trueOTUids = list(seqinfo.loc[seqids].unique())
+        if fragment.name.startswith('seqIDs:'):
+            # seqIDs:2789969,2491172,4462991,4456388;
+            # otuIDs:4462991;
+            # num_pointmutations:6;
+            # num_non-representative-seqs:3;
+            # only_repr._sequences:False
+            seq_data = {}
+            for field in fragment.name.split(';'):
+                kv = field.split(':')
+                if kv[0] in ['seqIDs', 'otuIDs']:
+                    seq_data[kv[0]] = list(map(str, kv[1].split(',')))
+                else:
+                    seq_data[kv[0]] = kv[1]
+            trueOTUids = seq_data['otuIDs']
 
-            if _type == 'lca':
+            # metric 'lca':
+            try:
                 node_lca = tree.lca(trueOTUids)
-                dist = np.infty
                 try:
-                    dist = node_lca.distance(fragment)
+                    dist_lca = node_lca.distance(fragment)
                 except NoLengthError:
-                    pass
-            elif _type == 'closest':
-                dists = [np.infty]
-                for trueOTU in trueOTUids:
-                    try:
-                        dists.append(tree.find(trueOTU).distance(fragment))
-                    except NoLengthError:
-                        pass
-                dist = min(dists)
-            else:
-                raise ValueError('not a valid value for _type!')
-            xx.append({
-                'distance': dist,
-                'num_otus': len(trueOTUids),
-                'true_otus': ",".join(trueOTUids),
-                'num_mutations':
-                int(fragment.name.split(';')[1].split(':')[-1]),
-                'fragment': fragment.name,
-                'num_non-representative-seqs':
-                len(set(seqids) - set(trueOTUids)),
-                'only repr. sequences':
-                len(set(seqids) - set(trueOTUids)) == 0,
-                })
+                    dist_lca = np.nan
+            except MissingNodeError:
+                dist_lca = np.nan
+
+            # metric 'closest':
+            dists = []
+            for trueOTU in trueOTUids:
+                try:
+                    dists.append(tree.find(trueOTU).distance(fragment))
+                except NoLengthError:
+                    dists.append(np.nan)
+                except MissingNodeError:
+                    dists.append(np.nan)
+            dist_closest = min(dists)
+
+            seq_data['distance_lca'] = dist_lca
+            seq_data['distance_closest'] = dist_closest
+            results.append(seq_data)
         if verbose:
-            if j % max(1, int(treesize/10)) == 0:
+            if j % max(1, int(treesize/100)) == 0:
                 err.write('.')
     if verbose:
         err.write(' done.\n')
-    return pd.DataFrame(xx)
+    return pd.DataFrame(results)
 
 
 @cache
-def measure_distance(sepp_results, filename_otumap,
-                     err=sys.stderr, verbose=True, _type='lca'):
+def measure_distance_closedref(closedref_results, reference_tree, run=None):
+    """
+    Parameters
+    ----------
+    run : int
+        Default: None
+        Just a label to keep track of a 'run'
+    """
+    results = []
+    for i, (idx, row) in enumerate(closedref_results.iterrows()):
+        try:
+            frag_info = parse_fragment_header(idx)
+            if frag_info['otuIDs'] == [row['otuid']]:
+                dist_lca = 0
+                dist_closest = 0
+            else:
+                node_insert = reference_tree.find(row['otuid'])
+                dist_lca = reference_tree.lca(frag_info['otuIDs']).distance(
+                    node_insert)
+
+                dists = []
+                for trueOTU in frag_info['otuIDs']:
+                    try:
+                        dists.append(reference_tree.find(trueOTU).distance(
+                            node_insert))
+                    except NoLengthError:
+                        dists.append(np.nan)
+                    except MissingNodeError:
+                        dists.append(np.nan)
+                dist_closest = min(dists)
+        except IndexError:
+            dist_lca = np.nan
+            dist_closest = np.nan
+
+        frag_info['distance_lca'] = dist_lca
+        frag_info['distance_closest'] = dist_closest
+        frag_info['assignedOTU'] = row['otuid']
+        frag_info['num_otus'] = len(frag_info['otuIDs'])
+        frag_info['algorithm'] = 'sortmerna(99%)'
+        frag_info['fragname'] = idx
+        if run is not None:
+            frag_info['run'] = run
+        # frag_info['binned_num_otus'] = binning(frag_info['num_otus'])
+        results.append(frag_info)
+        if i % int(closedref_results.shape[0] / 100) == 0:
+            sys.stderr.write('.')
+    sys.stderr.write(' done.\n')
+    return pd.DataFrame(results)
+
+
+@cache
+def measure_distance(sepp_results,
+                     err=sys.stderr, verbose=True):
     """Computes SEPP insertion distance of fragments to true nodes.
 
     Parameters
     ----------
     sepp_results : [analyses.sepp['results']]
         A list of results of a SEPP run, i.e. resulting tree.
-    filename_otumap : str
-        Pathname to GreenGenes OTU map.
     err : StringIO
         Default: sys.stderr
         Buffer onto which status information shall be written.
     verbose : bool
         Default: True
         If True, status information is written to buffer <err>.
-    _type : str
-        Default: 'lca'
-        If 'lca': Distance is the path length between the inserted fragment
-        and the lowest common anchestor of all true OTUs.
-        If 'closest': Distance is the path length between the inserted fragment
-        and the closest true OTU.
 
     Returns
     -------
     Pandas.DataFrame:
     distance, num_otus, num_mutations, fragment, num_non-representative-seqs
     """
-    (otumap, seqinfo) = read_otumap(filename_otumap)
     d = []
     for i, r in enumerate(sepp_results):
         if verbose:
             err.write('part %i/%i: ' % (i+1, len(sepp_results)))
-        d.append(_measure_distance_single(r, seqinfo,
-                                          err=err, verbose=verbose,
-                                          _type=_type))
+        d.append(_measure_distance_single(r,
+                                          err=err, verbose=verbose))
     return pd.concat(d)
 
 
@@ -465,7 +570,7 @@ def check_qiita_studies(dir_base):
     return True
 
 
-def analyse_2014(dir_study, err=sys.stderr):
+def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
     """Replicating figure 1a) of 'Human genetics shape the gut microbiome'.
     Beta distances are piled up comparing pairs of MonoZygotic (MZ) twins,
     DiZygotic (DZ) twins and between individuals NOT from the same family
@@ -477,8 +582,6 @@ def analyse_2014(dir_study, err=sys.stderr):
 
     Parameters
     ----------
-    dir_study : dir as str
-        Filepath to directory of Qiita study 2014 (containing prep1).
     err : StringIO
         Default sys.stderr. Where to report status.
 
@@ -487,66 +590,49 @@ def analyse_2014(dir_study, err=sys.stderr):
     (fig, stats), where fig is a seaborn facetgrid and stats a Pandas.DataFrame
     with statistics about significance of every test.
     """
-    NUMSTEPS = 6
-    PREP = 'prep1'
+    NUMSTEPS = 3  # for err messages: total number of steps
+    study_id = '2014'
 
-    err.write('Running analysis for study 2014:\n')
-    err.write('  step 1/%i: loading metadata ...' % NUMSTEPS)
-    metadata = pd.read_csv(dir_study + 'qiita2014_sampleinfo.txt',
-                           sep='\t', dtype=str, index_col=0)
-    err.write(' done.\n')
-
-    err.write('  step 2/%i: load available beta distance matrices ...'
+    err.write('  step 1/%i: obtain beta distance for specific classes ...'
               % NUMSTEPS)
-    files_dm = [dir_study+'/'+PREP+'/'+d
-                for d in next(os.walk(dir_study+'/' + PREP + '/'))[2]
-                if d.endswith('.dm')]
-    betas = dict()
-    for file_dm in files_dm:
-        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
-        if technique not in betas:
-            betas[technique] = dict()
-        metric = file_dm.split('/')[-1].split('.')[-2]
-        betas[technique][metric] = DistanceMatrix.read(file_dm)
-    err.write(' done.\n')
 
-    err.write('  step 3/%i: obtain beta distance for specific classes ...'
-              % NUMSTEPS)
-    dists = []
-    for file_dm in files_dm:
-        technique = file_dm.split('/')[-1].split('.')[0].split('_')[-1]
-        metric = file_dm.split('/')[-1].split('.')[-2]
-        for zyg in ['MZ', 'DZ']:
-            m_class = metadata[metadata['zygosity'] == zyg]
-            for (familyid, age), g in m_class.groupby(['familyid', 'age']):
-                if g.shape[0] != 2:
-                    continue
-                try:
-                    dists.append({'technique': technique,
-                                  'class': zyg,
-                                  'distance':
-                                  betas[technique][metric][g.index[0],
-                                                           g.index[1]],
+    @cache
+    def _get_distances(study_results, study_id, meta):
+        dists = []
+        for _type in study_results[study_id].keys():
+            betas = study_results[study_id][_type]['beta']['results']
+            for metric in betas.keys():
+                for zyg in ['MZ', 'DZ']:
+                    m_class = meta[meta['zygosity'] == zyg]
+                    for (familyid, age), g in m_class.groupby(['familyid',
+                                                               'age']):
+                        if g.shape[0] != 2:
+                            continue
+                        try:
+                            dists.append({'type': _type,
+                                          'class': zyg,
+                                          'distance':
+                                          betas[metric][g.index[0],
+                                                        g.index[1]],
+                                          'metric': metric})
+                        except MissingIDError:
+                            pass
+
+                pddm = betas[metric].to_data_frame()
+                for n, g in meta.loc[pddm.index, :].groupby('familyid'):
+                    pddm.loc[g.index, g.index] = np.nan
+                for dist in pddm.stack().values:
+                    dists.append({'type': _type,
+                                  'class': 'unrelated',
+                                  'distance': dist,
                                   'metric': metric})
-                except MissingIDError:
-                    pass
+        err.write(' done.\n')
+        return pd.DataFrame(dists)
+    distances = _get_distances(study_results, study_id, meta,
+                               cache_filename='%s/%s/.cache_dists' %
+                               (dir_studies, study_id))
 
-        pddm = betas[technique][metric].to_data_frame()
-        for n, g in metadata.loc[pddm.index, :].groupby('familyid'):
-            pddm.loc[g.index, g.index] = np.nan
-        for dist in pddm.stack().values:
-            dists.append({'technique': technique,
-                          'class': 'unrelated',
-                          'distance': dist,
-                          'metric': metric})
-    err.write(' done.\n')
-
-    err.write('  step 4/%i: convert dist array to pandas DataFrame ...'
-              % NUMSTEPS)
-    distances = pd.DataFrame(dists)
-    err.write(' done.\n')
-
-    err.write(('  step 5/%i: generate graphical overview '
+    err.write(('  step 2/%i: generate graphical overview '
                'in terms of boxplots ...')
               % NUMSTEPS)
     fig = sns.FacetGrid(distances, col="metric",
@@ -555,22 +641,22 @@ def analyse_2014(dir_study, err=sys.stderr):
                                    'unweighted_unifrac',
                                    'weighted_unifrac'],
                         hue_order=['closedref', 'deblurall'])
-    fig = fig.map(sns.boxplot, "class", "distance", "technique").add_legend()
+    fig = fig.map(sns.boxplot, "class", "distance", "type").add_legend()
     err.write(' done.\n')
 
     # generate statistical summary of class comparisons, i.e. did the
     # significance improve?
-    err.write(('  step 6/%i: generate statistical summary of '
+    err.write(('  step 3/%i: generate statistical summary of '
                'class comparisons ...') % NUMSTEPS)
     stats = []
-    for (metric, technique), g in distances.groupby(['metric', 'technique']):
+    for (metric, _type), g in distances.groupby(['metric', 'type']):
         for (a, b) in combinations(g['class'].unique(), 2):
             t = mannwhitneyu(g[(g['class'] == a)]['distance'].values,
                              g[(g['class'] == b)]['distance'].values,
                              alternative='two-sided')
-            stats.append({'technique': technique,
+            stats.append({'type': _type,
                           'metric': metric,
-                          'comparison': '%s vs %s' % (a, b),
+                          'pair': '%s - %s' % (a, b),
                           'p-value': t.pvalue,
                           'test-statistic': t.statistic})
     stats = pd.DataFrame(stats)
@@ -615,3 +701,151 @@ def get_taxa_radia(file_tree, err=sys.stderr):
                     'rank': rank,
                     'max_tip_tip_dist': node.get_max_distance()[0]}
     return pd.DataFrame(taxa_radia).T
+
+
+def binning(value, getorder=False):
+    bins = [((1, 1), '1'),
+            ((2, 2), '2'),
+            ((3, 3), '3'),
+            ((4, 4), '4'),
+            ((5, 5), '5'),
+            ((6, 6), '6'),
+            ((7, 7), '7'),
+            ((8, 16), '8-16'),
+            ((17, 100), '17-100'),
+            ((100, np.infty), '>100')]
+    if getorder:
+        return [n for (_, n) in bins]
+
+    for _bin in bins:
+        if value >= _bin[0][0] and value <= _bin[0][1]:
+            return _bin[1]
+    raise ValueError('no suitable bin found')
+
+
+def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
+                _type='single', hue=None):
+    YLIM = (0, 0.45)
+    filtered_distances = distances.dropna()
+
+    color = None
+    if _type == 'all':
+        color = sns.xkcd_rgb["denim blue"]
+
+    fig = plt.figure(figsize=(25, 10))
+    gs = gridspec.GridSpec(2, 2, width_ratios=[1, 8], height_ratios=[5, 2])
+
+    # taxonomy reference
+    ax = plt.subplot(gs[0, 0])
+    g = sns.barplot(data=taxa_radia, x='rank', y='max_tip_tip_dist',
+                    order=RANKS, ax=ax, color=color)
+    ax.set_xticklabels(ax.xaxis.get_majorticklabels(), rotation=90)
+    g.set_xlabel('')
+    g.set_ylim(YLIM)
+
+    value_hue = 'only_repr._sequences'
+    value_hue_order = [True, False]
+    if hue is not None:
+        value_hue = 'algorithm'
+        value_hue_order = sorted(filtered_distances[value_hue].unique())
+
+    # tag stats
+    ax = plt.subplot(gs[0, 1])
+    if _type == 'single':
+        g = sns.boxplot(data=filtered_distances,
+                        x='binned_num_otus',
+                        order=binning(None, getorder=True),
+                        y='distance_'+distance_type,
+                        # hue='only_repr._sequences', hue_order=[True, False],
+                        hue=value_hue, hue_order=value_hue_order,
+                        ax=ax)
+    elif _type == 'mutations':
+        g = sns.pointplot(
+            data=filtered_distances.groupby([
+                'num_pointmutations',
+                'binned_num_otus']).mean().reset_index(),
+            x='binned_num_otus', order=binning(None, getorder=True),
+            y='distance_'+distance_type,
+            hue="num_pointmutations",
+            markers='o', join=False)
+    else:
+        g = sns.boxplot(
+            data=filtered_distances.groupby([
+                'num_pointmutations',
+                'binned_num_otus',
+                'only_repr._sequences']).mean().reset_index(),
+            x='binned_num_otus', order=binning(None, getorder=True),
+            y='distance_'+distance_type,
+            hue=value_hue, hue_order=value_hue_order)
+    ax.set_xticklabels(ax.xaxis.get_majorticklabels(), rotation=0)
+    g.set_xlabel('number "99% OTUs" a V4.150 sequence belongs to')
+    g.set_ylabel('mean (lca(OTUs) to insertion-tip distance)')
+    g.set_ylim(YLIM)
+
+    # fragment uniqueness histogram
+    ax = plt.subplot(gs[1, 1])
+    num_frag_uniqueness = []
+    for (n, reprstatus), g in filtered_distances.groupby([
+            'binned_num_otus', value_hue]):
+        num_frag_uniqueness.append({'num': g.shape[0],
+                                    'uniqueness': n,
+                                    value_hue: reprstatus})
+    num_frag_uniqueness = pd.DataFrame(num_frag_uniqueness)
+    g = sns.barplot(data=num_frag_uniqueness,
+                    x='uniqueness', order=binning(None, getorder=True),
+                    y='num',
+                    hue=value_hue, hue_order=value_hue_order,
+                    ax=ax, color=color)
+    g.set_xlabel('')
+    g.set_ylabel('# fragments (log-scale)')
+    g.set_yscale('log')
+    ax.tick_params(
+        axis='x',           # changes apply to the x-axis
+        which='both',       # both major and minor ticks are affected
+        bottom='off',       # ticks along the bottom edge are off
+        top='off',          # ticks along the top edge are off
+        labelbottom='off')  # labels along the bottom edge are off
+
+    fig.suptitle(name)
+    return fig
+
+
+def plot_errordistribution(distances, distance_type, plotfile_prefix,
+                           lim=3, err=sys.stderr):
+    err.write('plot "error distribution" ')
+
+    # restrict to those fragments that map to only one true OTU and have no
+    # point mutations
+    errdistances = distances[
+        (distances['num_otus'] == 1) &
+        (distances['num_pointmutations'] == 0) &
+        (pd.notnull(distances['distance_' + distance_type]))]
+
+    # group and sum up distances by true OTUs and write to biom file, such that
+    # it can be assessed by "collapseCounts()"
+    countshack = errdistances[['num_otus',
+                               'distance_' + distance_type,
+                               'otuIDs']].copy(deep=True)
+    countshack['otuIDs'] = countshack['otuIDs'].apply(lambda t: ','.join(t))
+    pandas2biom('help.biom', countshack.groupby('otuIDs').sum())
+
+    # actuall plotting
+    for i, rank in enumerate(RANKS[:lim]):
+        err.write('.')
+        t = collapseCounts('help.biom',
+                           rank,
+                           file_taxonomy=('/home/sjanssen/GreenGenes/gg_13_5_'
+                                          'otus/taxonomy/99_otu_taxonomy.txt'),
+                           astype=float,
+                           verbose=False)
+        t['avg. dist. %s' % distance_type] =\
+            t['distance_' + distance_type] / t['num_otus']
+
+        plt.figure(figsize=(5, max(2, 0.15 * t.shape[0])))
+        sns.barplot(data=t,
+                    x='avg. dist. %s' % distance_type,
+                    y=t.index,
+                    order=t.sort_values('num_otus', ascending=False).index,
+                    orient='h', label=rank)
+        plt.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
+    err.write(' done.')
