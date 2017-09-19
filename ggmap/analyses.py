@@ -180,7 +180,7 @@ def _plot_rarefaction_curves(data):
 
     # read count histogram
     ax = axes[0]
-    n, bins, patches = ax.hist(data['readcounts'],
+    n, bins, patches = ax.hist(data['readcounts'].fillna(0.0),
                                50,
                                facecolor='black',
                                alpha=0.75)
