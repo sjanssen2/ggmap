@@ -67,7 +67,8 @@ def read_otumap(file_otumap):
 @cache
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
-                          verbose=True, out=sys.stdout, onlyrepr=False):
+                          verbose=True, out=sys.stdout, onlyrepr=False,
+                          nomerge=False):
     """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
@@ -94,6 +95,10 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     onlyrepr : bool
         Default: False.
         If True, only fragments from representative sequences are returned.
+    nomerge : bool
+        Default: False.
+        If True, function returns the list of ALL fragments, i.e. this list
+        will contain many duplicate sequences.
 
     Returns
     -------
@@ -185,6 +190,8 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     fragments = pd.DataFrame(fragments)
     if verbose:
         out.write('% 8i fragments remaining.\n' % fragments.shape[0])
+    if nomerge:
+        return fragments
     # group fragments by sequence and list true OTUids
     unique_fragments = fragments.groupby('sequence').agg(lambda x:
                                                          list(x.values))
@@ -746,7 +753,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
     value_hue = 'only_repr._sequences'
     value_hue_order = [True, False]
     if hue is not None:
-        value_hue = 'algorithm'
+        value_hue = hue
         value_hue_order = sorted(filtered_distances[value_hue].unique())
 
     # tag stats
@@ -781,6 +788,9 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
     g.set_xlabel('number "99% OTUs" a V4.150 sequence belongs to')
     g.set_ylabel('mean (lca(OTUs) to insertion-tip distance)')
     g.set_ylim(YLIM)
+    plt.legend(loc='upper right')
+    plt.setp(ax.get_legend().get_texts(), fontsize='22')  # for legend text
+    plt.setp(ax.get_legend().get_title(), fontsize='32')  # for legend title
 
     # fragment uniqueness histogram
     ax = plt.subplot(gs[1, 1])
