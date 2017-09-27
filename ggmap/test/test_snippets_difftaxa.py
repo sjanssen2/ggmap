@@ -238,7 +238,7 @@ class DiffTaxaTests(TestCase):
             file_image_diff='./diff.diffAbundance.plot_difftaxa.png')
         if res[0] is True:
             remove(file_dummy)
-        return res[0]
+        self.assertTrue(res[0])
 
 
 if __name__ == '__main__':
