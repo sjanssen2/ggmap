@@ -544,7 +544,7 @@ def check_qiita_studies(dir_base):
                                   'sequence lengths: "%s"') %
                                  '", "'.join(files_biom))
             fraglen = list(fraglen)[0]
-            for _type in ['closedref', 'deblurall']:
+            for _type in ['closedref', 'deblurrefhit']:
                 file_biom = "%s/%s/%s/qiita%s_%s_%snt_%s.biom" % (
                     dir_base, study, prep, study, prep, fraglen, _type)
 
@@ -607,6 +607,8 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
     def _get_distances(study_results, study_id, meta):
         dists = []
         for _type in study_results[study_id].keys():
+            if _type == 'deblurall':
+                continue
             betas = study_results[study_id][_type]['beta']['results']
             for metric in betas.keys():
                 for zyg in ['MZ', 'DZ']:
@@ -647,7 +649,7 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
                         col_order=['bray_curtis',
                                    'unweighted_unifrac',
                                    'weighted_unifrac'],
-                        hue_order=['closedref', 'deblurall'])
+                        hue_order=['closedref', 'deblurrefhit'])
     fig = fig.map(sns.boxplot, "class", "distance", "type").add_legend()
     err.write(' done.\n')
 
