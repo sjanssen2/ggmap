@@ -1860,10 +1860,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 
     fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
 
-    for i, (a, b) in enumerate(diffTaxa.keys()):
+    for i, (a, b) in enumerate(sorted(diffTaxa.keys())):
         counts_fields = []
         foldchange = []
-        for value in [a, b]:
+        for value in sorted([a, b]):
             # select counts for diff taxa and samples for field
             counts_val =\
                 counts.loc[diffTaxa[(a, b)].keys(),
