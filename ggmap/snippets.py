@@ -1850,70 +1850,85 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
             calour_experiment, metadata, sub_groups, diffTaxa)
         out.write("\n")
 
-    return diffTaxa
+    merged_diffTaxa = dict()
+    for (a, b) in diffTaxa.keys():
+        key = tuple(sorted((a, b)))
+        if key not in merged_diffTaxa:
+            merged_diffTaxa[key] = dict()
+        for feature in diffTaxa[(a, b)].keys():
+            if feature not in merged_diffTaxa[key]:
+                merged_diffTaxa[key][feature] = 0
+            merged_diffTaxa[key][feature] += diffTaxa[(a, b)][feature]
+
+    return merged_diffTaxa
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01):
-    # normalize counts to abundances
-    counts /= counts.sum()
+    """Plots relative abundance and fold change for taxa.
 
+    Parameters
+    ----------
+    """
     fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
 
-    for i, (a, b) in enumerate(sorted(diffTaxa.keys())):
-        counts_fields = []
-        foldchange = []
-        for value in sorted([a, b]):
-            # select counts for diff taxa and samples for field
-            counts_val =\
-                counts.loc[diffTaxa[(a, b)].keys(),
-                           metadata_field[metadata_field == value].index]
+    counts.index.name = 'feature'
+    relabund = counts / counts.sum()
+    comparisons = sorted(map(sorted, diffTaxa.keys()))
+    for i, (meta_value_a, meta_value_b) in enumerate(comparisons):
+        samples_a = metadata_field[metadata_field == meta_value_a].index
+        samples_b = metadata_field[metadata_field == meta_value_b].index
+        foldchange = np.log((counts.loc[:, samples_a]+1).mean(axis=1) /
+                            (counts.loc[:, samples_b]+1).mean(axis=1))
 
-            counts_val = counts_val[
-                counts_val.mean(axis=1) >= min_mean_abundance]
-            if counts_val.shape[0] <= 0:
-                print("Warnings: no taxa left!")
-            foldchange.append(counts_val)
+        taxa = sorted(relabund[(relabund.loc[:, samples_a].mean(axis=1) >
+                                min_mean_abundance) |
+                               (relabund.loc[:, samples_b].mean(axis=1) >
+                                min_mean_abundance)].index)
+        if len(taxa) <= 0:
+            print("Warnings: no taxa left!")
 
-            counts_val.index.name = 'feature'
-            counts_val.columns.name = 'sample_id'
-            counts_val = counts_val.unstack().to_frame()
-            counts_val.reset_index(inplace=True)
-            counts_val.set_index('sample_id', inplace=True)
-            counts_val['group'] = value
-            counts_fields.append(counts_val)
-        counts_taxa = pd.concat(counts_fields, axis=0)
-        counts_taxa = counts_taxa.rename(columns={0: 'relative abundance'})
+        relabund_field = []
+        for (samples, grpname) in [(samples_a, meta_value_a),
+                                   (samples_b, meta_value_b)]:
+            r = relabund.loc[taxa, samples].stack().reset_index().rename(
+                columns={0: 'relative abundance'})
+            r['group'] = grpname
+            relabund_field.append(r)
+        relabund_field = pd.concat(relabund_field)
 
         curr_ax = ax[0]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
-        feature_order = sorted(counts_taxa['feature'].unique())
-        g = sns.boxplot(data=counts_taxa,
+        g = sns.boxplot(data=relabund_field,
                         x='relative abundance',
                         y='feature',
-                        order=feature_order,
+                        order=taxa,
                         hue='group',
-                        ax=curr_ax, orient='h')
-        # g.set_xscale('log')
+                        ax=curr_ax,
+                        orient='h')
         g.set_xlim((0, 1))
+        curr_ax.legend(loc="upper right")
 
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
-        foldchange = np.log(
-            foldchange[0].mean(axis=1) / foldchange[1].mean(axis=1))
-        foldchange = foldchange.loc[feature_order]
-        foldchange = foldchange.to_frame().reset_index()
-        # return foldchange
-        # feature_order = foldchange.sort_index().index
-        g = sns.barplot(data=foldchange, x=0, y='feature', orient='h',
-                        ax=curr_ax, color=sns.xkcd_rgb["denim blue"])
+        g = sns.barplot(data=foldchange.loc[taxa].to_frame().reset_index(),
+                        orient='h',
+                        y='feature',
+                        x=0,
+                        ax=curr_ax,
+                        color=sns.xkcd_rgb["denim blue"])
         g.set_ylabel('')
-        g.set(yticklabels=taxonomy.loc[feature_order].apply(
-            lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
-        g.set_xlabel('<-- more in %s     |      more in %s -->' % (b, a))
+        if taxonomy is not None:
+            g.set(yticklabels=taxonomy.loc[taxa].apply(
+                lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
+
+        g.set_xlabel('<-- more in %s     |      more in %s -->' %
+                     (meta_value_b, meta_value_a))
         g.yaxis.tick_right()
-        plt.suptitle(metadata_field.name)
+        g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
+                   +1*foldchange.loc[taxa].abs().max())
+        fig.suptitle(metadata_field.name)
 
     return fig
