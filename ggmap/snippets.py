@@ -1869,6 +1869,26 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 
     Parameters
     ----------
+    counts : Pandas.DataFrame
+        OTU table with rows for features and columns for samples.
+    metadata_field : Pandas.Series
+        Group labels for every samples between which differentially abundant
+        taxa have been found. I.e. one label per sample.
+    diffTaxa : dict of dicts
+        First level: keys = pairs of group labels
+        Second level: keys = feature, values = some numbers (are not considered
+        right now)
+    taxonomy : Pandas.Series
+        Default: none
+        Taxonomy labels for features.
+    min_mean_abundance : float
+        Default: 0.01.
+        Minimal relative mean abundance a feature must have in both groups to
+        be plotted.
+
+    Returns
+    -------
+    Matplotlib Figure.
     """
     fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
 
