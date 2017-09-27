@@ -852,6 +852,91 @@ def sortmerna(sequences,
                      **executor_args)
 
 
+def denovo_tree(counts, ppn=1, **executor_args):
+    """Builds a de novo tree for given sequences using PyNAST + fasttree.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    A newick string of the created phylogenetic tree."""
+    def pre_execute(workdir, args):
+        # store all unique sequences to a fasta file
+        # as in sortmerna we need a header map, because fasttree will otherwise
+        # throw strange errors
+        file_fragments = workdir + '/sequences.mfa'
+        file_mapping = workdir + '/headermap.tsv'
+        f = open(file_fragments, 'w')
+        m = open(file_mapping, 'w')
+        for i, (header, sequence) in enumerate(args['seqs'].iteritems()):
+            f.write('>%s\n%s\n' % ('seq%i' % i, sequence))
+            m.write('seq%i\t%s\n' % (i, header))
+        f.close()
+        m.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('parallel_align_seqs_pynast.py -O %i -i %s -o %s' % (
+            ppn,
+            workdir+'/sequences.mfa',
+            workdir))
+        commands.append('fasttree -nt %s > %s' % (
+            workdir+'/sequences_aligned.fasta',
+            workdir+'/tree.newick'))
+
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        # load resulting tree
+        f = open(workdir+'/tree.newick', 'r')
+        tree = "".join(f.readlines())
+        f.close()
+
+        # parse header mapping file and rename sequence identifier
+        hmap = pd.read_csv(workdir + '/headermap.tsv', sep='\t', header=None,
+                           index_col=0)[1]
+        return {'tree': tree,
+                'hmap': hmap}
+
+    def post_cache(cache_results):
+        hmap = cache_results['results']['hmap']
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        for node in tree.tips():
+            node.name = hmap.loc[node.name]
+
+        cache_results['results']['tree'] = tree
+        del cache_results['results']['hmap']
+        return cache_results
+
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
+
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp).sort_index()
+
+    return _executor('pynastfasttree',
+                     {'seqs': seqs},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache=post_cache,
+                     ppn=ppn,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
