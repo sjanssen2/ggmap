@@ -1958,6 +1958,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         g.yaxis.tick_right()
         g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
                    +1*foldchange.loc[taxa].abs().max())
-        fig.suptitle(metadata_field.name + '\n' + 'minimal relative abundance: %f' % min_mean_abundance)
+        fig.suptitle("%s\nminimal relative abundance: %f" %
+                     (metadata_field.name, min_mean_abundance))
 
     return fig
