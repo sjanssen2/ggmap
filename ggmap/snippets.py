@@ -1896,15 +1896,24 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     relabund = counts / counts.sum()
     comparisons = sorted(map(sorted, diffTaxa.keys()))
     for i, (meta_value_a, meta_value_b) in enumerate(comparisons):
+        # only consider taxa given in the diffTaxa object
+        taxa = list(diffTaxa[(meta_value_a, meta_value_b)])
         samples_a = metadata_field[metadata_field == meta_value_a].index
         samples_b = metadata_field[metadata_field == meta_value_b].index
-        foldchange = np.log((counts.loc[:, samples_a]+1).mean(axis=1) /
-                            (counts.loc[:, samples_b]+1).mean(axis=1))
+        foldchange = np.log((counts.loc[taxa, samples_a]+1).mean(axis=1) /
+                            (counts.loc[taxa, samples_b]+1).mean(axis=1))
 
-        taxa = sorted(relabund[(relabund.loc[:, samples_a].mean(axis=1) >
-                                min_mean_abundance) |
-                               (relabund.loc[:, samples_b].mean(axis=1) >
-                                min_mean_abundance)].index)
+        # only consider current list of taxa, but now also filter out those
+        # with too low relative abundance.
+        taxa = sorted(list(
+            set([idx
+                 for idx, meanabund
+                 in relabund.loc[taxa, samples_a].mean(axis=1).iteritems()
+                 if meanabund >= min_mean_abundance]) |
+            set([idx
+                 for idx, meanabund
+                 in relabund.loc[taxa, samples_b].mean(axis=1).iteritems()
+                 if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
 
@@ -1949,6 +1958,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         g.yaxis.tick_right()
         g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
                    +1*foldchange.loc[taxa].abs().max())
-        fig.suptitle(metadata_field.name)
+        fig.suptitle("%s\nminimal relative abundance: %f" %
+                     (metadata_field.name, min_mean_abundance))
 
     return fig
