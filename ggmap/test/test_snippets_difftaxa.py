@@ -379,7 +379,7 @@ class DiffTaxaTests(TestCase):
                            self.metadata['intervention'],
                            self.diffTaxa,
                            self.taxonomy,
-                           min_mean_abundance=0.05)
+                           min_mean_abundance=0.01)
         file_dummy = mkstemp('.png')[1]
         f.savefig(file_dummy, bbox_inches='tight')
         res = compare_images(

@@ -1905,10 +1905,15 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 
         # only consider current list of taxa, but now also filter out those
         # with too low relative abundance.
-        taxa = sorted(relabund[(relabund.loc[:, samples_a].mean(axis=1) >
-                                min_mean_abundance) |
-                               (relabund.loc[:, samples_b].mean(axis=1) >
-                                min_mean_abundance)].loc[taxa, :].index)
+        taxa = sorted(list(
+            set([idx
+                 for idx, meanabund
+                 in relabund.loc[taxa, samples_a].mean(axis=1).iteritems()
+                 if meanabund >= min_mean_abundance]) |
+            set([idx
+                 for idx, meanabund
+                 in relabund.loc[taxa, samples_b].mean(axis=1).iteritems()
+                 if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
 
@@ -1953,6 +1958,6 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         g.yaxis.tick_right()
         g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
                    +1*foldchange.loc[taxa].abs().max())
-        fig.suptitle(metadata_field.name)
+        fig.suptitle(metadata_field.name + '\n' + 'minimal relative abundance: %f' % min_mean_abundance)
 
     return fig
