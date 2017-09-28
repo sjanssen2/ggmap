@@ -452,7 +452,7 @@ if __name__ == "__main__":
     num_threads = 1
     inner_chunk_size = 200
     file_input = '/home/sjanssen/GreenGenes/gg_13_5_accessions.txt'
-    file_input_metaphlan = ('/home/sjanssen/GreenGenes/Metaphlan/',
+    file_input_metaphlan = ('/home/sjanssen/GreenGenes/Metaphlan/'
                             'markers_info.txt')
     runtype = 'some'
 
