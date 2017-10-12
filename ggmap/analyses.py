@@ -823,7 +823,7 @@ def sortmerna(sequences,
         # parse failed sequences
         f = open(workdir+'/sortmerna/sequences_failures.txt', 'r')
         for line in f.readlines():
-            assignments.append({'header': line.rstrip()})
+            assignments.append({'header': hmap.loc[line.rstrip()].iloc[0]})
         f.close()
 
         return pd.DataFrame(assignments).set_index('header')
