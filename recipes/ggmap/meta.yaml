@@ -1,0 +1,67 @@
+package:
+  name: ggmap
+  version: "0.1.0"
+
+source:
+  url: https://github.com/sjanssen2/ggmap/archive/v0.1.0.tar.gz
+  sha256: e5d687b9a9b98e6908ad33fe4d30c9d213a4801860be5a4798573781b2817d73
+
+build:
+  number: 0
+  script:
+    python setup.py install
+
+requirements:
+  build:
+    - nose
+    - pep8
+    - flake8
+    - scikit-bio >=0.5
+    - click >=6.0
+    - pandas
+    - biom-format >=2.1.6
+    - basemap
+    - matplotlib
+    - seaborn ==0.7.1
+    - numpy
+    - xlrd
+    - pillow
+    - networkx
+    - basemap
+    - basemap-data-hires
+  run:
+    - nose
+    - pep8
+    - flake8
+    - scikit-bio >=0.5
+    - click >=6.0
+    - pandas
+    - biom-format >=2.1.6
+    - basemap
+    - matplotlib
+    - seaborn ==0.7.1
+    - numpy
+    - xlrd
+    - pillow
+    - networkx
+    - basemap
+    - basemap-data-hires
+
+test:
+  source_files:
+    - ggmap/test/data/25x25.biom
+
+about:
+  home: https://github.com/sjanssen2/ggmap
+  license: BSD License
+  summary: Stefans microbiome analysis collection
+  description: |
+    You might need to add channels to your conda installation to meet all required dependencies:
+    `conda config --add channels biocore`
+    `conda config --add channels bioconda`
+    `conda config --add channels conda-forge`
+    
+    In order to execute analyses functions you need to have a qiime1 conda environment called "qiime_env".
+    You can use an existing environment with a different name, if you 
+    a) change the value of the global variable "QIIME_ENV" in source file ggmap/analyses.py and 
+    b) re-run the setup: `python setup.py install`
