@@ -457,8 +457,10 @@ def plotTaxonomy(file_otutable,
                  verbose=True,
                  reorder_samples=False,
                  print_sample_labels=False,
+                 print_meanrelabunances=False,
                  minreadnr=50,
                  plottaxa=None,
+                 plotTopXtaxa=None,
                  fct_aggregate=None,
                  no_top_labels=False,
                  grayscale=False,
@@ -484,8 +486,13 @@ def plotTaxonomy(file_otutable,
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
+    print_meanrelabunances : Bool
+        Default: False.
+        If True, print mean relative abundance of taxa in legend.
     minreadnr : int
         min number of reads a taxon need to have to be plotted
+    plotTopXtaxa : int
+        Only plot the X most abundant taxa.
     plottaxa : [str]
         Only plot abundances for taxa IDs provided. If None, all taxa are
         plotted. Default: None
@@ -571,6 +578,13 @@ def plotTaxonomy(file_otutable,
             out.write('%i taxa left after restricting to provided list.\n' %
                       (rank_counts.shape[0]))
 
+    if plotTopXtaxa is not None:
+        rank_counts = rank_counts.loc[
+            rank_counts.mean(axis=1).sort_values(ascending=False)
+            .iloc[:plotTopXtaxa].index, :]
+        if verbose:
+            out.write('%i taxa left after restricting to top %i.\n' %
+                      (plotTopXtaxa, rank_counts.shape[0]))
     # all for plotting
     # sort taxa according to sum of abundance
     taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
@@ -747,8 +761,8 @@ def plotTaxonomy(file_otutable,
         else:
             label = n0
             if no_sample_numbers is False:
-                label += "\n(n=%i)" % _get_sample_numbers(
-                    num_samples, [group_l0], [n0])
+                label = "%s\n(n=%i)" % (label, _get_sample_numbers(
+                    num_samples, [group_l0], [n0]))
             ax.set_ylabel(label)
 
         # print labels on top of the groups
@@ -811,7 +825,7 @@ def plotTaxonomy(file_otutable,
 
         # display a legend
         if ypos == 0:
-            l_patches = [mpatches.Patch(color=colors[tax], label=tax)
+            l_patches = [mpatches.Patch(color=colors[tax], label="%.2f %%: %s" % (rank_counts.loc[tax, :].mean()*100, tax) if print_meanrelabunances else tax)
                          for tax in vals.index
                          if (tax in highAbundantTaxa) |
                             (tax == NAME_LOW_ABUNDANCE)]
@@ -896,7 +910,7 @@ def _add_timing_cmds(commands, file_timing):
     for cmd in commands:
         # cd cannot be timed and any attempt will fail changing the
         # directory
-        if cmd.startswith('cd '):
+        if cmd.startswith('cd ') or cmd.startswith('module load '):
             timing_cmds.append(cmd)
         else:
             timing_cmds.append(('%s '
