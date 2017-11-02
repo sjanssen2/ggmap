@@ -9,6 +9,7 @@ from io import StringIO
 import collections
 import datetime
 import time
+import numpy as np
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -26,6 +27,7 @@ plt.rc('font', family='DejaVu Sans')
 
 FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
+QIIME2_ENV = 'qiime2-2017.9'
 
 
 def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
@@ -323,12 +325,15 @@ def rarefaction_curves(counts,
             _plot_rarefaction_curves(cache_results['results'])
         return cache_results
 
+    if reference_tree is not None:
+        reference_tree = os.path.abspath(reference_tree)
     return _executor('rare',
                      {'counts': counts,
                       'metrics': metrics,
                       'num_steps': num_steps,
                       'max_depth': max_depth,
-                      'num_iterations': num_iterations},
+                      'num_iterations': num_iterations,
+                      'reference_tree': reference_tree},
                      pre_execute,
                      commands,
                      post_execute,
@@ -479,6 +484,8 @@ def alpha_diversity(counts, rarefaction_depth,
             results.append(a)
         return pd.concat(results, axis=1)
 
+    if reference_tree is not None:
+        reference_tree = os.path.abspath(reference_tree)
     return _executor('adiv',
                      {'counts': counts,
                       'metrics': metrics,
@@ -558,9 +565,12 @@ def beta_diversity(counts,
                 metric))
         return results
 
+    if reference_tree is not None:
+        reference_tree = os.path.abspath(reference_tree)
     return _executor('bdiv',
                      {'counts': counts,
-                      'metrics': metrics},
+                      'metrics': metrics,
+                      'reference_tree': reference_tree},
                      pre_execute,
                      commands,
                      post_execute,
@@ -747,6 +757,245 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
                      **executor_args)
 
 
+def sepp_stepbystep(counts, reference=None,
+                    stopdecomposition=None,
+                    ppn=20, pmem='8GB', walltime='12:00:00',
+                    **executor_args):
+    """Step by Step version of SEPP to track memory consumption more closely.
+       Tip insertion of deblur sequences into GreenGenes backbone tree.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
+    reference : str
+        Default: None.
+        Valid values are ['pynast']. Use a different alignment file for SEPP.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+    chunksize: int
+        Default: 30000
+        SEPP jobs seem to fail if too many sequences are submitted per job.
+        Therefore, we can split your sequences in chunks of chunksize.
+
+    Returns
+    -------
+    ???"""
+    def pre_execute(workdir, args):
+        file_fragments = workdir + '/sequences.mfa'
+        f = open(file_fragments, 'w')
+        for header, sequence in seqs.iteritems():
+            f.write('>%s\n%s\n' % (header, sequence))
+        f.close()
+        os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
+
+    def commands(workdir, ppn, args):
+        commands = []
+        name = 'seppstepbysteprun'
+        dir_base = ('/home/sjanssen/miniconda3/envs/seppGG_py3/'
+                    'src/sepp-package/')
+        dir_tmp = workdir + '/sepp-tempssd/'
+
+        commands.append('cd %s' % workdir)
+
+        commands.append(
+            ('python %s -P %i -A %s -t %s -a %s -r %s -f %s -cp '
+             '%s/chpoint-%s -o %s -d %s -p %s '
+             '1>>%s/sepp-%s-out.log 2>%s/sepp-%s-err.log') % (
+                ('%ssepp/run_sepp.py' % dir_base),  # python script of SEPP
+                5000,  # problem size for tree
+                1000,  # problem size for alignment
+                # reference tree file
+                ('%sref/reference-gg-raxml-bl-rooted-relabelled.tre' %
+                    dir_base),
+                # reference alignment file
+                ('%sref/gg_13_5_ssu_align_99_pfiltered.fasta' % dir_base),
+                # reference info file
+                ('%sref/RAxML_info-reference-gg-raxml-bl.info' % dir_base),
+                workdir + '/sequences.mfa',  # sequence input file
+                dir_tmp,  # tmpdir
+                name,
+                name,
+                workdir,
+                dir_tmp,
+                workdir,
+                name,
+                workdir,
+                name))
+
+        commands.append(('%s/sepp/tools/bundled/Linux/guppy-64 tog %s/%s_plac'
+                         'ement.json') % (dir_base, workdir, name))
+        commands.append(('python %s/%s_rename-json.py < %s/%s_placement.tog.t'
+                         're > %s/%s_placement.tog.relabelled.tre') %
+                        (workdir, name, workdir, name, workdir, name))
+        commands.append(('%s/sepp/tools/bundled/Linux/guppy-64 tog --xml %s/%'
+                         's_placement.json') % (dir_base, workdir, name))
+        commands.append(('python %s/%s_rename-json.py < %s/%s_placement.tog.x'
+                         'ml > %s/%s_placement.tog.relabelled.xml') %
+                        (workdir, name, workdir, name, workdir, name))
+
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        file_merged_tree = workdir +\
+            '/seppstepbysteprun_placement.tog.relabelled.tre'
+        sys.stderr.write("step 1/2) reading skbio tree: ...")
+        tree = TreeNode.read(file_merged_tree)
+        sys.stderr.write(' done.\n')
+
+        sys.stderr.write("step 2/2) use the phylogeny to det"
+                         "ermine tips lineage: ")
+        lineages = []
+        features = []
+        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
+        for i, tip in enumerate(tree.tips()):
+            if i % divisor == 0:
+                sys.stderr.write('.')
+            if tip.name.isdigit():
+                continue
+
+            lineage = []
+            for ancestor in tip.ancestors():
+                try:
+                    float(ancestor.name)
+                except TypeError:
+                    pass
+                except ValueError:
+                    lineage.append(ancestor.name)
+
+            lineages.append("; ".join(reversed(lineage)))
+            features.append(tip.name)
+        sys.stderr.write(' done.\n')
+
+        # storing tree as newick string is necessary since large trees would
+        # result in too many recursions for the python heap :-/
+        newick = StringIO()
+        tree.write(newick)
+        return {'taxonomy': pd.DataFrame(data=lineages,
+                                         index=features,
+                                         columns=['taxonomy']),
+                'tree': newick.getvalue(),
+                'reference': args['reference']}
+
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
+
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp).sort_index()
+    return _executor('seppstep',
+                     {'seqs': seqs,
+                      'reference': reference},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn, pmem=pmem, walltime=walltime,
+                     **executor_args)
+
+
+def sepp_git(counts,
+             ppn=20, pmem='8GB', walltime='12:00:00',
+             **executor_args):
+    """Latest git version of SEPP.
+       Tip insertion of deblur sequences into GreenGenes backbone tree.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ???"""
+    def pre_execute(workdir, args):
+        file_fragments = workdir + '/sequences.mfa'
+        f = open(file_fragments, 'w')
+        for header, sequence in seqs.iteritems():
+            f.write('>%s\n%s\n' % (header, sequence))
+        f.close()
+        os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
+
+    def commands(workdir, ppn, args):
+        commands = []
+        commands.append('cd %s' % workdir)
+        commands.append('ulimit -m 4194304')
+        commands.append('%srun-sepp.sh "%s" res -x %i' % (
+            ('/home/sjanssen/Benchmark_insertiontree/'
+             'Software/sepp/sepp-package/'),
+            workdir+'/sequences.mfa',
+            ppn))
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        file_merged_tree = workdir +\
+            '/res_placement.tog.relabelled.tre'
+        sys.stderr.write("step 1/2) reading skbio tree: ...")
+        tree = TreeNode.read(file_merged_tree)
+        sys.stderr.write(' done.\n')
+
+        sys.stderr.write("step 2/2) use the phylogeny to det"
+                         "ermine tips lineage: ")
+        lineages = []
+        features = []
+        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
+        for i, tip in enumerate(tree.tips()):
+            if i % divisor == 0:
+                sys.stderr.write('.')
+            if tip.name.isdigit():
+                continue
+
+            lineage = []
+            for ancestor in tip.ancestors():
+                try:
+                    float(ancestor.name)
+                except TypeError:
+                    pass
+                except ValueError:
+                    lineage.append(ancestor.name)
+
+            lineages.append("; ".join(reversed(lineage)))
+            features.append(tip.name)
+        sys.stderr.write(' done.\n')
+
+        # storing tree as newick string is necessary since large trees would
+        # result in too many recursions for the python heap :-/
+        newick = StringIO()
+        tree.write(newick)
+        return {'taxonomy': pd.DataFrame(data=lineages,
+                                         index=features,
+                                         columns=['taxonomy']),
+                'tree': newick.getvalue()}
+
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
+
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp).sort_index()
+    return _executor('seppgit',
+                     {'seqs': seqs},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment='sepp_git',
+                     ppn=ppn, pmem=pmem, walltime=walltime,
+                     **executor_args)
+
+
 def sortmerna(sequences,
               reference='/projects/emp/03-otus/reference/97_otus.fasta',
               sortmerna_db='/projects/emp/03-otus/reference/97_otus.idx',
@@ -839,6 +1088,10 @@ def sortmerna(sequences,
     # core dump with 8GB with 10 nodes, 4h
     # trying 20GB with 10 nodes ..., 4h (long wait for scheduler)
     # trying 20GB with 5 nodes, 2h ...
+    if sortmerna_db is not None:
+        sortmerna_db = os.path.abspath(sortmerna_db)
+    if reference is not None:
+        reference = os.path.abspath(reference)
     return _executor('sortmerna',
                      {'seqs': sequences.drop_duplicates().sort_index(),
                       'reference': reference,
@@ -937,6 +1190,300 @@ def denovo_tree(counts, ppn=1, **executor_args):
                      **executor_args)
 
 
+def denovo_tree_qiime2(counts, **executor_args):
+    """Builds a de novo tree for given sequences using mafft + fasttree
+       following the Qiime2 tutorial https://docs.qiime2.org/2017.9/tutorials
+       /moving-pictures/#generate-a-tree-for-phylogenetic-diversity-analyses
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    A newick string of the created phylogenetic tree."""
+    def pre_execute(workdir, args):
+        # store all unique sequences to a fasta file
+        # as in sortmerna we need a header map, because fasttree will otherwise
+        # throw strange errors
+        file_fragments = workdir + '/sequences.mfa'
+        file_mapping = workdir + '/headermap.tsv'
+        f = open(file_fragments, 'w')
+        m = open(file_mapping, 'w')
+        for i, (header, sequence) in enumerate(args['seqs'].iteritems()):
+            f.write('>%s\n%s\n' % ('seq%i' % i, sequence.upper()))
+            m.write('seq%i\t%s\n' % (i, header))
+        f.close()
+        m.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # import fasta sequences into qza
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s/rep-seqs '
+             '--type "FeatureData[Sequence]"') %
+            (workdir + '/sequences.mfa', workdir))
+        # First, we perform a multiple sequence alignment of the sequences in
+        # our FeatureData[Sequence] to create a FeatureData[AlignedSequence]
+        # QIIME 2 artifact. Here we do this with the mafft program.
+        commands.append(
+            ('qiime alignment mafft '
+             '--i-sequences %s/rep-seqs.qza '
+             '--o-alignment %s/aligned-rep-seqs.qza '
+             '--p-n-threads %i') %
+            (workdir, workdir, ppn))
+        # Next, we mask (or filter) the alignment to remove positions that are
+        # highly variable. These positions are generally considered to add
+        # noise to a resulting phylogenetic tree.
+        commands.append(
+            ('qiime alignment mask '
+             '--i-alignment %s/aligned-rep-seqs.qza '
+             '--o-masked-alignment %s/masked-aligned-rep-seqs.qza') %
+            (workdir, workdir))
+        # Next, we’ll apply FastTree to generate a phylogenetic tree from the
+        # masked alignment.
+        commands.append(
+            ('qiime phylogeny fasttree '
+             '--i-alignment %s/masked-aligned-rep-seqs.qza '
+             '--o-tree %s/unrooted-tree.qza '
+             '--p-n-threads %i') %
+            (workdir, workdir, ppn))
+        # The FastTree program creates an unrooted tree, so in the final step
+        # in this section we apply midpoint rooting to place the root of the
+        # tree at the midpoint of the longest tip-to-tip distance in the
+        # unrooted tree.
+        commands.append(
+            ('qiime phylogeny midpoint-root '
+             '--i-tree %s/unrooted-tree.qza '
+             '--o-rooted-tree %s/rooted-tree.qza ') %
+            (workdir, workdir))
+
+        # export the phylogeny
+        commands.append(
+            ('qiime tools export '
+             '%s/rooted-tree.qza '
+             '--output-dir %s') %
+            (workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        # load resulting tree
+        f = open(workdir+'/tree.nwk', 'r')
+        tree = "".join(f.readlines())
+        f.close()
+
+        # parse header mapping file and rename sequence identifier
+        hmap = pd.read_csv(workdir + '/headermap.tsv', sep='\t', header=None,
+                           index_col=0)[1]
+        return {'tree': tree,
+                'hmap': hmap}
+
+    def post_cache(cache_results):
+        hmap = cache_results['results']['hmap']
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        for node in tree.tips():
+            node.name = hmap.loc[node.name]
+
+        cache_results['results']['tree'] = tree
+        del cache_results['results']['hmap']
+        return cache_results
+
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
+
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp).sort_index()
+
+    return _executor('qiime2denovo',
+                     {'seqs': seqs},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache=post_cache,
+                     environment=QIIME2_ENV,
+                     **executor_args)
+
+
+def _parse_cmpcat_table(lines, fieldname):
+    header = lines[0].split()
+    columns = lines[1].replace(' < ', '  ').split()
+    columns[0] = fieldname
+    residuals = lines[2].split()
+    residuals[0] = fieldname  # + '_residuals'
+    res = []
+    for (_type, line) in zip(['field', 'residuals'], [columns, residuals]):
+        r = dict()
+        r['type'] = _type
+        i = 0
+        for name in ['field'] + header:
+            if _type == 'residuals':
+                if name in ['F.Model', 'Pr(>F)', 'F_value', 'F', 'N.Perm']:
+                    r[name] = np.nan
+                    continue
+            r[name] = line[i]
+            i += 1
+        res.append(r)
+    return pd.DataFrame(res).loc[:, ['field', 'type'] + header]
+
+
+def _parse_adonis(filename, fieldname='unnamed'):
+    """Parse the R result of an adonis test.
+
+    Parameters
+    ----------
+    filename : str
+        Filepath to R adonis output.
+    fieldname: str
+        Name for the field that has been tested.
+
+    Returns
+    -------
+        Pandas.DataFrame holding adonis results.
+        Two rows: first is the tested field, second the residuals."""
+    f = open(filename, 'r')
+    lines = f.readlines()
+    f.close()
+    res = _parse_cmpcat_table(lines[9:12], fieldname)
+    res['method'] = 'adonis'
+
+    return res
+
+
+def _parse_permdisp(filename, fieldname='unnamed'):
+    f = open(filename, 'r')
+    lines = f.readlines()
+    f.close()
+
+    # fix header names, i.e. remove white spaces for later splitting
+    for i in [3, 12]:
+        lines[i] = lines[i]\
+            .replace('Sum Sq', 'Sum_Sq')\
+            .replace('Mean Sq', 'Mean_Sq')\
+            .replace('F value', 'F_value')
+    upper = _parse_cmpcat_table(lines[3:6], fieldname)
+    upper['method'] = 'permdisp'
+    upper['kind'] = 'observed'
+    lower = _parse_cmpcat_table(lines[12:15], fieldname)
+    lower['method'] = 'permdisp'
+    lower['kind'] = 'permuted'
+    lower = lower.rename(columns={'F': 'F_value'})
+
+    return pd.concat([upper, lower])
+
+
+def _parse_permanova(filename, fieldname='unnamed'):
+    res = pd.read_csv(filename, sep='\t', header=None).T
+    res.columns = res.iloc[0, :]
+    res = res.iloc[1:, :]
+    del res['method name']
+    res['method'] = 'permanova'
+    res['field'] = fieldname
+    return res
+
+
+def compare_categories(beta_dm, metadata,
+                       methods=['adonis', 'permanova', 'permdisp'],
+                       num_permutations=999, **executor_args):
+    """Tests for significance of a metadata field regarding beta diversity.
+
+    Parameters
+    ----------
+    beta_dm : skbio.stats.distance._base.DistanceMatrix
+        The beta diversity distance matrix for the samples
+    metadata : pandas.DataFrame
+        Metadata columns to be checked for variation.
+    methods : [str]
+        Default: ['adonis', 'permanova', 'permdisp'].
+        Choose from ['adonis', 'permanova', 'permdisp'].
+        The statistical test that should be applied.
+    num_permutations : int
+        Number of permutations to use for permanova test.
+
+    Returns
+    -------
+    """
+    def pre_execute(workdir, args):
+        dm = args['beta_dm']
+        meta = args['metadata']
+        # only use samples present in both:
+        # the distance metrix and the metadata
+        idx = set(dm.ids) & set(meta.index)
+        # make sure both objects have the same sorting of samples
+        dm = dm.filter(idx, strict=False)
+        meta = meta.loc[idx, :]
+
+        dm.write(workdir + '/beta_distances.txt')
+        meta.to_csv(workdir + '/meta.tsv',
+                    sep="\t", index_label="#SampleID", header=True)
+        f = open(workdir + '/fields.txt', 'w')
+        f.write("\n".join(meta.columns)+"\n")
+        f.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('module load R_3.3.0')
+        commands.append('cd %s' % workdir)
+        for method in args['methods']:
+            commands.append(
+                ('compare_categories.py --method %s '
+                 '-i %s/beta_distances.txt '
+                 '-m %s/meta.tsv '
+                 '-c `cat fields.txt | head -n ${PBS_ARRAYID} '
+                 '| tail -n 1` '
+                 '-o %s/res%s_`cat fields.txt | head -n ${PBS_ARRAYID} '
+                 '| tail -n 1`/ '
+                 '-n %i') %
+                (method, workdir, workdir, workdir, method, num_permutations))
+
+        return commands
+
+    def post_execute(workdir, args, pre_data):
+        merged = dict()
+
+        ms = zip(['adonis', 'permdisp', 'permanova'],
+                 [_parse_adonis, _parse_permdisp, _parse_permanova])
+        for (name, method) in list(ms):
+            merged[name] = []
+            for field in args['metadata'].columns:
+                filename_result = '%s/res%s_%s/%s_results.txt' % (
+                    workdir, name, field, name)
+                if os.path.exists(filename_result):
+                    merged[name].append(method(filename_result, field))
+            merged[name] = pd.concat(merged[name])
+        return merged
+
+    if type(metadata) == pd.core.series.Series:
+        metadata = metadata.to_frame()
+
+    return _executor('cmpcat',
+                     {'beta_dm': beta_dm,
+                      'metadata':
+                      metadata[sorted(metadata.columns)].sort_index(),
+                      'num_permutations': num_permutations,
+                      'methods': sorted(methods)},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=1,
+                     array=len(range(0, metadata.shape[1])),
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -966,7 +1513,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
-              wait=True, timing=True, verbose=True, array=1):
+              wait=True, timing=True, verbose=True, array=1, dirty=False):
     """
 
     Parameters
@@ -1018,6 +1565,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         Default: 1 = deactivated.
         Only for Torque submits: make the job an array job.
         You need to take care of correct use of ${PBS_JOBID} !
+    dirty : bool
+        Defaul: False.
+        If True, temporary working directory will not be removed.
 
     Returns
     -------
@@ -1041,9 +1591,22 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         post_cache = _id
 
     # phase 1: compute signature for cache file
+    # convert skbio.DistanceMatrix object to a sorted version of its data for
+    # hashing
+    cache_args_original = dict()
+    for arg in cache_arguments.keys():
+        if type(cache_arguments[arg]) == DistanceMatrix:
+            cache_args_original[arg] = cache_arguments[arg]
+            dm = cache_arguments[arg]
+            cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
+
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
+
+    # convert back cache arguments if necessary
+    for arg in cache_args_original.keys():
+        cache_arguments[arg] = cache_args_original[arg]
 
     # phase 2: if cache contains matching file, load from cache and return
     if os.path.exists(results['file_cache']) and (nocache is not True):
@@ -1159,9 +1722,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 results['timing'] += content_file.readlines()
 
     if results['results'] is not None:
-        shutil.rmtree(results['workdir'])
-        if verbose:
-            sys.stderr.write(" Was removed.\n")
+        if not dirty:
+            shutil.rmtree(results['workdir'])
+            if verbose:
+                sys.stderr.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
     f = open(results['file_cache'], 'wb')
