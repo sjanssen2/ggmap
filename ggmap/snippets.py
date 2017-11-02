@@ -910,8 +910,10 @@ def _add_timing_cmds(commands, file_timing):
     for cmd in commands:
         # cd cannot be timed and any attempt will fail changing the
         # directory
-        if cmd.startswith('cd ') or cmd.startswith('module load '):
-            timing_cmds.append(cmd)
+        if cmd.startswith('cd ') or\
+           cmd.startswith('module load ') or\
+           cmd.startswith('ulimit '):
+                timing_cmds.append(cmd)
         else:
             timing_cmds.append(('%s '
                                 '-v '
