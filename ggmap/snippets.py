@@ -825,10 +825,15 @@ def plotTaxonomy(file_otutable,
 
         # display a legend
         if ypos == 0:
-            l_patches = [mpatches.Patch(color=colors[tax], label="%.2f %%: %s" % (rank_counts.loc[tax, :].mean()*100, tax) if print_meanrelabunances else tax)
-                         for tax in vals.index
-                         if (tax in highAbundantTaxa) |
-                            (tax == NAME_LOW_ABUNDANCE)]
+            l_patches = []
+            for tax in vals.index:
+                if (tax in highAbundantTaxa) | (tax == NAME_LOW_ABUNDANCE):
+                    label_text = tax
+                    if print_meanrelabunances:
+                        label_text = "%.2f %%: %s" % (
+                            rank_counts.loc[tax, :].mean()*100, tax)
+                    l_patches.append(mpatches.Patch(color=colors[tax],
+                                                    label=label_text))
             label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
                                                   NAME_LOW_ABUNDANCE)
             if grayscale:
