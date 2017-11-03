@@ -48,23 +48,23 @@ class ReadWriteTests(TestCase):
         # create plot
         contrast = 'Anas crecca'
         availcolors = ['blue', 'green', 'orange', 'magenta']
-        l = []
+        li = []
         meta_others = self.meta_basemap[
             self.meta_basemap['smj_genusspecies'] != contrast]
         for i, (n, g) in enumerate(meta_others.groupby('Q2')):
-            l.append({'label': "%s: %i" % (n, g.shape[0]),
-                      'color': availcolors[i],
-                      'alpha': 1,
-                      'coords': g})
+            li.append({'label': "%s: %i" % (n, g.shape[0]),
+                       'color': availcolors[i],
+                       'alpha': 1,
+                       'coords': g})
         anas = self.meta_basemap[
             self.meta_basemap.smj_genusspecies == contrast]
-        l.append({'label': "%s: %i" % (anas.smj_genusspecies.unique()[0],
-                                       anas.smj_genusspecies.shape[0]),
-                  'color': availcolors[len(l)],
-                  'coords': anas,
-                  'size': 10})
+        li.append({'label': "%s: %i" % (anas.smj_genusspecies.unique()[0],
+                                        anas.smj_genusspecies.shape[0]),
+                   'color': availcolors[len(li)],
+                   'coords': anas,
+                   'size': 10})
 
-        drawMap(l, basemap=self.basemap_alaska)
+        drawMap(li, basemap=self.basemap_alaska)
 
         # compare image
         self.assertTrue(self.help_compare_drawmap('alaska'))
@@ -75,7 +75,7 @@ class ReadWriteTests(TestCase):
                                                         'q1_habitat'])
         fix, axarr = fig, ax = plt.subplots(4, 1)
         for pn, (n, g) in enumerate(meta_mig):
-            l = [
+            li = [
                 {'label': 'summer, with data',
                  'color': 'red',
                  'coords': g[(g['q1_season'] == 'summer') &
@@ -87,57 +87,57 @@ class ReadWriteTests(TestCase):
                              (g['hasData'] == np.True_)],
                  'alpha': 1},
             ]
-            l.append(
+            li.append(
                 {'label': 'summer, without data',
                  'color': 'orange',
                  'coords': g[(g['q1_season'] == 'summer')],
                  'alpha': 1})
-            l.append(
+            li.append(
                 {'label': 'winter, without data',
                  'color': 'purple',
                  'coords': g[(g['q1_season'] == 'winter')],
                  'alpha': 1})
-            drawMap(reversed(l), ax=axarr[pn], no_legend=pn < 3)
+            drawMap(reversed(li), ax=axarr[pn], no_legend=pn < 3)
             axarr[pn].set_title("%s %s (winter n=%i->%i, summer n=%i->%i)" % (
                                 " | ".join(g.smj_genus.unique()),
                                 " | ".join(g.smj_species.unique()),
-                                l[1]['coords'].shape[0] +
-                                l[3]['coords'].shape[0],
-                                l[1]['coords'].shape[0],
-                                l[0]['coords'].shape[0] +
-                                l[2]['coords'].shape[0],
-                                l[0]['coords'].shape[0]))
+                                li[1]['coords'].shape[0] +
+                                li[3]['coords'].shape[0],
+                                li[1]['coords'].shape[0],
+                                li[0]['coords'].shape[0] +
+                                li[2]['coords'].shape[0],
+                                li[0]['coords'].shape[0]))
 
         # compare image
         self.assertTrue(self.help_compare_drawmap('migration'))
 
     def test_drawMap_default(self):
-        l = [{'coords': self.meta_basemap_migration}]
-        drawMap(l)
+        li = [{'coords': self.meta_basemap_migration}]
+        drawMap(li)
         self.assertTrue(self.help_compare_drawmap('default'))
 
     def test_drawMap_color(self):
-        l = [{'coords': self.meta_basemap_migration,
+        li = [{'coords': self.meta_basemap_migration,
               'color': 'black'}]
-        drawMap(l)
+        drawMap(li)
         self.assertTrue(self.help_compare_drawmap('color'))
 
     def test_drawMap_size(self):
-        l = [{'coords': self.meta_basemap_migration,
+        li = [{'coords': self.meta_basemap_migration,
               'size': 200}]
-        drawMap(l)
+        drawMap(li)
         self.assertTrue(self.help_compare_drawmap('size'))
 
     def test_drawMap_alpha(self):
-        l = [{'coords': self.meta_basemap_migration,
+        li = [{'coords': self.meta_basemap_migration,
               'alpha': 0.1}]
-        drawMap(l)
+        drawMap(li)
         self.assertTrue(self.help_compare_drawmap('alpha'))
 
     def test_drawMap_label(self):
-        l = [{'coords': self.meta_basemap_migration,
+        li = [{'coords': self.meta_basemap_migration,
               'label': 'Voegel'}]
-        drawMap(l)
+        drawMap(li)
         self.assertTrue(self.help_compare_drawmap('label'))
 
     def test_missing_coords(self):
