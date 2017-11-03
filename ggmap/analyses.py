@@ -928,7 +928,7 @@ def sepp_git(counts,
     def commands(workdir, ppn, args):
         commands = []
         commands.append('cd %s' % workdir)
-        commands.append('ulimit -m 4194304')
+        #commands.append('ulimit -m 4194304')
         commands.append('%srun-sepp.sh "%s" res -x %i' % (
             ('/home/sjanssen/Benchmark_insertiontree/'
              'Software/sepp/sepp-package/'),
