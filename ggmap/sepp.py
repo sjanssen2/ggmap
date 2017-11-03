@@ -67,7 +67,8 @@ def read_otumap(file_otumap):
 @cache
 def load_sequences_pynast(file_pynast_alignment, file_otumap,
                           frg_start, frg_stop, frg_expected_length,
-                          verbose=True, out=sys.stdout, onlyrepr=False):
+                          verbose=True, out=sys.stdout, onlyrepr=False,
+                          nomerge=False):
     """Extract fragments from pynast alignment, also in OTU map.
 
     Parameters
@@ -94,6 +95,10 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     onlyrepr : bool
         Default: False.
         If True, only fragments from representative sequences are returned.
+    nomerge : bool
+        Default: False.
+        If True, function returns the list of ALL fragments, i.e. this list
+        will contain many duplicate sequences.
 
     Returns
     -------
@@ -185,6 +190,8 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     fragments = pd.DataFrame(fragments)
     if verbose:
         out.write('% 8i fragments remaining.\n' % fragments.shape[0])
+    if nomerge:
+        return fragments
     # group fragments by sequence and list true OTUids
     unique_fragments = fragments.groupby('sequence').agg(lambda x:
                                                          list(x.values))
@@ -537,7 +544,7 @@ def check_qiita_studies(dir_base):
                                   'sequence lengths: "%s"') %
                                  '", "'.join(files_biom))
             fraglen = list(fraglen)[0]
-            for _type in ['closedref', 'deblurall']:
+            for _type in ['closedref', 'deblurrefhit']:
                 file_biom = "%s/%s/%s/qiita%s_%s_%snt_%s.biom" % (
                     dir_base, study, prep, study, prep, fraglen, _type)
 
@@ -600,6 +607,8 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
     def _get_distances(study_results, study_id, meta):
         dists = []
         for _type in study_results[study_id].keys():
+            if _type == 'deblurall':
+                continue
             betas = study_results[study_id][_type]['beta']['results']
             for metric in betas.keys():
                 for zyg in ['MZ', 'DZ']:
@@ -640,7 +649,7 @@ def analyse_2014(study_results, meta, dir_studies, err=sys.stderr):
                         col_order=['bray_curtis',
                                    'unweighted_unifrac',
                                    'weighted_unifrac'],
-                        hue_order=['closedref', 'deblurall'])
+                        hue_order=['closedref', 'deblurrefhit'])
     fig = fig.map(sns.boxplot, "class", "distance", "type").add_legend()
     err.write(' done.\n')
 
@@ -746,7 +755,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
     value_hue = 'only_repr._sequences'
     value_hue_order = [True, False]
     if hue is not None:
-        value_hue = 'algorithm'
+        value_hue = hue
         value_hue_order = sorted(filtered_distances[value_hue].unique())
 
     # tag stats
@@ -781,6 +790,9 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
     g.set_xlabel('number "99% OTUs" a V4.150 sequence belongs to')
     g.set_ylabel('mean (lca(OTUs) to insertion-tip distance)')
     g.set_ylim(YLIM)
+    plt.legend(loc='upper right')
+    plt.setp(ax.get_legend().get_texts(), fontsize='22')  # for legend text
+    plt.setp(ax.get_legend().get_title(), fontsize='32')  # for legend title
 
     # fragment uniqueness histogram
     ax = plt.subplot(gs[1, 1])
@@ -849,3 +861,105 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
                     orient='h', label=rank)
         plt.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
     err.write(' done.')
+
+
+@cache
+def compute_distancesJon_sepp(tree_sepp, tree_bb, err=sys.stderr):
+    """Computes insertion distance between a fragment and it's original
+       position in a reference tree for SEPP. (Definition by Jon Sanders)
+
+    Parameters
+    ----------
+    tree_sepp : skbio.TreeNode
+        The result of a SEPP run, i.e. the tree with inserted fragments.
+    tree_bb : skbio.TreeNode
+        The full reference tree from which fragments have been used for
+        tree_sepp run.
+    err : StringIO
+        Default: sys.stderr
+        Error stream.
+
+    Returns
+    -------
+    Pandas.DataFrame
+    """
+    # ensure that lengths are assigned to ALL nodes
+    for node in tree_sepp.levelorder():
+        if node.length is None:
+            node.length = 0.0
+
+    res = []
+    numtips = tree_sepp.count(tips=True) - tree_sepp.count(tips=False)
+    for i, node in enumerate(tree_sepp.tips()):
+        if i % int(numtips/10) == 0:
+            err.write('.')
+        if node.name is not None:
+            # If we find an inserted fragment...
+            if node.name.startswith('seqIDs:'):
+                # ...we know that it split an pre-existing branch in the
+                # reference tree. Due to chaining of fragment insertions it is
+                # not sure how many levels we need to go towards the root to
+                # find an old (i.e. named) node, which for sure has an
+                # equivalent in the reference tree.
+                for node_anc in node.ancestors():
+                    # The first ancester that comes with a none "None" name is
+                    # one that should also be found in the reference tree.
+                    if node_anc.name is not None:
+                        # find the ancesters equivalent in the reference tree
+                        node_ref_connect = tree_bb.find(node_anc.name)
+                        fraginfo = parse_fragment_header(node.name)
+                        # find the LCA in the reference of all OTU-IDs the
+                        # inserted fragment belongs to
+                        node_ref_lca = tree_bb.lca(fraginfo['otuIDs'])
+                        # distance is path from LCA to ancester of inserted
+                        # fragment
+                        dist_lca = node_ref_lca.distance(node_ref_connect)
+
+                        # alternative distance: shortest path between ancester
+                        # of inserted fragment and any OTU nodes the fragment
+                        # belongs to
+                        dist_closest = 99999999
+                        for otuID in fraginfo['otuIDs']:
+                            dist_closest = min(tree_bb.find(otuID).distance(
+                                node_ref_connect), dist_closest)
+
+                        fraginfo['distance_closest'] = dist_closest
+                        fraginfo['distance_lca'] = dist_lca
+                        fraginfo['fragname'] = node.name
+                        res.append(fraginfo)
+                        break
+    err.write(' done.\n')
+    return pd.DataFrame(res)
+
+
+@cache
+def compute_distancesJon_closedref(hits_closedref, tree_bb, err=sys.stderr):
+    res = []
+    for i, (fragname, match) in enumerate(hits_closedref['otuid'].iteritems()):
+        if i % int(hits_closedref.shape[0] / 10) == 0:
+            err.write('.')
+        if pd.notnull(match):
+            fraginfo = parse_fragment_header(fragname)
+            node_match_parent = tree_bb.find(match).parent
+
+            node_ref_lca = tree_bb.lca(fraginfo['otuIDs'])
+            dist_lca = node_ref_lca.distance(node_match_parent)
+
+            dist_closest = 99999999
+            for otuID in fraginfo['otuIDs']:
+                dist_closest = min(
+                    tree_bb.find(otuID).distance(node_match_parent),
+                    dist_closest)
+
+            fraginfo['distance_closest'] = dist_closest
+            fraginfo['distance_lca'] = dist_lca
+            fraginfo['fragname'] = fragname
+            fraginfo['assignedOTU'] = match
+        else:
+            fraginfo = {'fragname': fragname,
+                        'distance_closest': np.nan,
+                        'distance_lca': np.nan,
+                        'assignedOTU': match}
+        res.append(fraginfo)
+    err.write(' done.\n')
+    return pd.DataFrame(res)
