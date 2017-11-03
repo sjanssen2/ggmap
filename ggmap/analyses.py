@@ -527,10 +527,16 @@ def beta_diversity(counts,
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
-        os.mkdir(workdir+'/beta')
-        # copy reference tree and SED correct missing branch lengths
-        os.copyfile(_get_ref_phylogeny(args['reference_tree']),
-                    workdir+'/reference.tree')
+        os.mkdir(workdir+'/beta_qza')
+        # copy reference tree and correct missing branch lengths
+        if len(set(args['metrics']) &
+               set(['unweighted_unifrac', 'weighted_unifrac'])) > 0:
+            tree_ref = TreeNode.read(
+                _get_ref_phylogeny(args['reference_tree']))
+            for node in tree_ref.preorder():
+                if node.length is None:
+                    node.length = 0
+            tree_ref.write(workdir+'/reference.tree')
 
     def commands(workdir, ppn, args):
         metrics_phylo = []
@@ -559,7 +565,8 @@ def beta_diversity(counts,
                  '--p-metric %s '
                  '--p-n-jobs %i '
                  '--o-distance-matrix %s%s ') %
-                (workdir+'/input.qza', metric, ppn, workdir+'/beta/', metric))
+                (workdir+'/input.qza', metric, ppn,
+                 workdir+'/beta_qza/', metric))
         for i, metric in enumerate(metrics_phylo):
             if i == 0:
                 commands.append(
@@ -577,16 +584,23 @@ def beta_diversity(counts,
                  '--p-n-jobs %i '
                  '--o-distance-matrix %s%s ') %
                 (workdir+'/input.qza', workdir+'/reference_tree.qza',
-                 metric, ppn, workdir+'/beta/', metric))
+                 metric, 1 if metric == 'weighted_unifrac' else ppn,
+                 workdir+'/beta_qza/', metric))
+        for metric in metrics_nonphylo + metrics_phylo:
+            commands.append(
+                ('qiime tools export '
+                 '%s/beta_qza/%s.qza '
+                 '--output-dir %s/beta/%s/') %
+                (workdir, metric, workdir, metric))
         return commands
 
     def post_execute(workdir, args, pre_data):
-        return None
         results = dict()
         for metric in args['metrics']:
-            results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
-                workdir+'/beta',
-                metric))
+            results[metric] = DistanceMatrix.read(
+                '%s/beta/%s/distance-matrix.tsv' % (
+                    workdir,
+                    metric.replace('bray_curtis', 'braycurtis')))
         return results
 
     if reference_tree is not None:
