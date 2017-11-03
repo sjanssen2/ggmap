@@ -527,37 +527,61 @@ def beta_diversity(counts,
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
+        os.mkdir(workdir+'/beta')
+        # copy reference tree and SED correct missing branch lengths
+        os.copyfile(_get_ref_phylogeny(args['reference_tree']),
+                    workdir+'/reference.tree')
 
-    if use_parallel:
-        def commands(workdir, ppn, args):
-            commands = []
-            commands.append(('parallel_beta_diversity.py '
-                             '-i %s '              # input biom file
-                             '-m %s '              # list of beta div metrics
-                             '-t %s '              # tree reference file
-                             '-o %s '
-                             '-O %i ') % (
-                workdir+'/input.biom',
-                ",".join(args['metrics']),
-                _get_ref_phylogeny(reference_tree),
-                workdir+'/beta',
-                ppn))
-            return commands
-    else:
-        def commands(workdir, ppn, args):
-            commands = []
-            commands.append(('beta_diversity.py '
-                             '-i %s '              # input biom file
-                             '-m %s '              # list of beta div metrics
-                             '-t %s '              # tree reference file
-                             '-o %s ') % (
-                workdir+'/input.biom',
-                ",".join(args['metrics']),
-                _get_ref_phylogeny(reference_tree),
-                workdir+'/beta'))
-            return commands
+    def commands(workdir, ppn, args):
+        metrics_phylo = []
+        metrics_nonphylo = []
+        for metric in args['metrics']:
+            if metric.endswith('_unifrac'):
+                metrics_phylo.append(metric)
+            elif metric == 'bray_curtis':
+                metrics_nonphylo.append('braycurtis')
+            else:
+                metrics_nonphylo.append(metric)
+
+        commands = []
+        # import biom table into q2 fragment
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             '--source-format BIOMV210Format '
+             '--output-path %s ') %
+            (workdir+'/input.biom', workdir+'/input'))
+        for metric in metrics_nonphylo:
+            commands.append(
+                ('qiime diversity beta '
+                 '--i-table %s '
+                 '--p-metric %s '
+                 '--p-n-jobs %i '
+                 '--o-distance-matrix %s%s ') %
+                (workdir+'/input.qza', metric, ppn, workdir+'/beta/', metric))
+        for i, metric in enumerate(metrics_phylo):
+            if i == 0:
+                commands.append(
+                    ('qiime tools import '
+                     '--input-path %s '
+                     '--output-path %s '
+                     '--type "Phylogeny[Rooted]"') %
+                    (workdir+'/reference.tree',
+                     workdir+'/reference_tree.qza'))
+            commands.append(
+                ('qiime diversity beta-phylogenetic '
+                 '--i-table %s '
+                 '--i-phylogeny %s '
+                 '--p-metric %s '
+                 '--p-n-jobs %i '
+                 '--o-distance-matrix %s%s ') %
+                (workdir+'/input.qza', workdir+'/reference_tree.qza',
+                 metric, ppn, workdir+'/beta/', metric))
+        return commands
 
     def post_execute(workdir, args, pre_data):
+        return None
         results = dict()
         for metric in args['metrics']:
             results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
@@ -574,6 +598,7 @@ def beta_diversity(counts,
                      pre_execute,
                      commands,
                      post_execute,
+                     environment='qiime2-2017.9',
                      **executor_args)
 
 
