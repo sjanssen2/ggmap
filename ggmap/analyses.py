@@ -309,7 +309,7 @@ def rarefaction_curves(counts,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         sums = args['counts'].sum()
         results = {'metrics': dict(),
                    'remaining': _getremaining(sums),
@@ -381,7 +381,7 @@ def rarefy(counts, rarefaction_depth,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         return biom2pandas(workdir+'/rarefactions/rarefaction_%i_0.biom' %
                            args['rarefaction_depth'])
 
@@ -475,7 +475,7 @@ def alpha_diversity(counts, rarefaction_depth,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         results = []
         for metric in args['metrics']:
             a = _parse_alpha_div_collated(
@@ -551,6 +551,7 @@ def beta_diversity(counts,
 
         commands = []
         # import biom table into q2 fragment
+        # commands.append('mkdir -p %s' % (workdir+'/beta_qza'))
         commands.append(
             ('qiime tools import '
              '--input-path %s '
@@ -594,7 +595,7 @@ def beta_diversity(counts,
                 (workdir, metric, workdir, metric))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         results = dict()
         for metric in args['metrics']:
             results[metric] = DistanceMatrix.read(
@@ -668,7 +669,7 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
             sdcomp))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         files_placement = sorted(
             [workdir + '/' + file_placement
              for file_placement in next(os.walk(workdir))[2]
@@ -877,7 +878,7 @@ def sepp_stepbystep(counts, reference=None,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         file_merged_tree = workdir +\
             '/seppstepbysteprun_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
@@ -974,7 +975,7 @@ def sepp_git(counts,
             ppn))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         file_merged_tree = workdir +\
             '/res_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
@@ -1092,7 +1093,7 @@ def sortmerna(sequences,
             ppn))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         assignments = []
 
         # parse header mapping file
@@ -1185,7 +1186,7 @@ def denovo_tree(counts, ppn=1, **executor_args):
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         # load resulting tree
         f = open(workdir+'/tree.newick', 'r')
         tree = "".join(f.readlines())
@@ -1313,7 +1314,7 @@ def denovo_tree_qiime2(counts, **executor_args):
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         # load resulting tree
         f = open(workdir+'/tree.nwk', 'r')
         tree = "".join(f.readlines())
@@ -1490,7 +1491,7 @@ def compare_categories(beta_dm, metadata,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         merged = dict()
 
         ms = zip(['adonis', 'permdisp', 'permanova'],
@@ -1691,7 +1692,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if verbose:
             sys.stderr.write('found matching working dir "%s"\n' %
                              results['workdir'])
-        pre_data = pre_execute(results['workdir'], cache_arguments)
     else:
         # create a temporary working directory
         prefix = 'ana_%s_' % jobname
@@ -1705,7 +1705,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                             results['file_cache'].split('/')[-1]), 'w')
         f.close()
 
-        pre_data = pre_execute(results['workdir'], cache_arguments)
+        pre_execute(results['workdir'], cache_arguments)
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
         # device creation of a file _after_ execution of the job in workdir
@@ -1748,8 +1748,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 return results
 
     results['results'] = post_execute(results['workdir'],
-                                      cache_arguments,
-                                      pre_data)
+                                      cache_arguments)
     results['created_on'] = datetime.datetime.fromtimestamp(
         time.time()).strftime('%Y-%m-%d %H:%M:%S')
 
