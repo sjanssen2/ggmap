@@ -590,7 +590,11 @@ def beta_diversity(counts,
                  '--p-n-jobs %i '
                  '--o-distance-matrix %s%s ') %
                 (workdir+'/input.qza', workdir+'/reference_tree.qza',
-                 metric, 1 if metric == 'weighted_unifrac' else ppn,
+                 metric,
+                 # bug in q2 plugin: crashs 'if the number of threads requested
+                 # exceeds the approximately n / 2 samples, then an exception
+                 # is raised'
+                 min(ppn, int(args['counts'].shape[1] / 2.2)),
                  workdir+'/beta_qza/', metric))
         for metric in metrics_nonphylo + metrics_phylo:
             commands.append(
