@@ -309,7 +309,7 @@ def rarefaction_curves(counts,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         sums = args['counts'].sum()
         results = {'metrics': dict(),
                    'remaining': _getremaining(sums),
@@ -381,7 +381,7 @@ def rarefy(counts, rarefaction_depth,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         return biom2pandas(workdir+'/rarefactions/rarefaction_%i_0.biom' %
                            args['rarefaction_depth'])
 
@@ -475,7 +475,7 @@ def alpha_diversity(counts, rarefaction_depth,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         results = []
         for metric in args['metrics']:
             a = _parse_alpha_div_collated(
@@ -524,45 +524,93 @@ def beta_diversity(counts,
     -------
     Dict of Pandas.DataFrame, one per metric."""
 
+    def update_metric(metric):
+        if metric == 'bray_curtis':
+            return 'braycurtis'
+        elif metric == 'weighted_unifrac':
+            return 'weighted_normalized_unifrac'
+        return metric
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
+        os.mkdir(workdir+'/beta_qza')
+        # copy reference tree and correct missing branch lengths
+        if len(set(args['metrics']) &
+               set(['unweighted_unifrac', 'weighted_unifrac'])) > 0:
+            tree_ref = TreeNode.read(
+                _get_ref_phylogeny(args['reference_tree']))
+            for node in tree_ref.preorder():
+                if node.length is None:
+                    node.length = 0
+            tree_ref.write(workdir+'/reference.tree')
 
-    if use_parallel:
-        def commands(workdir, ppn, args):
-            commands = []
-            commands.append(('parallel_beta_diversity.py '
-                             '-i %s '              # input biom file
-                             '-m %s '              # list of beta div metrics
-                             '-t %s '              # tree reference file
-                             '-o %s '
-                             '-O %i ') % (
-                workdir+'/input.biom',
-                ",".join(args['metrics']),
-                _get_ref_phylogeny(reference_tree),
-                workdir+'/beta',
-                ppn))
-            return commands
-    else:
-        def commands(workdir, ppn, args):
-            commands = []
-            commands.append(('beta_diversity.py '
-                             '-i %s '              # input biom file
-                             '-m %s '              # list of beta div metrics
-                             '-t %s '              # tree reference file
-                             '-o %s ') % (
-                workdir+'/input.biom',
-                ",".join(args['metrics']),
-                _get_ref_phylogeny(reference_tree),
-                workdir+'/beta'))
-            return commands
+    def commands(workdir, ppn, args):
+        metrics_phylo = []
+        metrics_nonphylo = []
+        for metric in map(update_metric, args['metrics']):
+            if metric.endswith('_unifrac'):
+                metrics_phylo.append(metric)
+            else:
+                metrics_nonphylo.append(metric)
 
-    def post_execute(workdir, args, pre_data):
+        commands = []
+        # import biom table into q2 fragment
+        # commands.append('mkdir -p %s' % (workdir+'/beta_qza'))
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             '--source-format BIOMV210Format '
+             '--output-path %s ') %
+            (workdir+'/input.biom', workdir+'/input'))
+        for metric in metrics_nonphylo:
+            commands.append(
+                ('qiime diversity beta '
+                 '--i-table %s '
+                 '--p-metric %s '
+                 '--p-n-jobs %i '
+                 '--o-distance-matrix %s%s ') %
+                (workdir+'/input.qza', metric, ppn,
+                 workdir+'/beta_qza/', metric))
+        for i, metric in enumerate(metrics_phylo):
+            if i == 0:
+                commands.append(
+                    ('qiime tools import '
+                     '--input-path %s '
+                     '--output-path %s '
+                     '--type "Phylogeny[Rooted]"') %
+                    (workdir+'/reference.tree',
+                     workdir+'/reference_tree.qza'))
+            commands.append(
+                ('qiime diversity beta-phylogenetic-alt '
+                 '--i-table %s '
+                 '--i-phylogeny %s '
+                 '--p-metric %s '
+                 '--p-n-jobs %i '
+                 '--o-distance-matrix %s%s ') %
+                (workdir+'/input.qza', workdir+'/reference_tree.qza',
+                 metric,
+                 # bug in q2 plugin: crashs 'if the number of threads requested
+                 # exceeds the approximately n / 2 samples, then an exception
+                 # is raised'
+                 min(ppn, int(args['counts'].shape[1] / 2.2)),
+                 workdir+'/beta_qza/', metric))
+        for metric in metrics_nonphylo + metrics_phylo:
+            commands.append(
+                ('qiime tools export '
+                 '%s/beta_qza/%s.qza '
+                 '--output-dir %s/beta/%s/') %
+                (workdir, metric, workdir, metric))
+        return commands
+
+    def post_execute(workdir, args):
         results = dict()
         for metric in args['metrics']:
-            results[metric] = DistanceMatrix.read('%s/%s_input.txt' % (
-                workdir+'/beta',
-                metric))
+            results[metric] = DistanceMatrix.read(
+                '%s/beta/%s/distance-matrix.tsv' % (
+                    workdir,
+                    update_metric(metric)))
         return results
 
     if reference_tree is not None:
@@ -574,6 +622,7 @@ def beta_diversity(counts,
                      pre_execute,
                      commands,
                      post_execute,
+                     environment='qiime2-2017.9',
                      **executor_args)
 
 
@@ -629,7 +678,7 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
             sdcomp))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         files_placement = sorted(
             [workdir + '/' + file_placement
              for file_placement in next(os.walk(workdir))[2]
@@ -838,7 +887,7 @@ def sepp_stepbystep(counts, reference=None,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         file_merged_tree = workdir +\
             '/seppstepbysteprun_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
@@ -935,7 +984,7 @@ def sepp_git(counts,
             ppn))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         file_merged_tree = workdir +\
             '/res_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
@@ -1053,7 +1102,7 @@ def sortmerna(sequences,
             ppn))
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         assignments = []
 
         # parse header mapping file
@@ -1146,7 +1195,7 @@ def denovo_tree(counts, ppn=1, **executor_args):
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         # load resulting tree
         f = open(workdir+'/tree.newick', 'r')
         tree = "".join(f.readlines())
@@ -1274,7 +1323,7 @@ def denovo_tree_qiime2(counts, **executor_args):
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         # load resulting tree
         f = open(workdir+'/tree.nwk', 'r')
         tree = "".join(f.readlines())
@@ -1451,7 +1500,7 @@ def compare_categories(beta_dm, metadata,
 
         return commands
 
-    def post_execute(workdir, args, pre_data):
+    def post_execute(workdir, args):
         merged = dict()
 
         ms = zip(['adonis', 'permdisp', 'permanova'],
@@ -1652,7 +1701,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if verbose:
             sys.stderr.write('found matching working dir "%s"\n' %
                              results['workdir'])
-        pre_data = pre_execute(results['workdir'], cache_arguments)
     else:
         # create a temporary working directory
         prefix = 'ana_%s_' % jobname
@@ -1666,7 +1714,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                             results['file_cache'].split('/')[-1]), 'w')
         f.close()
 
-        pre_data = pre_execute(results['workdir'], cache_arguments)
+        pre_execute(results['workdir'], cache_arguments)
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
         # device creation of a file _after_ execution of the job in workdir
@@ -1709,8 +1757,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 return results
 
     results['results'] = post_execute(results['workdir'],
-                                      cache_arguments,
-                                      pre_data)
+                                      cache_arguments)
     results['created_on'] = datetime.datetime.fromtimestamp(
         time.time()).strftime('%Y-%m-%d %H:%M:%S')
 
