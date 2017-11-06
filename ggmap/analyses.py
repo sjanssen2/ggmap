@@ -524,6 +524,13 @@ def beta_diversity(counts,
     -------
     Dict of Pandas.DataFrame, one per metric."""
 
+    def update_metric(metric):
+        if metric == 'bray_curtis':
+            return 'braycurtis'
+        elif metric == 'weighted_unifrac':
+            return 'weighted_normalized_unifrac'
+        return metric
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
@@ -541,11 +548,9 @@ def beta_diversity(counts,
     def commands(workdir, ppn, args):
         metrics_phylo = []
         metrics_nonphylo = []
-        for metric in args['metrics']:
+        for metric in map(update_metric, args['metrics']):
             if metric.endswith('_unifrac'):
                 metrics_phylo.append(metric)
-            elif metric == 'bray_curtis':
-                metrics_nonphylo.append('braycurtis')
             else:
                 metrics_nonphylo.append(metric)
 
@@ -578,7 +583,7 @@ def beta_diversity(counts,
                     (workdir+'/reference.tree',
                      workdir+'/reference_tree.qza'))
             commands.append(
-                ('qiime diversity beta-phylogenetic '
+                ('qiime diversity beta-phylogenetic-alt '
                  '--i-table %s '
                  '--i-phylogeny %s '
                  '--p-metric %s '
@@ -601,7 +606,7 @@ def beta_diversity(counts,
             results[metric] = DistanceMatrix.read(
                 '%s/beta/%s/distance-matrix.tsv' % (
                     workdir,
-                    metric.replace('bray_curtis', 'braycurtis')))
+                    update_metric(metric)))
         return results
 
     if reference_tree is not None:
