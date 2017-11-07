@@ -733,7 +733,7 @@ def binning(value, getorder=False):
 
 
 def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
-                _type='single', hue=None):
+                _type='single', hue=None, logy_histo=True):
     YLIM = (0, 0.45)
     filtered_distances = distances.dropna()
 
@@ -810,7 +810,8 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
                     ax=ax, color=color)
     g.set_xlabel('')
     g.set_ylabel('# fragments (log-scale)')
-    g.set_yscale('log')
+    if logy_histo:
+        g.set_yscale('log')
     ax.tick_params(
         axis='x',           # changes apply to the x-axis
         which='both',       # both major and minor ticks are affected
@@ -823,7 +824,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
 
 
 def plot_errordistribution(distances, distance_type, plotfile_prefix,
-                           lim=3, err=sys.stderr):
+                           lim=3, err=sys.stderr, rank=None):
     err.write('plot "error distribution" ')
 
     # restrict to those fragments that map to only one true OTU and have no
@@ -842,7 +843,10 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
     pandas2biom('help.biom', countshack.groupby('otuIDs').sum())
 
     # actuall plotting
-    for i, rank in enumerate(RANKS[:lim]):
+    ranks = RANKS[:lim]
+    if rank is not None:
+        ranks = [rank]
+    for i, rank in enumerate(ranks):
         err.write('.')
         t = collapseCounts('help.biom',
                            rank,
@@ -853,13 +857,21 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
         t['avg. dist. %s' % distance_type] =\
             t['distance_' + distance_type] / t['num_otus']
 
-        plt.figure(figsize=(5, max(2, 0.15 * t.shape[0])))
+        cat_x, cat_y, orient = 'avg. dist. %s' % distance_type, t.index, 'h'
+        width, height = 5, max(2, 0.18 * t.shape[0])
+        if rank is not None:
+            cat_x, cat_y, orient = cat_y, cat_x, 'v'
+            width, height = height, width
+        f = plt.figure(figsize=(width, height))
+
         sns.barplot(data=t,
-                    x='avg. dist. %s' % distance_type,
-                    y=t.index,
+                    x=cat_x,
+                    y=cat_y,
                     order=t.sort_values('num_otus', ascending=False).index,
-                    orient='h', label=rank)
-        plt.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
+                    orient=orient, label=rank)
+        if rank is not None:
+            return f
+        f.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
     err.write(' done.')
 
 

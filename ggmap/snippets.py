@@ -1190,7 +1190,7 @@ def detect_distant_groups_alpha(alpha, groupings,
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
-                          num_permutations=999):
+                          num_permutations=999, err=None):
     """Given metadata field, test for sig. group differences in beta distances.
 
     Parameters
@@ -1235,6 +1235,8 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
 
     network = dict()
     for a, b in combinations(groups, 2):
+        if err is not None:
+            err.write('%s vs %s\n' % (a, b))
         group = groupings[groupings.isin([a, b])]
         group_dm = beta_dm.filter(group.index)
         res = permanova(group_dm, group, permutations=num_permutations)
