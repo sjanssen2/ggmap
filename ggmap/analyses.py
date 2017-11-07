@@ -27,7 +27,7 @@ plt.rc('font', family='DejaVu Sans')
 
 FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
-QIIME2_ENV = 'qiime2-2017.9'
+QIIME2_ENV = 'qiime2-2017.10'
 
 
 def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
@@ -421,68 +421,109 @@ def alpha_diversity(counts, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
+    def update_metric(metric):
+        if metric == 'PD_whole_tree':
+            return 'faith_pd'
+        return metric
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
+        os.mkdir(workdir+'/rarefaction/')
+        os.mkdir(workdir+'/alpha/')
+        os.mkdir(workdir+'/alpha_plain/')
+        # copy reference tree and correct missing branch lengths
+        if len(set(args['metrics']) &
+               set(['PD_whole_tree'])) > 0:
+            tree_ref = TreeNode.read(
+                _get_ref_phylogeny(args['reference_tree']))
+            for node in tree_ref.preorder():
+                if node.length is None:
+                    node.length = 0
+            tree_ref.write(workdir+'/reference.tree')
 
     def commands(workdir, ppn, args):
         commands = []
 
-        if args['rarefaction_depth'] is not None:
-            # rarefy input table
-            commands.append(('parallel_multiple_rarefactions.py '
-                             '-T '      # direct polling
-                             '-i %s '   # input biom file
-                             '-m %i '   # min rarefaction depth
-                             '-x %i '   # max rarefaction depth
-                             '-s 1 '    # depth steps
-                             '-o %s '   # output directory
-                             '-n %i '   # number iterations per depth
-                             '--jobs_to_start %i') % (   # number parallel jobs
-                workdir+'/input.biom',
-                args['rarefaction_depth'],
-                args['rarefaction_depth'],
-                workdir+'/rarefactions',
-                args['num_iterations'],
-                ppn))
-        else:
-            os.mkdir(workdir+'/rarefactions')
-            shutil.copyfile(workdir+'/input.biom',
-                            workdir+'/rarefactions/rarefaction_0_0.biom')
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             '--source-format BIOMV210Format '
+             '--output-path %s ') %
+            (workdir+'/input.biom', workdir+'/input'))
+        if 'PD_whole_tree' in args['metrics']:
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--output-path %s '
+                 '--type "Phylogeny[Rooted]"') %
+                (workdir+'/reference.tree',
+                 workdir+'/reference_tree.qza'))
 
-        # compute alpha div values for rarefied tables
-        # (or original input table, if rarefaction depth is None)
-        commands.append(('parallel_alpha_diversity.py '
-                         '-T '                      # direct polling
-                         '-i %s '                   # dir to rarefied tables
-                         '-o %s '                   # output directory
-                         '--metrics %s '            # list of alpha div metrics
-                         '-t %s '                   # tree reference file
-                         '--jobs_to_start %i') % (  # number parallel jobs
-            workdir+'/rarefactions/',
-            workdir+'/alpha_div/',
-            ",".join(args['metrics']),
-            _get_ref_phylogeny(args['reference_tree']),
-            ppn))
-
-        # Collate alpha command
-        commands.append(('collate_alpha.py '
-                         '-i %s '      # Input path (a directory)
-                         '-o %s') % (  # Output path (a directory).
-                                       # will be created if needed
-            workdir+'/alpha_div/',
-            workdir+'/alpha_div_collated/'))
+        for iteration in range(args['num_iterations']):
+            file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
+                args['rarefaction_depth'], iteration)
+            if args['rarefaction_depth'] is not None:
+                commands.append(
+                    ('qiime feature-table rarefy '
+                     '--i-table %s '
+                     '--p-sampling-depth %i '
+                     '--o-rarefied-table %s') %
+                    (workdir+'/input.qza', args['rarefaction_depth'],
+                     file_raretable)
+                )
+            else:
+                commands.append('cp %s %s' % (
+                    workdir+'/input.qza',
+                    workdir+'/rare_%s_0.qza' % rarefaction_depth))
+            for metric in args['metrics']:
+                file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
+                    args['rarefaction_depth'], iteration, metric)
+                plugin = 'alpha'
+                treeinput = ''
+                if metric == 'PD_whole_tree':
+                    plugin = 'alpha-phylogenetic'
+                    treeinput = '--i-phylogeny %s' % (
+                        workdir+'/reference_tree.qza')
+                commands.append(
+                    ('qiime diversity %s '
+                     '--i-table %s '
+                     '--p-metric %s '
+                     ' %s '
+                     '--o-alpha-diversity %s') %
+                    (plugin, file_raretable,
+                     update_metric(metric),
+                     treeinput,
+                     file_alpha))
+                commands.append(
+                    ('qiime tools export '
+                     '%s/alpha/alpha_%i_%i_%s.qza '
+                     '--output-dir %s/alpha_plain/%i/%i/%s') %
+                    (workdir, args['rarefaction_depth'], iteration, metric,
+                     workdir, args['rarefaction_depth'], iteration, metric))
 
         return commands
 
     def post_execute(workdir, args):
-        results = []
-        for metric in args['metrics']:
-            a = _parse_alpha_div_collated(
-                workdir+'/alpha_div_collated/'+metric+'.txt')
-            a = a[['sample_name', metric]].set_index('sample_name')
-            results.append(a)
-        return pd.concat(results, axis=1)
+        dir_plain = '%s/alpha_plain/%s/' % (workdir, args['rarefaction_depth'])
+        results_alpha = dict()
+        for iteration in next(os.walk(dir_plain))[1]:
+            for metric in next(os.walk(dir_plain + '/' + iteration))[1]:
+                if metric not in results_alpha:
+                    results_alpha[metric] = []
+                file_alpha = '%s/%s/%s/alpha-diversity.tsv' % (
+                    dir_plain, iteration, metric)
+                results_alpha[metric].append(
+                    pd.read_csv(file_alpha, sep="\t", index_col=0))
+        for metric in results_alpha.keys():
+            results_alpha[metric] = pd.concat(
+                results_alpha[metric], axis=1).mean(axis=1)
+            results_alpha[metric].name = metric
+        result = pd.concat(results_alpha.values(), axis=1)
+        result.index.name = 'iter%s_depth%s' % (
+            args['num_iterations'], args['rarefaction_depth'])
+        return result
 
     if reference_tree is not None:
         reference_tree = os.path.abspath(reference_tree)
@@ -495,6 +536,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      pre_execute,
                      commands,
                      post_execute,
+                     environment=QIIME2_ENV,
                      **executor_args)
 
 
@@ -622,7 +664,7 @@ def beta_diversity(counts,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment='qiime2-2017.9',
+                     environment=QIIME2_ENV,
                      **executor_args)
 
 
