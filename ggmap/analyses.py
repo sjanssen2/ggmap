@@ -476,7 +476,7 @@ def alpha_diversity(counts, rarefaction_depth,
             else:
                 commands.append('cp %s %s' % (
                     workdir+'/input.qza',
-                    workdir+'/rare_%s_0.qza' % rarefaction_depth))
+                    workdir+'/rarefaction/rare_%s_0.qza' % rarefaction_depth))
             for metric in args['metrics']:
                 file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
                     args['rarefaction_depth'], iteration, metric)
@@ -498,8 +498,8 @@ def alpha_diversity(counts, rarefaction_depth,
                      file_alpha))
                 commands.append(
                     ('qiime tools export '
-                     '%s/alpha/alpha_%i_%i_%s.qza '
-                     '--output-dir %s/alpha_plain/%i/%i/%s') %
+                     '%s/alpha/alpha_%s_%i_%s.qza '
+                     '--output-dir %s/alpha_plain/%s/%i/%s') %
                     (workdir, args['rarefaction_depth'], iteration, metric,
                      workdir, args['rarefaction_depth'], iteration, metric))
 
@@ -537,6 +537,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      environment=QIIME2_ENV,
+                     ppn=1,
                      **executor_args)
 
 
