@@ -549,7 +549,7 @@ def beta_diversity(counts,
                    metrics=["unweighted_unifrac",
                             "weighted_unifrac",
                             "bray_curtis"],
-                   reference_tree=None, use_parallel=False,
+                   reference_tree=None,
                    **executor_args):
     """Computes beta diversity values for given BIOM table.
 
@@ -561,9 +561,6 @@ def beta_diversity(counts,
         Beta diversity metrics to be computed.
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
-    use_parallel : boolean
-        Default: false. If true, use parallel version of beta div computation.
-        I found that it often stalles with defunct processes.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
