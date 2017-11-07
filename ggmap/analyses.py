@@ -461,7 +461,10 @@ def alpha_diversity(counts, rarefaction_depth,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        for iteration in range(args['num_iterations']):
+        iterations = range(args['num_iterations'])
+        if args['rarefaction_depth'] is None:
+            iterations = [0]
+        for iteration in iterations:
             file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
                 args['rarefaction_depth'], iteration)
             if args['rarefaction_depth'] is not None:
@@ -476,7 +479,8 @@ def alpha_diversity(counts, rarefaction_depth,
             else:
                 commands.append('cp %s %s' % (
                     workdir+'/input.qza',
-                    workdir+'/rarefaction/rare_%s_0.qza' % rarefaction_depth))
+                    workdir+'/rarefaction/rare_%s_%i.qza' % (
+                        rarefaction_depth, iteration)))
             for metric in args['metrics']:
                 file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
                     args['rarefaction_depth'], iteration, metric)
