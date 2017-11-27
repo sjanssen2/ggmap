@@ -1048,7 +1048,8 @@ def cluster_run(cmds, jobname, result, environment=None,
         slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
         slurm_script += 'srun uname -a\n'
         for cmd in cmds:
-            slurm_script += 'srun %s\n' % cmd
+            slurm_script += 'srun %s\n' % cmd.replace(
+                '${PBS_ARRAYID}', '${SLURM_ARRAY_TASK_ID}')
         full_cmd = ""
 
     env_present = None
