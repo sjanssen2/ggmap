@@ -29,6 +29,14 @@ FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
 QIIME2_ENV = 'qiime2-2017.10'
 
+# prefix dir for cluster runs. If run locally,
+# temporary directory is obtained by env variable.
+DIR_TMP_TEMPLATE = '/home/s/sjanssen1/TMP/'
+
+# By default cluster runs are submitted to a Torque system. If you set SLURM to
+# True, a cluster jobs are submitted to Slurm system.
+SLURM = False
+
 
 def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
     """Use QIIME config to infer location of reference tree or pass given tree.
@@ -707,19 +715,22 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
 
     def commands(workdir, ppn, args):
         commands = []
-        commands.append('cd %s' % workdir)
-        ref = ''
-        if args['reference'] is not None:
-            ref = ' -r %s' % args['reference']
-        sdcomp = ''
-        if 'stopdecomposition' in args:
-            sdcomp = ' -M %f ' % args['stopdecomposition']
-        commands.append('%srun-sepp.sh "%s" res${PBS_ARRAYID} -x %i %s %s' % (
-            '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
-            workdir+'/sequences${PBS_ARRAYID}.mfa',
-            ppn,
-            ref,
-            sdcomp))
+
+        # import fasta sequences into qza
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s/rep-seqs${PBS_ARRAYID} '
+             '--type "FeatureData[Sequence]"') %
+            (workdir + '/sequences${PBS_ARRAYID}.mfa', workdir))
+
+        commands.append(
+            ('qiime fragment-insertion sepp '
+             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
+             '--p-threads %i '
+             '--output-dir %s/res_${PBS_ARRAYID}') %
+            (workdir, ppn, workdir))
+
         return commands
 
     def post_execute(workdir, args):
@@ -774,7 +785,7 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
                 jobname='guppy_rename',
                 result=file_merged_tree,
                 ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
-                wait=True)
+                wait=True, slurm=SLURM)
             sys.stderr.write(' done.\n')
         else:
             file_merged_tree = files_placement[0].replace(
@@ -847,6 +858,7 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
                      post_execute,
                      ppn=ppn, pmem=pmem, walltime=walltime,
                      array=len(range(0, seqs.shape[0], chunksize)),
+                     environment=QIIME2_ENV,
                      **executor_args)
 
 
@@ -1674,7 +1686,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                'cache_version': 20170817,
                'created_on': None,
                'jobname': jobname}
-    DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
     # create an ID function if no post_cache function is supplied
     def _id(x):
@@ -1794,7 +1805,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 file_qid=results['workdir']+'/cluster_job_id.txt',
                 timing=timing,
                 file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
-                array=array)
+                array=array, slurm=SLURM)
             if dry:
                 return results
             if wait is False:
