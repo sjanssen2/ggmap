@@ -31,7 +31,7 @@ QIIME2_ENV = 'qiime2-2017.10'
 
 # prefix dir for cluster runs. If run locally,
 # temporary directory is obtained by env variable.
-DIR_TMP_TEMPLATE = '/home/s/sjanssen1/TMP/'
+DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
 # By default cluster runs are submitted to a Torque system. If you set SLURM to
 # True, a cluster jobs are submitted to Slurm system.
