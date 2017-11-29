@@ -873,67 +873,12 @@ def sepp(counts, chunksize=10000,
                     sep='\t', index_col=0),
                 'tree': tree}
 
-
-
-        # files_placement = sorted(
-        #     [workdir + '/' + file_placement
-        #      for file_placement in next(os.walk(workdir))[2]
-        #      if file_placement.endswith('_placement.json')])
-        print(files_placement)
-        return None
-
-
-        sys.stderr.write("step 3) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
-        sys.stderr.write(' done.\n')
-
-        sys.stderr.write("step 4) use the phylogeny to det"
-                         "ermine tips lineage: ")
-        lineages = []
-        features = []
-        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
-        for i, tip in enumerate(tree.tips()):
-            if i % divisor == 0:
-                sys.stderr.write('.')
-            if tip.name.isdigit():
-                continue
-
-            lineage = []
-            for ancestor in tip.ancestors():
-                try:
-                    float(ancestor.name)
-                except TypeError:
-                    pass
-                except ValueError:
-                    lineage.append(ancestor.name)
-
-            lineages.append("; ".join(reversed(lineage)))
-            features.append(tip.name)
-        sys.stderr.write(' done.\n')
-
-        # storing tree as newick string is necessary since large trees would
-        # result in too many recursions for the python heap :-/
-        newick = StringIO()
-        tree.write(newick)
-        return {'taxonomy': pd.DataFrame(data=lineages,
-                                         index=features,
-                                         columns=['taxonomy']),
-                'tree': newick.getvalue(),
-                'reference': args['reference']}
-
     inp = sorted(counts.index)
     if type(counts) == pd.Series:
         # typically, the input is an OTU table with index holding sequences.
         # However, if provided a Pandas.Series, we expect index are sequence
         # headers and single column holds sequences.
         inp = counts.sort_index()
-
-    def post_cache(cache_results):
-        newicks = []
-        for tree in cache_results['trees']:
-            newicks.append(TreeNode.read(StringIO(tree)))
-        cache_results['trees'] = newicks
-        return cache_results
 
     seqs = inp
     if type(inp) != pd.Series:
