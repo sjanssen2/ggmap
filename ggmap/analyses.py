@@ -10,6 +10,7 @@ import collections
 import datetime
 import time
 import numpy as np
+import json
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -678,8 +679,10 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
-         ppn=20, pmem='8GB', walltime='12:00:00',
+def sepp(counts, chunksize=10000,
+         reference_phylogeny=None, reference_alignment=None,
+         reference_taxonomy=None,
+         ppn=20, pmem='8GB', walltime='12:00:00', environment=QIIME2_ENV,
          **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
@@ -689,15 +692,24 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
         a) OTU counts in form of a Pandas.DataFrame.
         b) If providing a Pandas.Series, we expect the index to be a fasta
            headers and the colum the fasta sequences.
-    reference : str
+    reference_phylogeny : str
         Default: None.
-        Valid values are ['pynast']. Use a different alignment file for SEPP.
-    executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+        Filepath to a qza "Phylogeny[Rooted]" artifact, holding an alternative
+        reference phylogeny for SEPP.
+    reference_alignment : str
+        Default: None.
+        Filepath to a qza "FeatureData[AlignedSequence]" artifact, holding an
+        alternative reference alignment for SEPP.
+    reference_taxonomy : str
+        Default: None.
+        Filepath to a qza "FeatureData[Taxonomy]" artifact, holding an
+        alternative reference taxonomy for SEPP.
     chunksize: int
-        Default: 30000
+        Default: 10000
         SEPP jobs seem to fail if too many sequences are submitted per job.
         Therefore, we can split your sequences in chunks of chunksize.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
@@ -724,44 +736,64 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
              '--type "FeatureData[Sequence]"') %
             (workdir + '/sequences${PBS_ARRAYID}.mfa', workdir))
 
+        ref_phylogeny = ""
+        if reference_phylogeny is not None:
+            ref_phylogeny = ' --i-reference-phylogeny %s ' % (
+                reference_phylogeny)
+        ref_alignment = ""
+        if reference_alignment is not None:
+            ref_alignment = ' --i-reference-alignment %s ' % (
+                reference_alignment)
+
         commands.append(
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
              '--p-threads %i '
+             '%s%s'
              '--output-dir %s/res_${PBS_ARRAYID}') %
-            (workdir, ppn, workdir))
+            (workdir, ppn, ref_phylogeny, ref_alignment, workdir))
+
+        # export the phylogeny
+        commands.append(
+            ('qiime tools export '
+             '%s/res_${PBS_ARRAYID}/tree.qza '
+             '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # export the placements
+        commands.append(
+            ('qiime tools export '
+             '%s/res_${PBS_ARRAYID}/placements.qza '
+             '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
 
         return commands
 
     def post_execute(workdir, args):
-        files_placement = sorted(
-            [workdir + '/' + file_placement
-             for file_placement in next(os.walk(workdir))[2]
-             if file_placement.endswith('_placement.json')])
+        files_placement = []
+        for d in next(os.walk(workdir))[1]:
+            if d.startswith('res_'):
+                for f in next(os.walk(workdir+'/'+d))[2]:
+                    if f == 'placements.json':
+                        files_placement.append(workdir+'/'+d+'/'+f)
+        # if we used several chunks, we need to merge placements to produce one
+        # unified insertion tree in the end
         if len(files_placement) > 1:
-            file_mergedplacements = workdir + '/merged_placements.json'
-            if not os.path.exists(file_mergedplacements):
-                sys.stderr.write("step 1) merging placement files: ")
-                fout = open(file_mergedplacements, 'w')
-                for i, file_placement in enumerate(files_placement):
-                    sys.stderr.write('.')
-                    fin = open(file_placement, 'r')
-                    write = i == 0
-                    for line in fin.readlines():
-                        if '"placements": [{' in line:
-                            write = True
-                            if i != 0:
-                                continue
-                        if '}],' in line:
-                            write = i+1 == len(files_placement)
-                        if write is True:
-                            fout.write(line)
-                    fin.close()
-                    if i+1 != len(files_placement):
-                        fout.write('    },\n')
-                        fout.write('    {\n')
-                fout.close()
-                sys.stderr.write(' done.\n')
+            sys.stderr.write("step 1) merging placement files: ")
+            static = None
+            placements = []
+            for file_placement in files_placement:
+                f = open(file_placement, 'r')
+                plcmnts = json.loads(f.read())
+                f.close()
+                placements.extend(plcmnts['placements'])
+                if static is None:
+                    del plcmnts['placements']
+                    static = plcmnts
+            with open('%s/all_placements.json' % (workdir), 'w') as outfile:
+                static['placements'] = placements
+                json.dump(static, outfile)
+            sys.stderr.write(' done.\n')
 
             sys.stderr.write("step 2) placing fragments into tree: ...")
             # guppy ran for: and consumed 45 GB of memory for 2M, chunked 10k
@@ -769,27 +801,87 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
             # real	37m39.772s
             # user	31m3.906s
             # sys	3m49.602s
-            file_merged_tree = file_mergedplacements[:-5] +\
-                '.tog.relabelled.tre'
+            file_merged_tree = '%s/all_tree.nwk' % workdir
             cluster_run([
-                'cd %s' % workdir,
-                '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/'
-                'sepp/.sepp/bundled-v4.3.0/guppy tog %s' %
-                file_mergedplacements,
-                'cat %s | python %s > %s' % (
-                    file_mergedplacements.replace('.json', '.tog.tre'),
-                    files_placement[0].replace('placement.json',
-                                               'rename-json.py'),
-                    file_merged_tree)],
-                environment='seppGG_py3',
+                ('$HOME/miniconda3/envs/%s/lib/python3.5/site-packages/'
+                 'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
+                 'bundled/Linux/guppy-64 tog -o '
+                 '%s/all_tree.nwk '
+                 '%s/all_placements.json') % (environment,  workdir, workdir),
+                ('qiime tools import '
+                 '--input-path %s/all_tree.nwk '
+                 '--output-path %s/all_tree '
+                 '--type "Phylogeny[Rooted]"') % (workdir, workdir)
+                ],
+                environment=environment,
                 jobname='guppy_rename',
-                result=file_merged_tree,
+                result="%s/all_tree.qza" % workdir,
                 ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
                 wait=True, slurm=SLURM)
             sys.stderr.write(' done.\n')
         else:
-            file_merged_tree = files_placement[0].replace(
-                '.json', '.tog.relabelled.tre')
+            sys.stderr.write("step 1) 'merging' one placement file: ")
+            shutil.copyfile(files_placement[0],
+                            "%s/all_placements.json" % workdir)
+            sys.stderr.write(' done.\n')
+
+            sys.stderr.write("step 2) 'placing' fragments into tree: ")
+            shutil.copyfile("%s/res_1/tree.qza" % workdir,
+                            "%s/all_tree.qza" % workdir)
+            shutil.copyfile("%s/res_1/tree.nwk" % workdir,
+                            "%s/all_tree.nwk" % workdir)
+            sys.stderr.write(' done.\n')
+
+        sys.stderr.write("step 3) use the phylogeny to det"
+                         "ermine tips lineage: ")
+        ref_taxonomy = ""
+        if args['reference_taxonomy'] is not None:
+            ref_taxonomy = \
+                " --i-reference-taxonomy %s " % args['reference_taxonomy']
+        cluster_run(['cat %s/sequences*.mfa > %s/all_sequences.mfa' %
+                     (workdir, workdir),
+                     ('qiime tools import '
+                      '--input-path %s/all_sequences.mfa '
+                      '--output-path %s/all_sequences '
+                      '--type "FeatureData[Sequence]"') %
+                     (workdir, workdir),
+                     ('qiime fragment-insertion classify-otus-experimental '
+                      '--i-representative-sequences %s/all_sequences.qza '
+                      '--i-tree %s/all_tree.qza '
+                      '%s'
+                      '--o-classification %s/all_taxonomy') %
+                     (workdir, workdir, ref_taxonomy, workdir),
+                     ('qiime tools export '
+                      '%s/all_taxonomy.qza '
+                      '--output-dir %s/all_taxonomy') %
+                     (workdir, workdir),
+                     'mv %s/all_taxonomy/taxonomy.tsv %s/all_taxonomy.tsv' %
+                     (workdir, workdir)],
+                    environment=environment,
+                    jobname='taxonomy',
+                    result="%s/all_taxonomy.tsv" % workdir,
+                    ppn=1, dry=False, wait=True, slurm=SLURM)
+        sys.stderr.write(' done.\n')
+
+        f = open("%s/all_tree.nwk" % workdir, 'r')
+        tree = f.readlines()[0].strip()
+        f.close()
+
+        return {'taxonomy':
+                pd.read_csv(
+                    '%s/all_taxonomy.tsv' % workdir,
+                    sep='\t', index_col=0),
+                'tree': tree}
+
+
+
+        # files_placement = sorted(
+        #     [workdir + '/' + file_placement
+        #      for file_placement in next(os.walk(workdir))[2]
+        #      if file_placement.endswith('_placement.json')])
+        print(files_placement)
+        return None
+
 
         sys.stderr.write("step 3) reading skbio tree: ...")
         tree = TreeNode.read(file_merged_tree)
@@ -846,11 +938,17 @@ def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
     seqs = inp
     if type(inp) != pd.Series:
         seqs = pd.Series(inp, index=inp).sort_index()
+    if reference_alignment is not None:
+        reference_alignment = os.path.abspath(reference_alignment)
+    if reference_phylogeny is not None:
+        reference_phylogeny = os.path.abspath(reference_phylogeny)
+    if reference_taxonomy is not None:
+        reference_taxonomy = os.path.abspath(reference_taxonomy)
     args = {'seqs': seqs,
-            'reference': reference,
+            'reference_alignment': reference_alignment,
+            'reference_phylogeny': reference_phylogeny,
+            'reference_taxonomy': reference_taxonomy,
             'chunksize': chunksize}
-    if stopdecomposition is not None:
-        args['stopdecomposition'] = stopdecomposition
     return _executor('sepp',
                      args,
                      pre_execute,
