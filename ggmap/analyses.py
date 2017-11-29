@@ -801,7 +801,6 @@ def sepp(counts, chunksize=10000,
             # real	37m39.772s
             # user	31m3.906s
             # sys	3m49.602s
-            file_merged_tree = '%s/all_tree.nwk' % workdir
             cluster_run([
                 ('$HOME/miniconda3/envs/%s/lib/python3.5/site-packages/'
                  'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
