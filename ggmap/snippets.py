@@ -1041,7 +1041,6 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     slurm = False
     if use_grid is False:
-        cmd_list = ""
         cmd_list += 'for PBS_ARRAYID in `seq 1 %i`; do %s; done' % (
             array, " && ".join(cmds))
     else:
