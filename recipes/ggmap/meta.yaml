@@ -13,6 +13,8 @@ build:
 
 requirements:
   build:
+    - python 3.5*
+    - setuptools
     - nose
     - pep8
     - flake8
@@ -30,6 +32,8 @@ requirements:
     - basemap
     - basemap-data-hires
   run:
+    - python 3.5*
+    - setuptools
     - nose
     - pep8
     - flake8
