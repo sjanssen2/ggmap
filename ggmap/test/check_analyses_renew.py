@@ -7,7 +7,7 @@ from scipy.stats import pearsonr
 
 from ggmap.analyses import (beta_diversity,
                             alpha_diversity,
-                            biom2pandas)
+                            biom2pandas, rarefy)
 
 
 class BetaTests(TestCase):
@@ -95,6 +95,19 @@ class AlphaTests(TestCase):
                                         zip(vals_truth, vals_comp)))
                     corr, pval = pearsonr(vals_truth, vals_comp)
                     self.assertTrue((corr > 0.95) or identical)
+
+
+class RarefyTests(TestCase):
+    def setUp(self):
+        self.file_count = get_data_path('25x25.biom')
+        self.raredepth = 200
+
+    def test_rarefy(self):
+        obs_rarefy = rarefy(
+            biom2pandas(self.file_count),
+            rarefaction_depth=self.raredepth,
+            dry=False, use_grid=False, nocache=True, wait=True, dirty=True)
+        self.assertTrue(obs_rarefy['results'].sum().unique() == [200])
 
 
 if __name__ == '__main__':
