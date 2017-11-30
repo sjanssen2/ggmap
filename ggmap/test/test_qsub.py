@@ -62,8 +62,8 @@ sbatch /tmp/tmp7purx0c8.slurm.sh
             """A helper function to remove absolute home dir information."""
             out = []
             for i, line in enumerate(text.split('\n')):
-                #skip first two lines, because they are only a information for
-                #the user if run dry
+                # skip first two lines, because they are only a information
+                # for the user if run dry
                 if i == 0:
                     continue
                 if line.startswith('#SBATCH --output='):
