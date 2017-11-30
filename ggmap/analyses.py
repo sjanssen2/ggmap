@@ -753,18 +753,38 @@ def sepp(counts, chunksize=10000,
              '--output-dir %s/res_${PBS_ARRAYID}') %
             (workdir, ppn, ref_phylogeny, ref_alignment, workdir))
 
-        # export the phylogeny
-        commands.append(
-            ('qiime tools export '
-             '%s/res_${PBS_ARRAYID}/tree.qza '
-             '--output-dir %s/res_${PBS_ARRAYID}/') %
-            (workdir, workdir))
-
         # export the placements
         commands.append(
             ('qiime tools export '
              '%s/res_${PBS_ARRAYID}/placements.qza '
              '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # compute taxonomy from resulting tree and placements
+        ref_taxonomy = ""
+        if args['reference_taxonomy'] is not None:
+            ref_taxonomy = \
+                " --i-reference-taxonomy %s " % args['reference_taxonomy']
+        commands.append(
+            ('qiime fragment-insertion classify-otus-experimental '
+             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
+             '--i-tree %s/res_${PBS_ARRAYID}/tree.qza '
+             '%s'
+             '--o-classification %s/res_taxonomy_${PBS_ARRAYID}') %
+            (workdir, workdir, ref_taxonomy, workdir))
+
+        # export taxonomy to tsv file
+        commands.append(
+            ('qiime tools export '
+             '%s/res_taxonomy_${PBS_ARRAYID}.qza '
+             '--output-dir %s/res_taxonomy_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # move taxonomy tsv to basedir
+        commands.append(
+            ('mv '
+             '%s/res_taxonomy_${PBS_ARRAYID}/taxonomy.tsv '
+             '%s/taxonomy_${PBS_ARRAYID}.tsv') %
             (workdir, workdir))
 
         return commands
@@ -806,70 +826,43 @@ def sepp(counts, chunksize=10000,
                  'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
                  'bundled/Linux/guppy-64 tog -o '
                  '%s/all_tree.nwk '
-                 '%s/all_placements.json') % (environment,  workdir, workdir),
-                ('qiime tools import '
-                 '--input-path %s/all_tree.nwk '
-                 '--output-path %s/all_tree '
-                 '--type "Phylogeny[Rooted]"') % (workdir, workdir)
-                ],
+                 '%s/all_placements.json') % (environment,  workdir, workdir)],
                 environment=environment,
                 jobname='guppy_rename',
-                result="%s/all_tree.qza" % workdir,
+                result="%s/all_tree.nwk" % workdir,
                 ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
                 wait=True, slurm=SLURM)
             sys.stderr.write(' done.\n')
         else:
-            sys.stderr.write("step 1) 'merging' one placement file: ")
-            shutil.copyfile(files_placement[0],
-                            "%s/all_placements.json" % workdir)
+            sys.stderr.write("step 1+2) extracting newick tree: ")
+            cluster_run([('qiime tools export '
+                          '%s/res_1/tree.qza '
+                          '--output-dir %s/res_1/') %
+                         (workdir, workdir),
+                         ('mv %s/res_1/tree.nwk %s/all_tree.nwk') %
+                         (workdir, workdir)],
+                        environment=environment,
+                        jobname='extract',
+                        result="%s/all_tree.nwk" % workdir,
+                        ppn=1, dry=False,
+                        wait=True, slurm=SLURM)
             sys.stderr.write(' done.\n')
 
-            sys.stderr.write("step 2) 'placing' fragments into tree: ")
-            shutil.copyfile("%s/res_1/tree.qza" % workdir,
-                            "%s/all_tree.qza" % workdir)
-            shutil.copyfile("%s/res_1/tree.nwk" % workdir,
-                            "%s/all_tree.nwk" % workdir)
-            sys.stderr.write(' done.\n')
-
-        sys.stderr.write("step 3) use the phylogeny to det"
-                         "ermine tips lineage: ")
-        ref_taxonomy = ""
-        if args['reference_taxonomy'] is not None:
-            ref_taxonomy = \
-                " --i-reference-taxonomy %s " % args['reference_taxonomy']
-        cluster_run(['cat %s/sequences*.mfa > %s/all_sequences.mfa' %
-                     (workdir, workdir),
-                     ('qiime tools import '
-                      '--input-path %s/all_sequences.mfa '
-                      '--output-path %s/all_sequences '
-                      '--type "FeatureData[Sequence]"') %
-                     (workdir, workdir),
-                     ('qiime fragment-insertion classify-otus-experimental '
-                      '--i-representative-sequences %s/all_sequences.qza '
-                      '--i-tree %s/all_tree.qza '
-                      '%s'
-                      '--o-classification %s/all_taxonomy') %
-                     (workdir, workdir, ref_taxonomy, workdir),
-                     ('qiime tools export '
-                      '%s/all_taxonomy.qza '
-                      '--output-dir %s/all_taxonomy') %
-                     (workdir, workdir),
-                     'mv %s/all_taxonomy/taxonomy.tsv %s/all_taxonomy.tsv' %
-                     (workdir, workdir)],
-                    environment=environment,
-                    jobname='taxonomy',
-                    result="%s/all_taxonomy.tsv" % workdir,
-                    ppn=1, dry=False, wait=True, slurm=SLURM)
+        sys.stderr.write("step 3) merge taxonomy: ")
+        taxonomies = []
+        for file_taxonomy in next(os.walk(workdir))[2]:
+            if file_taxonomy.startswith('taxonomy_') and \
+               file_taxonomy.endswith('.tsv'):
+                taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
+                                  sep="\t", index_col=0))
+        taxonomy = pd.concat(taxonomies)
         sys.stderr.write(' done.\n')
 
         f = open("%s/all_tree.nwk" % workdir, 'r')
         tree = f.readlines()[0].strip()
         f.close()
 
-        return {'taxonomy':
-                pd.read_csv(
-                    '%s/all_taxonomy.tsv' % workdir,
-                    sep='\t', index_col=0),
+        return {'taxonomy': taxonomy,
                 'tree': tree}
 
     inp = sorted(counts.index)
@@ -1818,16 +1811,19 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         lst_commands.append('touch %s/%s${PBS_ARRAYID}' %
                             (results['workdir'], FILE_STATUS))
         if not use_grid:
+            if timing:
+                lst_commands = _add_timing_cmds(
+                    lst_commands,
+                    results['workdir'] +
+                    '/timing${PBS_ARRAYID}.txt')
+            cmds = ("source activate %s; "
+                    "for PBS_ARRAYID in `seq 1 %i`; do %s; done") %\
+                   (environment, array, " && ".join(lst_commands))
             if dry:
                 if verbose:
-                    sys.stderr.write("\n\n".join(lst_commands))
+                    sys.stderr.write(cmds)
                 return results
-            if timing:
-                _add_timing_cmds(lst_commands,
-                                 results['workdir'] +
-                                 '/timing${PBS_ARRAYID}.txt')
-            with subprocess.Popen("source activate %s && %s" %
-                                  (environment, " && ".join(lst_commands)),
+            with subprocess.Popen(cmds,
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   executable="bash") as call_x:
