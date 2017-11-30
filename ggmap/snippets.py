@@ -1120,15 +1120,15 @@ def cluster_run(cmds, jobname, result, environment=None,
                         "\nWaiting for cluster job %s to complete: " % qid)
                     while True:
                         if slurm:
-                            task_squeue = subprocess.Popen(
-                                ['squeue', '--job', qid],
-                                stdout=subprocess.PIPE)
-                            task_wc = subprocess.Popen(
-                                ['wc', '-l'], stdin=task_squeue.stdout,
-                                stdout=subprocess.PIPE)
-                            poll_status = \
-                                int(task_wc.stdout.read().decode(
-                                    'ascii').rstrip())
+                            with subprocess.Popen(
+                                    ['squeue', '--job', qid],
+                                    stdout=subprocess.PIPE) as task_squeue:
+                                with subprocess.Popen(
+                                        ['wc', '-l'], stdin=task_squeue.stdout,
+                                        stdout=subprocess.PIPE) as task_wc:
+                                    poll_status = \
+                                        int(task_wc.stdout.read().decode(
+                                            'ascii').rstrip())
                             # Two if polling gives a table with header and one
                             # status line, i.e. job is still on the grid.
                             # Translate that to 0 of Torque.
