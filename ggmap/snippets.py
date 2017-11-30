@@ -1129,13 +1129,13 @@ def cluster_run(cmds, jobname, result, environment=None,
                                     poll_status = \
                                         int(task_wc.stdout.read().decode(
                                             'ascii').rstrip())
-                            # Two if polling gives a table with header and one
-                            # status line, i.e. job is still on the grid.
-                            # Translate that to 0 of Torque.
+                            # Two ore more if polling gives a table with header
+                            # and one status line, i.e. job is still on the
+                            # grid. Translate that to 0 of Torque.
                             # If table has only one line, i.e. the header, job
                             # terminated (hopefully successful), translate that
                             # to 1 of Torque
-                            if poll_status == 2:
+                            if poll_status >= 2:
                                 poll_status = 0
                             else:
                                 poll_status = 1
