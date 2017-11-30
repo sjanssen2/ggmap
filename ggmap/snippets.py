@@ -1043,10 +1043,20 @@ def cluster_run(cmds, jobname, result, environment=None,
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
         res = subprocess.check_output(["uname", "-n"]).decode('ascii').rstrip()
+        print("UNAME: " + res)
         if 'barnacle.ucsd.edu' in res:
             slurm = False
         elif '.rc.usf.edu' in res:
             slurm = True
+        with subprocess.Popen("which srun" if slurm else "which qsub",
+                              shell=True, stdout=subprocess.PIPE,
+                              executable="bash") as call_x:
+            if call_x.wait() != 0:
+                msg = ("You don't seem to have access to a grid!")
+                if dry:
+                    err.write(msg)
+                else:
+                    raise ValueError(msg)
 
         if slurm is False:
             highmem = ''
