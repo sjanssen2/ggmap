@@ -68,7 +68,7 @@ srun find /tmp/ -name *.png
 
         out = StringIO()
         cluster_run("find /tmp/ -name *.png", "jobname",
-                    "/tmp/teststxxx", slurm=True, out=out)
+                    "/tmp/teststxxx", force_slurm=True, out=out)
         self.assertEqual(_cleanHome(out.getvalue()), _cleanHome(exp))
 
     def test_cluster_run_highmem(self):

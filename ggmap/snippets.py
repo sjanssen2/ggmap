@@ -932,7 +932,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
                 file_qid=None, out=sys.stdout, err=sys.stderr,
-                timing=False, file_timing=None, array=1, use_grid=True):
+                timing=False, file_timing=None, array=1, use_grid=True,
+                force_slurm=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -988,6 +989,10 @@ def cluster_run(cmds, jobname, result, environment=None,
         Defaul: True.
         If False, commands are executed locally instead of submitting them to
         a HPC (= either Torque or Slurm).
+    force_slurm : bool
+        Default: False.
+        If True, cluster_run is enforeced to choose slurm instead of auto
+        detection based on machine node name.
 
     Returns
     -------
@@ -1056,6 +1061,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                     err.write(msg)
                 else:
                     raise ValueError(msg)
+        if force_slurm:
+            slurm = True
 
         if slurm is False:
             highmem = ''
