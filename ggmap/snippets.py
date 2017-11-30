@@ -931,8 +931,9 @@ def _add_timing_cmds(commands, file_timing):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
-                file_qid=None, slurm=False, out=sys.stdout, err=sys.stderr,
-                timing=False, file_timing=None, array=1):
+                file_qid=None, out=sys.stdout, err=sys.stderr,
+                timing=False, file_timing=None, array=1, use_grid=True,
+                force_slurm=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -968,8 +969,6 @@ def cluster_run(cmds, jobname, result, environment=None,
     file_qid : str
         Default None. Create a file containing the qid of the submitted job.
         This will ease identification of TMP working directories.
-    slurm : bool
-        Execute cluster job via Slurm instead of Torque.
     out : StringIO
         Buffer onto which messages should be printed. Default is sys.stdout.
     err : StringIO
@@ -986,6 +985,14 @@ def cluster_run(cmds, jobname, result, environment=None,
         If > 1 than an array job is submitted. Make sure in- and outputs can
         deal with ${PBS_ARRAYID}!
         Only available for Torque.
+    use_grid : bool
+        Defaul: True.
+        If False, commands are executed locally instead of submitting them to
+        a HPC (= either Torque or Slurm).
+    force_slurm : bool
+        Default: False.
+        If True, cluster_run is enforeced to choose slurm instead of auto
+        detection based on machine node name.
 
     Returns
     -------
@@ -1019,38 +1026,8 @@ def cluster_run(cmds, jobname, result, environment=None,
         if file_timing is None:
             file_timing = '${PBS_JOBNAME}.t${PBS_JOBID}'
         cmds = _add_timing_cmds(cmds, file_timing)
-    job_cmd = " && ".join(cmds)
 
-    # compose qsub specific details
-    pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
-    # switch to high mem queue if memory requirement exeeds 250 GB
-    highmem = ''
-    slurm_script = None
-    if slurm is False:
-        if ppn * int(pmem[:-2]) > 250:
-            highmem = ':highmem'
-        ge_cmd = (("%s/qsub -d '%s' -V -l "
-                   "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
-                  (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
-                   array))
-        full_cmd = "echo '%s' | %s" % (job_cmd, ge_cmd)
-    else:
-        slurm_script = "#!/bin/bash\n\n"
-        slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
-        slurm_script += '#SBATCH --output=%s/%%A.log\n' % pwd
-        slurm_script += '#SBATCH --partition=hii02\n'
-        slurm_script += '#SBATCH --ntasks=1\n'
-        slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
-        slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
-        slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(walltime)
-        slurm_script += '#SBATCH --array=1-%i\n' % array
-        slurm_script += '#SBATCH --mail-type=END,FAIL\n'
-        slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
-        slurm_script += 'srun uname -a\n'
-        for cmd in cmds:
-            slurm_script += 'srun %s\n' % cmd
-        full_cmd = ""
-
+    cmd_list = ""
     env_present = None
     if environment is not None:
         # check if environment exists
@@ -1060,74 +1037,138 @@ def cluster_run(cmds, jobname, result, environment=None,
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        full_cmd = "source activate %s && %s" % (environment, full_cmd)
+        cmd_list += "source activate %s; " % environment
 
-    if dry is False:
-        if slurm:
+    slurm = False
+    if use_grid is False:
+        cmd_list += 'for PBS_ARRAYID in `seq 1 %i`; do %s; done' % (
+            array, " && ".join(cmds))
+    else:
+        pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
+
+        res = subprocess.check_output(["uname", "-n"]).decode('ascii').rstrip()
+        if 'barnacle.ucsd.edu' in res:
+            slurm = False
+        elif '.rc.usf.edu' in res:
+            slurm = True
+        with subprocess.Popen("which srun" if slurm else "which qsub",
+                              shell=True, stdout=subprocess.PIPE,
+                              executable="bash") as call_x:
+            if call_x.wait() != 0:
+                msg = ("You don't seem to have access to a grid!")
+                if dry:
+                    err.write(msg)
+                else:
+                    raise ValueError(msg)
+        if force_slurm:
+            slurm = True
+
+        if slurm is False:
+            highmem = ''
+            if ppn * int(pmem[:-2]) > 250:
+                highmem = ':highmem'
+            ge_cmd = (
+                ("%s/qsub -d '%s' -V -l "
+                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
+                (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
+                 array))
+            cmd_list = "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
+        else:
+            slurm_script = "#!/bin/bash\n\n"
+            slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
+            slurm_script += '#SBATCH --output=%s/%%A.log\n' % pwd
+            slurm_script += '#SBATCH --partition=hii02\n'
+            slurm_script += '#SBATCH --ntasks=1\n'
+            slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
+            slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
+            slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(
+                walltime)
+            slurm_script += '#SBATCH --array=1-%i\n' % array
+            slurm_script += '#SBATCH --mail-type=END,FAIL\n'
+            slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
+            slurm_script += 'srun uname -a\n'
+            for cmd in cmds:
+                slurm_script += 'srun %s\n' % cmd.replace(
+                    '${PBS_ARRAYID}', '${SLURM_ARRAY_TASK_ID}')
             _, file_script = mkstemp(suffix='.slurm.sh')
             f = open(file_script, 'w')
             f.write(slurm_script)
             f.close()
-            full_cmd += 'sbatch %s' % file_script
-        with subprocess.Popen(full_cmd,
-                              shell=True, stdout=subprocess.PIPE) as task_qsub:
-            qid = task_qsub.stdout.read().decode('ascii').rstrip()
-            if slurm:
-                qid = qid.split()[-1]
-                os.remove(file_script)
-            if file_qid is not None:
-                f = open(file_qid, 'w')
-                f.write('Cluster job ID is:\n%s\n' % qid)
-                f.close()
-            job_ever_seen = False
-            if wait:
-                err.write("\nWaiting for cluster job %s to complete: " % qid)
-                while True:
-                    if slurm:
-                        task_squeue = subprocess.Popen(
-                            ['squeue', '--job', qid], stdout=subprocess.PIPE)
-                        task_wc = subprocess.Popen(
-                            ['wc', '-l'], stdin=task_squeue.stdout,
-                            stdout=subprocess.PIPE)
-                        poll_status = \
-                            int(task_wc.stdout.read().decode('ascii').rstrip())
-                        # Two if polling gives a table with header and one
-                        # status line, i.e. job is still on the grid.
-                        # Translate that to 0 of Torque.
-                        # If table has only one line, i.e. the header, job
-                        # terminated (hopefully successful), translate that
-                        # to 1 of Torque
-                        if poll_status == 2:
-                            poll_status = 0
-                        else:
-                            poll_status = 1
-                    else:
-                        poll_stati = []
-                        for i in range(array):
-                            p = subprocess.call(
-                                "%s/qstat %s" %
-                                (gebin, qid.replace('[]', '[%i]' % (i+1))),
-                                shell=True)
-                            poll_stati.append(p == 0)
-                        if any(poll_stati):
-                            poll_status = 0
-                        else:
-                            poll_status = 127  # some number != 0
-                    if (poll_status != 0) and job_ever_seen:
-                        err.write(' finished.')
-                        break
-                    elif (poll_status == 0) and (not job_ever_seen):
-                        job_ever_seen = True
-                    err.write('.')
-                    time.sleep(10)
-            else:
-                err.write("Now wait until %s job finishes.\n" % qid)
-            return qid
-    else:
-        if slurm:
-            out.write(slurm_script + "\n")
-        out.write(full_cmd + "\n")
+            cmd_list += 'sbatch %s' % file_script
+
+    if dry is True:
+        if use_grid and slurm:
+            out.write('CONTENT OF %s:\n' % file_script)
+            out.write(slurm_script + "\n\n")
+        out.write(cmd_list + "\n")
         return None
+    else:
+        if use_grid is True:
+            with subprocess.Popen(
+                    cmd_list, shell=True, stdout=subprocess.PIPE) as task_qsub:
+                qid = task_qsub.stdout.read().decode('ascii').rstrip()
+                if slurm:
+                    qid = qid.split()[-1]
+                    os.remove(file_script)
+                if file_qid is not None:
+                    f = open(file_qid, 'w')
+                    f.write('Cluster job ID is:\n%s\n' % qid)
+                    f.close()
+                job_ever_seen = False
+                if wait:
+                    err.write(
+                        "\nWaiting for cluster job %s to complete: " % qid)
+                    while True:
+                        if slurm:
+                            with subprocess.Popen(
+                                    ['squeue', '--job', qid],
+                                    stdout=subprocess.PIPE) as task_squeue:
+                                with subprocess.Popen(
+                                        ['wc', '-l'], stdin=task_squeue.stdout,
+                                        stdout=subprocess.PIPE) as task_wc:
+                                    poll_status = \
+                                        int(task_wc.stdout.read().decode(
+                                            'ascii').rstrip())
+                            # Two ore more if polling gives a table with header
+                            # and one status line, i.e. job is still on the
+                            # grid. Translate that to 0 of Torque.
+                            # If table has only one line, i.e. the header, job
+                            # terminated (hopefully successful), translate that
+                            # to 1 of Torque
+                            if poll_status >= 2:
+                                poll_status = 0
+                            else:
+                                poll_status = 1
+                        else:
+                            poll_stati = []
+                            for i in range(array):
+                                p = subprocess.call(
+                                    "%s/qstat %s" %
+                                    (gebin, qid.replace('[]', '[%i]' % (i+1))),
+                                    shell=True)
+                                poll_stati.append(p == 0)
+                            if any(poll_stati):
+                                poll_status = 0
+                            else:
+                                poll_status = 127  # some number != 0
+                        if (poll_status != 0) and job_ever_seen:
+                            err.write(' finished.')
+                            break
+                        elif (poll_status == 0) and (not job_ever_seen):
+                            job_ever_seen = True
+                        err.write('.')
+                        time.sleep(10)
+                else:
+                    err.write("Now wait until %s job finishes.\n" % qid)
+                return qid
+        else:
+            with subprocess.Popen(cmd_list,
+                                  shell=True,
+                                  stdout=subprocess.PIPE,
+                                  executable="bash") as call_x:
+                if (call_x.wait() != 0):
+                    raise ValueError("something went wrong!")
+                return call_x.pid
 
 
 def detect_distant_groups_alpha(alpha, groupings,

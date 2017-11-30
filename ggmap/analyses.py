@@ -10,6 +10,7 @@ import collections
 import datetime
 import time
 import numpy as np
+import json
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,8 +19,7 @@ from matplotlib.ticker import FuncFormatter
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas,
-                            _add_timing_cmds)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
 
 
 plt.switch_backend('Agg')
@@ -670,9 +670,230 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, chunksize=10000, reference=None, stopdecomposition=None,
-         ppn=20, pmem='8GB', walltime='12:00:00',
+def sepp(counts, chunksize=10000,
+         reference_phylogeny=None, reference_alignment=None,
+         reference_taxonomy=None,
+         ppn=20, pmem='8GB', walltime='12:00:00', environment=QIIME2_ENV,
          **executor_args):
+    """Tip insertion of deblur sequences into GreenGenes backbone tree.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame | Pandas.Series
+        a) OTU counts in form of a Pandas.DataFrame.
+        b) If providing a Pandas.Series, we expect the index to be a fasta
+           headers and the colum the fasta sequences.
+    reference_phylogeny : str
+        Default: None.
+        Filepath to a qza "Phylogeny[Rooted]" artifact, holding an alternative
+        reference phylogeny for SEPP.
+    reference_alignment : str
+        Default: None.
+        Filepath to a qza "FeatureData[AlignedSequence]" artifact, holding an
+        alternative reference alignment for SEPP.
+    reference_taxonomy : str
+        Default: None.
+        Filepath to a qza "FeatureData[Taxonomy]" artifact, holding an
+        alternative reference taxonomy for SEPP.
+    chunksize: int
+        Default: 10000
+        SEPP jobs seem to fail if too many sequences are submitted per job.
+        Therefore, we can split your sequences in chunks of chunksize.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ???"""
+    def pre_execute(workdir, args):
+        chunks = range(0, seqs.shape[0], args['chunksize'])
+        for chunk, i in enumerate(chunks):
+            # write all deblur sequences into one file per chunk
+            file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
+            f = open(file_fragments, 'w')
+            chunk_seqs = seqs.iloc[i:i + args['chunksize']]
+            for header, sequence in chunk_seqs.iteritems():
+                f.write('>%s\n%s\n' % (header, sequence))
+            f.close()
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # import fasta sequences into qza
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s/rep-seqs${PBS_ARRAYID} '
+             '--type "FeatureData[Sequence]"') %
+            (workdir + '/sequences${PBS_ARRAYID}.mfa', workdir))
+
+        ref_phylogeny = ""
+        if reference_phylogeny is not None:
+            ref_phylogeny = ' --i-reference-phylogeny %s ' % (
+                reference_phylogeny)
+        ref_alignment = ""
+        if reference_alignment is not None:
+            ref_alignment = ' --i-reference-alignment %s ' % (
+                reference_alignment)
+
+        commands.append(
+            ('qiime fragment-insertion sepp '
+             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
+             '--p-threads %i '
+             '%s%s'
+             '--output-dir %s/res_${PBS_ARRAYID}') %
+            (workdir, ppn, ref_phylogeny, ref_alignment, workdir))
+
+        # export the placements
+        commands.append(
+            ('qiime tools export '
+             '%s/res_${PBS_ARRAYID}/placements.qza '
+             '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # export the tree
+        commands.append(
+            ('qiime tools export '
+             '%s/res_${PBS_ARRAYID}/tree.qza '
+             '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # compute taxonomy from resulting tree and placements
+        ref_taxonomy = ""
+        if args['reference_taxonomy'] is not None:
+            ref_taxonomy = \
+                " --i-reference-taxonomy %s " % args['reference_taxonomy']
+        commands.append(
+            ('qiime fragment-insertion classify-otus-experimental '
+             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
+             '--i-tree %s/res_${PBS_ARRAYID}/tree.qza '
+             '%s'
+             '--o-classification %s/res_taxonomy_${PBS_ARRAYID}') %
+            (workdir, workdir, ref_taxonomy, workdir))
+
+        # export taxonomy to tsv file
+        commands.append(
+            ('qiime tools export '
+             '%s/res_taxonomy_${PBS_ARRAYID}.qza '
+             '--output-dir %s/res_taxonomy_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
+        # move taxonomy tsv to basedir
+        commands.append(
+            ('mv '
+             '%s/res_taxonomy_${PBS_ARRAYID}/taxonomy.tsv '
+             '%s/taxonomy_${PBS_ARRAYID}.tsv') %
+            (workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        use_grid = executor_args['use_grid'] \
+            if 'use_grid' in executor_args else True
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+
+        files_placement = []
+        for d in next(os.walk(workdir))[1]:
+            if d.startswith('res_'):
+                for f in next(os.walk(workdir+'/'+d))[2]:
+                    if f == 'placements.json':
+                        files_placement.append(workdir+'/'+d+'/'+f)
+        # if we used several chunks, we need to merge placements to produce one
+        # unified insertion tree in the end
+        if len(files_placement) > 1:
+            sys.stderr.write("step 1) merging placement files: ")
+            static = None
+            placements = []
+            for file_placement in files_placement:
+                f = open(file_placement, 'r')
+                plcmnts = json.loads(f.read())
+                f.close()
+                placements.extend(plcmnts['placements'])
+                if static is None:
+                    del plcmnts['placements']
+                    static = plcmnts
+            with open('%s/all_placements.json' % (workdir), 'w') as outfile:
+                static['placements'] = placements
+                json.dump(static, outfile)
+            sys.stderr.write(' done.\n')
+
+            sys.stderr.write("step 2) placing fragments into tree: ...")
+            # guppy ran for: and consumed 45 GB of memory for 2M, chunked 10k
+            # sepp benchmark:
+            # real	37m39.772s
+            # user	31m3.906s
+            # sys	3m49.602s
+            cluster_run([
+                ('$HOME/miniconda3/envs/%s/lib/python3.5/site-packages/'
+                 'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
+                 'bundled/Linux/guppy-64 tog -o '
+                 '%s/all_tree.nwk '
+                 '%s/all_placements.json') % (environment,  workdir, workdir)],
+                environment=environment,
+                jobname='guppy_rename',
+                result="%s/all_tree.nwk" % workdir,
+                ppn=1, pmem='100GB', walltime='1:00:00',
+                dry=dry,
+                wait=True, use_grid=use_grid)
+            sys.stderr.write(' done.\n')
+        else:
+            sys.stderr.write("step 1+2) extracting newick tree: ")
+            shutil.move('%s/res_1/tree.nwk' % workdir,
+                        '%s/all_tree.nwk' % workdir)
+            sys.stderr.write(' done.\n')
+
+        sys.stderr.write("step 3) merge taxonomy: ")
+        taxonomies = []
+        for file_taxonomy in next(os.walk(workdir))[2]:
+            if file_taxonomy.startswith('taxonomy_') and \
+               file_taxonomy.endswith('.tsv'):
+                taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
+                                  sep="\t", index_col=0))
+        taxonomy = pd.concat(taxonomies)
+        sys.stderr.write(' done.\n')
+
+        f = open("%s/all_tree.nwk" % workdir, 'r')
+        tree = f.readlines()[0].strip()
+        f.close()
+
+        return {'taxonomy': taxonomy,
+                'tree': tree}
+
+    inp = sorted(counts.index)
+    if type(counts) == pd.Series:
+        # typically, the input is an OTU table with index holding sequences.
+        # However, if provided a Pandas.Series, we expect index are sequence
+        # headers and single column holds sequences.
+        inp = counts.sort_index()
+
+    seqs = inp
+    if type(inp) != pd.Series:
+        seqs = pd.Series(inp, index=inp).sort_index()
+    if reference_alignment is not None:
+        reference_alignment = os.path.abspath(reference_alignment)
+    if reference_phylogeny is not None:
+        reference_phylogeny = os.path.abspath(reference_phylogeny)
+    if reference_taxonomy is not None:
+        reference_taxonomy = os.path.abspath(reference_taxonomy)
+    args = {'seqs': seqs,
+            'reference_alignment': reference_alignment,
+            'reference_phylogeny': reference_phylogeny,
+            'reference_taxonomy': reference_taxonomy,
+            'chunksize': chunksize}
+    return _executor('sepp',
+                     args,
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn, pmem=pmem, walltime=walltime,
+                     array=len(range(0, seqs.shape[0], chunksize)),
+                     environment=environment,
+                     **executor_args)
+
+
+def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
+             ppn=20, pmem='8GB', walltime='12:00:00',
+             **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -1674,7 +1895,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                'cache_version': 20170817,
                'created_on': None,
                'jobname': jobname}
-    DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
 
     # create an ID function if no post_cache function is supplied
     def _id(x):
@@ -1714,7 +1934,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     # ready or are waited for
     dir_tmp = tempfile.gettempdir()
     if use_grid:
-        dir_tmp = DIR_TMP_TEMPLATE
+        dir_tmp = os.environ['HOME'] + '/TMP/'
 
     # collect all tmp workdirs that contain the right cache signature
     pot_workdirs = [x[0]  # report directory name
@@ -1764,41 +1984,18 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         # device creation of a file _after_ execution of the job in workdir
         lst_commands.append('touch %s/%s${PBS_ARRAYID}' %
                             (results['workdir'], FILE_STATUS))
-        if not use_grid:
-            if dry:
-                if verbose:
-                    sys.stderr.write("\n\n".join(lst_commands))
-                return results
-            if timing:
-                _add_timing_cmds(lst_commands,
-                                 results['workdir'] +
-                                 '/timing${PBS_ARRAYID}.txt')
-            with subprocess.Popen("source activate %s && %s" %
-                                  (environment, " && ".join(lst_commands)),
-                                  shell=True,
-                                  stdout=subprocess.PIPE,
-                                  executable="bash") as call_x:
-                if (call_x.wait() != 0):
-                    rescmd = subprocess.check_output(
-                        'ls -la %s/*' % results['workdir'],
-                        shell=True).decode().split('\n')
-                    for line in rescmd:
-                        print(line)
-                    raise ValueError(("something went wrong with conda "
-                                      "activation"))
-        else:
-            results['qid'] = cluster_run(
-                lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
-                environment, ppn=ppn, wait=wait, dry=dry,
-                pmem=pmem, walltime=walltime,
-                file_qid=results['workdir']+'/cluster_job_id.txt',
-                timing=timing,
-                file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
-                array=array)
-            if dry:
-                return results
-            if wait is False:
-                return results
+        results['qid'] = cluster_run(
+            lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
+            environment, ppn=ppn, wait=wait, dry=dry,
+            pmem=pmem, walltime=walltime,
+            file_qid=results['workdir']+'/cluster_job_id.txt',
+            timing=timing,
+            file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
+            array=array, use_grid=use_grid)
+        if dry:
+            return results
+        if wait is False:
+            return results
 
     results['results'] = post_execute(results['workdir'],
                                       cache_arguments)
