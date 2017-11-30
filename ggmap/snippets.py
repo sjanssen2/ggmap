@@ -1043,7 +1043,6 @@ def cluster_run(cmds, jobname, result, environment=None,
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
         res = subprocess.check_output(["uname", "-n"]).decode('ascii').rstrip()
-        print("UNAME: " + res)
         if 'barnacle.ucsd.edu' in res:
             slurm = False
         elif '.rc.usf.edu' in res:
@@ -1093,7 +1092,7 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     if dry is True:
         if use_grid and slurm:
-            out.write('CONTENT OF %s:' % file_script)
+            out.write('CONTENT OF %s:\n' % file_script)
             out.write(slurm_script + "\n\n")
         out.write(cmd_list + "\n")
         return None
@@ -1163,7 +1162,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
                     raise ValueError("something went wrong!")
-                return subprocess.ppid()
+                return call_x.pid
 
 
 def detect_distant_groups_alpha(alpha, groupings,
