@@ -19,8 +19,7 @@ from matplotlib.ticker import FuncFormatter
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas,
-                            _add_timing_cmds)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
 
 
 plt.switch_backend('Agg')
@@ -790,6 +789,10 @@ def sepp(counts, chunksize=10000,
         return commands
 
     def post_execute(workdir, args):
+        use_grid = executor_args['use_grid'] \
+            if 'use_grid' in executor_args else True
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+
         files_placement = []
         for d in next(os.walk(workdir))[1]:
             if d.startswith('res_'):
@@ -830,8 +833,9 @@ def sepp(counts, chunksize=10000,
                 environment=environment,
                 jobname='guppy_rename',
                 result="%s/all_tree.nwk" % workdir,
-                ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
-                wait=True, slurm=SLURM)
+                ppn=1, pmem='100GB', walltime='1:00:00',
+                dry=dry,
+                wait=True, use_grid=use_grid)
             sys.stderr.write(' done.\n')
         else:
             sys.stderr.write("step 1+2) extracting newick tree: ")
@@ -844,8 +848,8 @@ def sepp(counts, chunksize=10000,
                         environment=environment,
                         jobname='extract',
                         result="%s/all_tree.nwk" % workdir,
-                        ppn=1, dry=False,
-                        wait=True, slurm=SLURM)
+                        ppn=1, dry=dry,
+                        wait=True, use_grid=False)
             sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 3) merge taxonomy: ")
@@ -1810,44 +1814,18 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         # device creation of a file _after_ execution of the job in workdir
         lst_commands.append('touch %s/%s${PBS_ARRAYID}' %
                             (results['workdir'], FILE_STATUS))
-        if not use_grid:
-            if timing:
-                lst_commands = _add_timing_cmds(
-                    lst_commands,
-                    results['workdir'] +
-                    '/timing${PBS_ARRAYID}.txt')
-            cmds = ("source activate %s; "
-                    "for PBS_ARRAYID in `seq 1 %i`; do %s; done") %\
-                   (environment, array, " && ".join(lst_commands))
-            if dry:
-                if verbose:
-                    sys.stderr.write(cmds)
-                return results
-            with subprocess.Popen(cmds,
-                                  shell=True,
-                                  stdout=subprocess.PIPE,
-                                  executable="bash") as call_x:
-                if (call_x.wait() != 0):
-                    rescmd = subprocess.check_output(
-                        'ls -la %s/*' % results['workdir'],
-                        shell=True).decode().split('\n')
-                    for line in rescmd:
-                        print(line)
-                    raise ValueError(("something went wrong with conda "
-                                      "activation"))
-        else:
-            results['qid'] = cluster_run(
-                lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
-                environment, ppn=ppn, wait=wait, dry=dry,
-                pmem=pmem, walltime=walltime,
-                file_qid=results['workdir']+'/cluster_job_id.txt',
-                timing=timing,
-                file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
-                array=array, slurm=SLURM)
-            if dry:
-                return results
-            if wait is False:
-                return results
+        results['qid'] = cluster_run(
+            lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
+            environment, ppn=ppn, wait=wait, dry=dry,
+            pmem=pmem, walltime=walltime,
+            file_qid=results['workdir']+'/cluster_job_id.txt',
+            timing=timing,
+            file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
+            array=array, slurm=SLURM, use_grid=use_grid)
+        if dry:
+            return results
+        if wait is False:
+            return results
 
     results['results'] = post_execute(results['workdir'],
                                       cache_arguments)
