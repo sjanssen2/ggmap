@@ -29,14 +29,6 @@ FILE_REFERENCE_TREE = None
 QIIME_ENV = 'qiime_env'
 QIIME2_ENV = 'qiime2-2017.10'
 
-# prefix dir for cluster runs. If run locally,
-# temporary directory is obtained by env variable.
-DIR_TMP_TEMPLATE = '/home/sjanssen/TMP/'
-
-# By default cluster runs are submitted to a Torque system. If you set SLURM to
-# True, a cluster jobs are submitted to Slurm system.
-SLURM = False
-
 
 def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
     """Use QIIME config to infer location of reference tree or pass given tree.
@@ -1764,7 +1756,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     # ready or are waited for
     dir_tmp = tempfile.gettempdir()
     if use_grid:
-        dir_tmp = DIR_TMP_TEMPLATE
+        dir_tmp = os.environ['HOME'] + '/TMP/'
 
     # collect all tmp workdirs that contain the right cache signature
     pot_workdirs = [x[0]  # report directory name
@@ -1821,7 +1813,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             file_qid=results['workdir']+'/cluster_job_id.txt',
             timing=timing,
             file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
-            array=array, slurm=SLURM, use_grid=use_grid)
+            array=array, use_grid=use_grid)
         if dry:
             return results
         if wait is False:
