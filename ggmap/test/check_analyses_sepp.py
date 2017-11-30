@@ -6,7 +6,7 @@ from pandas.util.testing import assert_frame_equal
 from skbio.util import get_data_path
 from skbio.tree import TreeNode
 
-from ggmap.analyses import sepp, QIIME2_ENV
+from ggmap.analyses import sepp
 
 
 class SeppTests(TestCase):
