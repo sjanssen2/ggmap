@@ -19,11 +19,15 @@ help:
 	@echo 'Use "make pep8" to validate PEP8 compliance.'
 	@echo 'Use "make html" to create html documentation with sphinx'
 	@echo 'Use "make all" to run all the targets listed above.'
+	@echo 'Use "make check" to run all tests not possible on Travis.'
 test:
 	$(TEST_COMMAND)
 pep8:
 	flake8 ggmap setup.py
 html:
 	make -C doc clean html
+check:
+	python ggmap/test/check_analyses_renew.py
+	python ggmap/test/check_analyses_sepp.py
 
 all: test pep8
