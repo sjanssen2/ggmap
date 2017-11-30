@@ -28,5 +28,6 @@ html:
 	make -C doc clean html
 check:
 	python ggmap/test/check_analyses_renew.py
+	python ggmap/test/check_analyses_sepp.py
 
 all: test pep8

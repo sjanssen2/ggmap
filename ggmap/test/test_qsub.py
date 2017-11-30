@@ -37,7 +37,8 @@ class QsubTests(TestCase):
         self.assertEqual(err.getvalue(), 'jobname already computed\n')
 
     def test_cluster_run_slurm(self):
-        exp = """#!/bin/bash
+        exp = """CONTENT OF /tmp/tmp7purx0c8.slurm.sh:
+#!/bin/bash
 
 #SBATCH --job-name=cr_jobname
 #SBATCH --output=/home/sjanssen/GreenGenes/ggmap/%A.log
@@ -54,21 +55,28 @@ srun uname -a
 srun find /tmp/ -name *.png
 
 
+sbatch /tmp/tmp7purx0c8.slurm.sh
 """
 
         def _cleanHome(text):
             """A helper function to remove absolute home dir information."""
             out = []
-            for line in text.split('\n'):
+            for i, line in enumerate(text.split('\n')):
+                # skip first two lines, because they are only a information
+                # for the user if run dry
+                if i == 0:
+                    continue
                 if line.startswith('#SBATCH --output='):
                     out.append('#SBATCH --output=%A.log')
+                elif line.startswith('sbatch'):
+                    out.append('sbatch\n')
                 else:
                     out.append(line)
             return "\n".join(out)
 
         out = StringIO()
         cluster_run("find /tmp/ -name *.png", "jobname",
-                    "/tmp/teststxxx", slurm=True, out=out)
+                    "/tmp/teststxxx", force_slurm=True, out=out)
         self.assertEqual(_cleanHome(out.getvalue()), _cleanHome(exp))
 
     def test_cluster_run_highmem(self):
