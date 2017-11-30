@@ -1034,6 +1034,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                                  environment)
         cmd_list += "source activate %s; " % environment
 
+    slurm = False
     if use_grid is False:
         cmd_list = ""
         cmd_list += 'for PBS_ARRAYID in `seq 1 %i`; do %s; done' % (
@@ -1041,29 +1042,11 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
-        # determine if Slurm or Torque
-        avail_qsub = False
-        with subprocess.Popen("which qsub",
-                              shell=True, stdout=subprocess.PIPE,
-                              executable="bash") as call_x:
-            avail_qsub = call_x.wait() == 0
-        if avail_qsub:
+        res = subprocess.check_output(["uname", "-n"]).decode('ascii').rstrip()
+        if 'barnacle.ucsd.edu' in res:
             slurm = False
-        else:
-            avail_srun = False
-            with subprocess.Popen("which srun",
-                                  shell=True, stdout=subprocess.PIPE,
-                                  executable="bash") as call_x:
-                avail_srun = call_x.wait() == 0
-            if avail_srun:
-                slurm = True
-            else:
-                msg = ("Neigther qsub nor srun are available. "
-                       "You don't seem to have access to a grid!")
-                if dry:
-                    err.write(msg)
-                else:
-                    raise ValueError(msg)
+        elif '.rc.usf.edu' in res:
+            slurm = True
 
         if slurm is False:
             highmem = ''
@@ -1099,7 +1082,7 @@ def cluster_run(cmds, jobname, result, environment=None,
             cmd_list += 'sbatch %s' % file_script
 
     if dry is True:
-        if slurm:
+        if use_grid and slurm:
             out.write('CONTENT OF %s:' % file_script)
             out.write(slurm_script + "\n\n")
         out.write(cmd_list + "\n")
