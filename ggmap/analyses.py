@@ -889,7 +889,6 @@ def sepp(counts, chunksize=10000,
                      post_execute,
                      ppn=ppn, pmem=pmem, walltime=walltime,
                      array=len(range(0, seqs.shape[0], chunksize)),
-                     environment=QIIME2_ENV,
                      **executor_args)
 
 
