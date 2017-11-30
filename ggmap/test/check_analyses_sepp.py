@@ -33,7 +33,7 @@ class SeppTests(TestCase):
             nocache=True,
             dirty=False,
             ppn=20,
-            environment=QIIME2_ENV)
+            use_grid=False)
 
         assert_frame_equal(obs_sepp['results']['taxonomy'].sort_index(),
                            self.exp_taxonomy.sort_index())
@@ -53,7 +53,7 @@ class SeppTests(TestCase):
             nocache=True,
             dirty=False,
             ppn=20,
-            environment=QIIME2_ENV)
+            use_grid=False)
 
         assert_frame_equal(obs_sepp['results']['taxonomy'].sort_index(),
                            self.exp_taxonomy.sort_index())
