@@ -1066,6 +1066,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                     raise ValueError(msg)
 
         if slurm is False:
+            highmem = ''
             if ppn * int(pmem[:-2]) > 250:
                 highmem = ':highmem'
             ge_cmd = (
