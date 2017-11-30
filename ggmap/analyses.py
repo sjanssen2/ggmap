@@ -751,6 +751,13 @@ def sepp(counts, chunksize=10000,
              '--output-dir %s/res_${PBS_ARRAYID}/') %
             (workdir, workdir))
 
+        # export the tree
+        commands.append(
+            ('qiime tools export '
+             '%s/res_${PBS_ARRAYID}/tree.qza '
+             '--output-dir %s/res_${PBS_ARRAYID}/') %
+            (workdir, workdir))
+
         # compute taxonomy from resulting tree and placements
         ref_taxonomy = ""
         if args['reference_taxonomy'] is not None:
@@ -831,17 +838,8 @@ def sepp(counts, chunksize=10000,
             sys.stderr.write(' done.\n')
         else:
             sys.stderr.write("step 1+2) extracting newick tree: ")
-            cluster_run([('qiime tools export '
-                          '%s/res_1/tree.qza '
-                          '--output-dir %s/res_1/') %
-                         (workdir, workdir),
-                         ('mv %s/res_1/tree.nwk %s/all_tree.nwk') %
-                         (workdir, workdir)],
-                        environment=environment,
-                        jobname='extract',
-                        result="%s/all_tree.nwk" % workdir,
-                        ppn=1, dry=dry,
-                        wait=True, use_grid=False)
+            shutil.move('%s/res_1/tree.nwk' % workdir,
+                        '%s/all_tree.nwk' % workdir)
             sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 3) merge taxonomy: ")
