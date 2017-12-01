@@ -1072,7 +1072,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                  "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
                 (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
                  array))
-            cmd_list = "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
+            cmd_list += "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
         else:
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname

@@ -342,8 +342,7 @@ def rarefaction_curves(counts,
 
 
 def rarefy(counts, rarefaction_depth,
-           ppn=1,
-           **executor_args):
+           ppn=1, **executor_args):
     """Rarefies a given OTU table to a given depth. This depth should be
        determined by looking at rarefaction curves.
 
@@ -366,24 +365,28 @@ def rarefy(counts, rarefaction_depth,
 
     def commands(workdir, ppn, args):
         commands = []
-        commands.append(('multiple_rarefactions.py '
-                         '-i %s '                    # input biom file
-                         '-m %i '                    # min rarefaction depth
-                         '-x %i '                    # max rarefaction depth
-                         '-s 1 '                     # depth steps
-                         '-o %s '                    # output directory
-                         '-n 1 '                  # number iterations per depth
-                         ) % (   # number parallel jobs
-            workdir+'/input.biom',
-            args['rarefaction_depth'],
-            args['rarefaction_depth'],
-            workdir+'/rarefactions'))
+
+        commands.append((
+            'qiime tools import '
+            '--input-path %s/input.biom '
+            '--output-path %s/counts '
+            '--type "FeatureTable[Frequency]"') % (workdir, workdir))
+        commands.append((
+            'qiime feature-table rarefy '
+            '--i-table %s/counts.qza '
+            '--p-sampling-depth %i '
+            '--o-rarefied-table %s/rare ') % (
+            workdir, args['rarefaction_depth'], workdir))
+        commands.append(
+            ('qiime tools export '
+             '%s/rare.qza '
+             '--output-dir %s') %
+            (workdir, workdir))
 
         return commands
 
     def post_execute(workdir, args):
-        return biom2pandas(workdir+'/rarefactions/rarefaction_%i_0.biom' %
-                           args['rarefaction_depth'])
+        return biom2pandas(workdir+'/feature-table.biom')
 
     return _executor('rarefy',
                      {'counts': counts,
@@ -392,6 +395,7 @@ def rarefy(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      ppn=ppn,
+                     environment=QIIME2_ENV,
                      **executor_args)
 
 
@@ -849,7 +853,10 @@ def sepp(counts, chunksize=10000,
                file_taxonomy.endswith('.tsv'):
                 taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
                                   sep="\t", index_col=0))
-        taxonomy = pd.concat(taxonomies)
+        if len(taxonomies) > 0:
+            taxonomy = pd.concat(taxonomies)
+        else:
+            taxonomy = pd.DataFrame()
         sys.stderr.write(' done.\n')
 
         f = open("%s/all_tree.nwk" % workdir, 'r')
