@@ -7,7 +7,8 @@ from scipy.stats import pearsonr
 
 from ggmap.analyses import (beta_diversity,
                             alpha_diversity,
-                            biom2pandas, rarefy)
+                            biom2pandas, rarefy, rarefaction_curves)
+from ggmap.imgdiff import compare_images
 
 
 class BetaTests(TestCase):
@@ -106,8 +107,35 @@ class RarefyTests(TestCase):
         obs_rarefy = rarefy(
             biom2pandas(self.file_count),
             rarefaction_depth=self.raredepth,
-            dry=False, use_grid=False, nocache=True, wait=True, dirty=True)
+            dry=False, use_grid=False, nocache=True, wait=True)
         self.assertTrue(obs_rarefy['results'].sum().unique() == [200])
+
+
+class RareCurvesTests(TestCase):
+    def setUp(self):
+        self.counts = biom2pandas(get_data_path(
+            'analyses/rarefaction_curves/qiita10315_150nt_closedref.biom'))
+        self.filename_rare = get_data_path(
+            'analyses/rarefaction_curves/exp_rare.png')
+
+    def test_rarefaction_curves(self):
+        obs_rarefaction_curves = rarefaction_curves(
+            self.counts.loc[
+                self.counts.sum(axis=1).sort_values(
+                    ascending=False).iloc[:50].index,
+                :].iloc[:, :10],
+            dry=False, use_grid=False, nocache=True, wait=True, dirty=True)
+
+        filename_obs = 'obs_rare.png'
+        obs_rarefaction_curves['results'].savefig(filename_obs)
+
+        filename_diff = '/tmp/diff_rare.png'
+        same, pixdiff = compare_images(filename_obs, self.filename_rare,
+                                       threshold=0,
+                                       file_image_diff=filename_diff,
+                                       name='rarecurves')
+        self.assertTrue(same)
+        self.assertTrue(pixdiff < 10)
 
 
 if __name__ == '__main__':
