@@ -122,39 +122,24 @@ def _parse_alpha_div_collated(filename, metric=None):
         If the file cannot be read.
     """
     try:
-        # read qiime's alpha div collated file. It is tab separated and nan
-        # values come as 'n/a'
-        x = pd.read_csv(filename, sep='\t', na_values=['n/a'])
-
-        # make a two level index
-        x.set_index(keys=['sequences per sample', 'iteration'], inplace=True)
-
-        # remove the column that reports the single rarefaction files,
-        # because it would otherwise become another sample
-        del x['Unnamed: 0']
-
-        # average over all X iterations
-        x = x.groupby(['sequences per sample']).mean()
-
-        # change pandas format of data for easy plotting
-        x = x.stack().to_frame().reset_index()
-
-        # guess metric name from filename
-        if metric is None:
-            metric = filename.split('/')[-1].split('.')[0]
-
-        # give columns more appropriate names
-        x = x.rename(columns={'sequences per sample': 'rarefaction depth',
-                              'level_1': 'sample_name',
-                              0: metric})
-
-        # if there is only one (rarefaction) iteration, stacking results in a
-        # slightly different DataFrame, which we are going to normalize here.
-        if 'level_0' in x.columns:
-            x['level_0'] = None
-            x = x.rename(columns={'level_0': 'rarefaction depth'})
-
-        return x
+        alphas_q2 = pd.read_csv(filename, index_col=0)
+        map_cols = []
+        for colname in alphas_q2.columns:
+            if colname.startswith('depth'):
+                _, depth, iteration = colname.split('-')
+                map_cols.append({'col_name': colname,
+                                 'depth': depth.split('_')[0],
+                                 'iteration': iteration})
+        alphas = []
+        for depth, g in pd.DataFrame(map_cols).groupby('depth'):
+            alpha_onedepth = alphas_q2.loc[:, g['col_name']].mean(axis=1)\
+                .to_frame().reset_index().rename(
+                    columns={'sample-id': 'sample_name', 0: metric})
+            alpha_onedepth['rarefaction depth'] = depth
+            alphas.append(alpha_onedepth)
+        return pd.concat(alphas).loc[:, ['rarefaction depth',
+                                         'sample_name',
+                                         metric]]
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
 
@@ -210,7 +195,7 @@ def _plot_rarefaction_curves(data):
     ax.set_xlim(0, lostHalf * 1.1)
     # p = ax.set_xscale("log", nonposx='clip')
 
-    for i, metric in enumerate(data['metrics'].keys()):
+    for i, metric in enumerate(sorted(data['metrics'].keys())):
         for sample, g in data['metrics'][metric].groupby('sample_name'):
             axes[i+2].errorbar(g['rarefaction depth'], g[g.columns[-1]])
         axes[i+2].set_ylabel(g.columns[-1])
@@ -325,7 +310,8 @@ def rarefaction_curves(counts,
                    'readcounts': sums}
         for metric in args['metrics']:
             results['metrics'][metric] = _parse_alpha_div_collated(
-                workdir+'/rare/alpha_div_collated/'+metric+'.txt')
+                "%s/res_%s/%s.csv" %
+                (workdir, metric, _update_metric_alpha(metric)), metric)
 
         return results
 
@@ -348,6 +334,7 @@ def rarefaction_curves(counts,
                      post_execute,
                      post_cache,
                      environment=QIIME2_ENV,
+                     ppn=1,
                      **executor_args)
 
 
