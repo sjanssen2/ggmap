@@ -1,6 +1,8 @@
 from unittest import TestCase, main
 import shutil
 import tempfile
+import pandas as pd
+from pandas.util.testing import assert_frame_equal
 
 from skbio.util import get_data_path
 
@@ -10,26 +12,23 @@ from ggmap.analyses import (_parse_alpha_div_collated, _get_ref_phylogeny,
 
 class AnalysesHelperTests(TestCase):
     def setUp(self):
-        self.file_collated = get_data_path('collated_PD_whole_tree.txt')
+        self.workdir = get_data_path(
+            'analyses/rarefaction_curves/rare_workdir')
+        self.samplenames = [
+            '10315.APIGRA.112', '10315.F.C', '10315.Apalw18',
+            '10315.APIGRA.103', '10315.APIGRA.97', '10315.APF116',
+            '10315.APX.37', '10315.APX91', '10315.APX18', '10315.APX102']
+        self.exp_metrics = ['observed_otus', 'PD_whole_tree', 'shannon']
 
     def test__parse_alpha_div_collated(self):
-        exp = _parse_alpha_div_collated(self.file_collated)
-        self.assertEqual(exp.shape, (22071, 3))
-        self.assertCountEqual(list(exp.columns),
-                              ['rarefaction depth',
-                               'sample_name',
-                               'collated_PD_whole_tree'])
-
-        # check that metric name can be passed
-        exp = _parse_alpha_div_collated(self.file_collated,
-                                        metric='PD_whole_tree')
-        self.assertCountEqual(list(exp.columns),
-                              ['rarefaction depth',
-                               'sample_name',
-                               'PD_whole_tree'])
-
-        with self.assertRaisesRegex(IOError, 'Cannot read file'):
-            _parse_alpha_div_collated('/dev/null/test')
+        obs = _parse_alpha_div_collated(self.workdir, self.samplenames)
+        for metric in self.exp_metrics:
+            exp = pd.read_csv(
+                get_data_path(
+                    'analyses/rarefaction_curves/exp_%s.tsv' % metric),
+                sep="\t", index_col=0)
+            exp.index = list(range(exp.shape[0]))
+            assert_frame_equal(obs[metric], exp)
 
     def test__get_ref_phylogeny(self):
         self.assertEqual(_get_ref_phylogeny('testfile'), 'testfile')
