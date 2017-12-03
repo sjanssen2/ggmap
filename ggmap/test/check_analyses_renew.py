@@ -124,7 +124,8 @@ class RareCurvesTests(TestCase):
                 self.counts.sum(axis=1).sort_values(
                     ascending=False).iloc[:50].index,
                 :].iloc[:, :10],
-            dry=False, use_grid=False, nocache=True, wait=True, dirty=True)
+            dry=False, use_grid=False, nocache=True, wait=True, dirty=True,
+            num_iterations=2, num_steps=5)
 
         filename_obs = 'obs_rare.png'
         obs_rarefaction_curves['results'].savefig(filename_obs)
