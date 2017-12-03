@@ -917,6 +917,7 @@ def _add_timing_cmds(commands, file_timing):
         # directory
         if cmd.startswith('cd ') or\
            cmd.startswith('module load ') or\
+           cmd.startswith('var_') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         else:
