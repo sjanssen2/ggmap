@@ -99,49 +99,53 @@ def _getremaining(counts_sums):
     return pd.Series(data=d, name='remaining').to_frame()
 
 
-def _parse_alpha_div_collated(filename, metric=None):
+def _parse_alpha_div_collated(workdir, samplenames):
     """Parse QIIME's alpha_div_collated file for plotting with matplotlib.
 
     Parameters
     ----------
-    filename : str
-        Filename of the alpha_div_collated file to be parsed. It is the result
-        of QIIME's collate_alpha.py script.
-    metric : str
-        Provide the alpha diversity metric name, used to create the input file.
-        Default is None, i.e. the metric name is guessed from the filename.
+    workdir : str
+        Directory path to workdir which contains all indidually computed alpha
+        diversities per rarefaction depth and iteration, i.e. the product of
+        rarefaction_curves() execution.
+    samplenames : [str]
+        The expected sample names. Not necessarily all samples have sufficient
+        counts to be covered by all depth, therefore we might otherwise mis
+        samples.
 
     Returns
     -------
     Pandas.DataFrame with the averaged (over all iterations) alpha diversities
     per rarefaction depth per sample.
-
-    Raises
-    ------
-    IOError
-        If the file cannot be read.
     """
-    try:
-        alphas_q2 = pd.read_csv(filename, index_col=0)
-        map_cols = []
-        for colname in alphas_q2.columns:
-            if colname.startswith('depth'):
-                _, depth, iteration = colname.split('-')
-                map_cols.append({'col_name': colname,
-                                 'depth': depth.split('_')[0],
-                                 'iteration': iteration})
-        alphas = []
-        for depth, g in pd.DataFrame(map_cols).groupby('depth'):
-            alpha_onedepth = alphas_q2.loc[:, g['col_name']].mean(axis=1)\
-                .to_frame().reset_index().rename(
-                    columns={'sample-id': 'sample_name', 0: metric})
-            alpha_onedepth['rarefaction depth'] = depth
-            alphas.append(alpha_onedepth)
-        return pd.concat(alphas).loc[:, ['rarefaction depth',
-                                         'sample_name',
-                                         metric]]
-    except IOError:
-        raise IOError('Cannot read file "%s"' % filename)
+    res = []
+
+    for dir_alpha in next(os.walk(workdir))[1]:
+        parts = dir_alpha.split('_')
+        depth, iteration, metric = parts[1], parts[2], '_'.join(parts[3:])
+        alphas = pd.read_csv(
+            '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
+            sep="\t", index_col=0)
+        alphas = alphas.loc[samplenames, :].reset_index()
+        alphas.columns = ['sample_name', 'value']
+        alphas['iteration'] = iteration
+        alphas['rarefaction depth'] = depth
+        alphas['metric'] = metric
+        res.append(alphas)
+
+    pd_res = pd.concat(res)
+    final = dict()
+    for metric in pd_res['metric'].unique():
+        final[metric] = pd_res.groupby(
+            ['sample_name', 'rarefaction depth'])\
+            .mean()\
+            .reset_index()\
+            .rename(columns={'value': metric})\
+            .loc[:, ['rarefaction depth', 'sample_name', metric]]
+        final[metric]['rarefaction depth'] = \
+            final[metric]['rarefaction depth'].astype(int)
+
+    return final
 
 
 def _plot_rarefaction_curves(data):
@@ -252,10 +256,18 @@ def rarefaction_curves(counts,
                     node.length = 0
             tree_ref.write(workdir+'/reference.tree')
 
-    def commands(workdir, ppn, args):
+        # prepare execution list
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
+        f = open("%s/commands.txt" % workdir, "w")
+        for depth in np.linspace(max(1000, args['counts'].sum().min()),
+                                 max_rare_depth,
+                                 args['num_steps'], endpoint=True):
+            for iteration in range(args['num_iterations']):
+                f.write("%i\t%s\n" % (
+                    depth, iteration))
+        f.close()
 
         commands = []
         commands.append(
@@ -263,41 +275,59 @@ def rarefaction_curves(counts,
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
              '--source-format BIOMV210Format '
-             '--output-path %s ') %
+             '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s '
+             '--type "Phylogeny[Rooted]"') %
+            (workdir+'/reference.tree',
+             workdir+'/reference_tree.qza'))
+
+        # use_grid = executor_args['use_grid'] \
+        #     if 'use_grid' in executor_args else True
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+        cluster_run(commands, environment=QIIME2_ENV,
+                    jobname='prep_rarecurves',
+                    result="%s/reference_tree.qza" % workdir,
+                    ppn=1, pmem='8GB', walltime='1:00:00',
+                    dry=dry,
+                    wait=True, use_grid=False)
+
+    def commands(workdir, ppn, args):
+        commands = [
+            ('var_depth=`head -n ${PBS_ARRAYID} %s/commands.txt | '
+             'tail -n 1 | cut -f 1`') % workdir,
+            ('var_iteration=`head -n ${PBS_ARRAYID} %s/commands.txt | '
+             'tail -n 1 | cut -f 2`') % workdir]
+        commands.append((
+            'qiime feature-table rarefy '
+            '--i-table %s/input.qza '
+            '--p-sampling-depth ${var_depth} '
+            '--o-rarefied-table %s/rare_${var_depth}_${var_iteration} ') % (
+            workdir, workdir))
         for metric in args['metrics']:
-            phylogeny = ""
-            if 'PD_whole_tree' == metric:
-                commands.append(
-                    ('qiime tools import '
-                     '--input-path %s '
-                     '--output-path %s '
-                     '--type "Phylogeny[Rooted]"') %
-                    (workdir+'/reference.tree',
-                     workdir+'/reference_tree.qza'))
-                phylogeny = ' --i-phylogeny %s/reference_tree.qza ' % workdir
+            plugin = 'alpha'
+            treeinput = ''
+            if metric == 'PD_whole_tree':
+                plugin = 'alpha-phylogenetic'
+                treeinput = '--i-phylogeny %s' % (
+                    workdir+'/reference_tree.qza')
             commands.append(
-                ('qiime diversity alpha-rarefaction '
-                 '--i-table %s/input.qza '
-                 '--p-metrics %s '
-                 '--p-min-depth %i '
-                 '--p-max-depth %i '
-                 '--p-steps %i '
-                 '--p-iterations %i '
-                 '--o-visualization %s/rare_%s'
-                 '%s') %
-                (workdir,
+                ('qiime diversity %s '
+                 '--i-table %s/rare_${var_depth}_${var_iteration}.qza '
+                 '--p-metric %s '
+                 ' %s '
+                 '--o-alpha-diversity '
+                 '%s/alpha_${var_depth}_${var_iteration}_%s') %
+                (plugin, workdir,
                  _update_metric_alpha(metric),
-                 max(1000, args['counts'].sum().min()),
-                 max_rare_depth,
-                 args['num_steps'],
-                 args['num_iterations'],
-                 workdir, metric,
-                 phylogeny))
+                 treeinput, workdir, metric))
             commands.append(
                 ('qiime tools export '
-                 '%s/rare_%s.qzv '
-                 '--output-dir %s/res_%s') %
+                 '%s/alpha_${var_depth}_${var_iteration}_%s.qza '
+                 '--output-dir %s/alpharaw_${var_depth}_${var_iteration}_%s') %
                 (workdir, metric,
                  workdir, metric))
 
@@ -305,14 +335,10 @@ def rarefaction_curves(counts,
 
     def post_execute(workdir, args):
         sums = args['counts'].sum()
-        results = {'metrics': dict(),
+        results = {'metrics':
+                   _parse_alpha_div_collated(workdir, args['counts'].columns),
                    'remaining': _getremaining(sums),
                    'readcounts': sums}
-        for metric in args['metrics']:
-            results['metrics'][metric] = _parse_alpha_div_collated(
-                "%s/res_%s/%s.csv" %
-                (workdir, metric, _update_metric_alpha(metric)), metric)
-
         return results
 
     def post_cache(cache_results):
@@ -335,6 +361,7 @@ def rarefaction_curves(counts,
                      post_cache,
                      environment=QIIME2_ENV,
                      ppn=1,
+                     array=num_steps*num_iterations,
                      **executor_args)
 
 
