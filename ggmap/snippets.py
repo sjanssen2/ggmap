@@ -1068,11 +1068,16 @@ def cluster_run(cmds, jobname, result, environment=None,
             highmem = ''
             if ppn * int(pmem[:-2]) > 250:
                 highmem = ':highmem'
+            files_loc = ''
+            if file_qid is not None:
+                files_loc = ' -o %s/ -e %s/ ' % tuple(
+                    ["/".join(file_qid.split('/')[:-1])] * 2)
+
             ge_cmd = (
                 ("%s/qsub -d '%s' -V -l "
-                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
+                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i %s") %
                 (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
-                 array))
+                 array, files_loc))
             cmd_list += "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
         else:
             slurm_script = "#!/bin/bash\n\n"
