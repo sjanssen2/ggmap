@@ -1970,10 +1970,14 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         dir_tmp = os.environ['HOME'] + '/TMP/'
 
     # collect all tmp workdirs that contain the right cache signature
-    pot_workdirs = [x[0]  # report directory name
-                    for x in os.walk(dir_tmp)
-                    # shares same cache signature:
-                    if results['file_cache'].split('/')[-1] in x[2]]
+    pot_workdirs = []
+    for _dir in next(os.walk(dir_tmp))[1]:
+        # a potential working directory needs to have the matching job name
+        if _dir.startswith('ana_%s_' % results['jobname']):
+            potwd = os.path.join(dir_tmp, _dir)
+            # and a matching cache file signature
+            if results['file_cache'].split('/')[-1] in next(os.walk(potwd))[2]:
+                pot_workdirs.append(potwd)
     finished_workdirs = []
     for wd in pot_workdirs:
         all_finished = True
