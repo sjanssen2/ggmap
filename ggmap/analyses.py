@@ -457,7 +457,7 @@ def alpha_diversity(counts, rarefaction_depth,
 
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
         os.mkdir(workdir+'/rarefaction/')
         os.mkdir(workdir+'/alpha/')
         os.mkdir(workdir+'/alpha_plain/')
@@ -607,7 +607,7 @@ def beta_diversity(counts,
 
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
         os.mkdir(workdir+'/beta_qza')
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
