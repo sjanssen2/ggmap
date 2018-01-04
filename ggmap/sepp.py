@@ -733,7 +733,7 @@ def binning(value, getorder=False):
 
 
 def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
-                _type='single', hue=None, logy_histo=True):
+                _type='single', hue=None, logy_histo=True, palette=None):
     YLIM = (0, 0.45)
     filtered_distances = distances.dropna()
 
@@ -767,7 +767,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
                         y='distance_'+distance_type,
                         # hue='only_repr._sequences', hue_order=[True, False],
                         hue=value_hue, hue_order=value_hue_order,
-                        ax=ax)
+                        ax=ax, palette=palette)
     elif _type == 'mutations':
         g = sns.pointplot(
             data=filtered_distances.groupby([
@@ -807,7 +807,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
                     x='uniqueness', order=binning(None, getorder=True),
                     y='num',
                     hue=value_hue, hue_order=value_hue_order,
-                    ax=ax, color=color)
+                    ax=ax, color=color, palette=palette)
     g.set_xlabel('')
     g.set_ylabel('# fragments (log-scale)')
     if logy_histo:
