@@ -119,7 +119,6 @@ def _parse_alpha_div_collated(workdir, samplenames):
     per rarefaction depth per sample.
     """
     res = []
-
     for dir_alpha in next(os.walk(workdir))[1]:
         parts = dir_alpha.split('_')
         depth, iteration, metric = parts[1], parts[2], '_'.join(parts[3:])
@@ -132,11 +131,11 @@ def _parse_alpha_div_collated(workdir, samplenames):
         alphas['rarefaction depth'] = depth
         alphas['metric'] = metric
         res.append(alphas)
-
     pd_res = pd.concat(res)
+
     final = dict()
     for metric in pd_res['metric'].unique():
-        final[metric] = pd_res.groupby(
+        final[metric] = pd_res[pd_res['metric'] == metric].groupby(
             ['sample_name', 'rarefaction depth'])\
             .mean()\
             .reset_index()\
@@ -1392,7 +1391,8 @@ def sortmerna(sequences,
                          '-o %s '
                          '--sortmerna_e_value 1 '
                          '-s 0.97 '
-                         '--threads %i ') % (
+                         '--threads %i '
+                         '--suppress_new_clusters ') % (
             workdir + '/sequences.mfa',
             args['reference'],
             precompileddb,
@@ -1428,7 +1428,7 @@ def sortmerna(sequences,
                          reference)
 
     if sortmerna_db is not None:
-        if not os.path.exists(sortmerna_db+'.stasts'):
+        if not os.path.exists(sortmerna_db+'.stats'):
             sys.stderr.write('Could not find SortMeRNA precompiled DB. '
                              'I continue by creating a new DB.')
     # core dump with 8GB with 10 nodes, 4h
@@ -1810,7 +1810,8 @@ def compare_categories(beta_dm, metadata,
                     workdir, name, field, name)
                 if os.path.exists(filename_result):
                     merged[name].append(method(filename_result, field))
-            merged[name] = pd.concat(merged[name])
+            if len(merged[name]) > 0:
+                merged[name] = pd.concat(merged[name])
         return merged
 
     if type(metadata) == pd.core.series.Series:
