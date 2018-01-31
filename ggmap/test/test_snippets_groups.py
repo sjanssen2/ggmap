@@ -555,7 +555,7 @@ class SnippetTests(TestCase):
                                _type='alpha', draw_edgelabel=True, ax=ax)
             file_plotname = 'alpha_network_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy)
+            plt.savefig(file_dummy, bbox_inches='tight')
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_network_%s.png' %
@@ -576,7 +576,7 @@ class SnippetTests(TestCase):
                                _type='beta', draw_edgelabel=True, ax=ax)
             file_plotname = 'beta_network_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy)
+            plt.savefig(file_dummy, bbox_inches='tight')
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Beta/beta_network_%s.png' %
@@ -605,7 +605,7 @@ class SnippetTests(TestCase):
             plotGroup_histograms(alpha, meta, ax=ax)
             file_plotname = 'alpha_histogram_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy)
+            plt.savefig(file_dummy, bbox_inches='tight')
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_histogram_%s.png' %
@@ -631,7 +631,7 @@ class SnippetTests(TestCase):
             plotGroup_permanovas(beta, meta, **(self.exp_beta[field]), ax=ax)
             file_plotname = 'beta_permanova_%s.png' % field
             file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy)
+            plt.savefig(file_dummy, bbox_inches='tight')
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Beta/beta_permanova_%s.png' %
@@ -693,7 +693,7 @@ class SnippetTests(TestCase):
         plotGroup_permanovas(beta, meta, **(network))
         file_plotname = 'beta_permanova_%s.png' % field
         file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-        plt.savefig(file_dummy)
+        plt.savefig(file_dummy, bbox_inches='tight')
         plt.close()
         res = compare_images(
             get_data_path('detectGroups/beta_permanova_onegroup.png'),

@@ -128,7 +128,8 @@ class RareCurvesTests(TestCase):
             num_iterations=2, num_steps=5)
 
         filename_obs = 'obs_rare.png'
-        obs_rarefaction_curves['results'].savefig(filename_obs)
+        obs_rarefaction_curves['results'].savefig(filename_obs,
+                                                  bbox_inches='tight')
 
         filename_diff = '/tmp/diff_rare.png'
         same, pixdiff = compare_images(filename_obs, self.filename_rare,

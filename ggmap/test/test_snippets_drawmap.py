@@ -36,7 +36,7 @@ class ReadWriteTests(TestCase):
         """ Helper function to compare drawMap images """
         file_plotname = 'basemap.%s.png' % name
         file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-        plt.savefig(file_dummy)
+        plt.savefig(file_dummy, bbox_inches='tight')
         res = compare_images(get_data_path('drawMap/'+file_plotname),
                              file_dummy,
                              file_image_diff='./diff.'+file_plotname)
