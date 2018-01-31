@@ -681,6 +681,7 @@ def plotTaxonomy(file_otutable,
             colors[taxon] = availColors[len(colors) % len(availColors)]
 
     # plot the actual thing
+    sns.set()
     if (ax is not None):
         if len(grps0) > 1:
             raise Exception('You cannot provide an ax if number of '
