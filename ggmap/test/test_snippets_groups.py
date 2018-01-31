@@ -565,7 +565,7 @@ class SnippetTests(TestCase):
             if res[0] is True:
                 remove(file_dummy)
             else:
-                print(res)
+                print(field, res)
             self.assertTrue(res[0])
 
     def test_plotDistant_groups_beta(self):
@@ -587,7 +587,7 @@ class SnippetTests(TestCase):
             if res[0] is True:
                 remove(file_dummy)
             else:
-                print(res)
+                print(field, res)
             self.assertTrue(res[0])
 
     def test_plotGroup_histograms(self):
