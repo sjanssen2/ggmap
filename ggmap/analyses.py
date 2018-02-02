@@ -99,64 +99,52 @@ def _getremaining(counts_sums):
     return pd.Series(data=d, name='remaining').to_frame()
 
 
-def _parse_alpha_div_collated(filename, metric=None):
+def _parse_alpha_div_collated(workdir, samplenames):
     """Parse QIIME's alpha_div_collated file for plotting with matplotlib.
 
     Parameters
     ----------
-    filename : str
-        Filename of the alpha_div_collated file to be parsed. It is the result
-        of QIIME's collate_alpha.py script.
-    metric : str
-        Provide the alpha diversity metric name, used to create the input file.
-        Default is None, i.e. the metric name is guessed from the filename.
+    workdir : str
+        Directory path to workdir which contains all indidually computed alpha
+        diversities per rarefaction depth and iteration, i.e. the product of
+        rarefaction_curves() execution.
+    samplenames : [str]
+        The expected sample names. Not necessarily all samples have sufficient
+        counts to be covered by all depth, therefore we might otherwise mis
+        samples.
 
     Returns
     -------
     Pandas.DataFrame with the averaged (over all iterations) alpha diversities
     per rarefaction depth per sample.
-
-    Raises
-    ------
-    IOError
-        If the file cannot be read.
     """
-    try:
-        # read qiime's alpha div collated file. It is tab separated and nan
-        # values come as 'n/a'
-        x = pd.read_csv(filename, sep='\t', na_values=['n/a'])
+    res = []
+    for dir_alpha in next(os.walk(workdir))[1]:
+        parts = dir_alpha.split('_')
+        depth, iteration, metric = parts[1], parts[2], '_'.join(parts[3:])
+        alphas = pd.read_csv(
+            '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
+            sep="\t", index_col=0)
+        alphas = alphas.reindex(index=samplenames).reset_index()
+        alphas.columns = ['sample_name', 'value']
+        alphas['iteration'] = iteration
+        alphas['rarefaction depth'] = depth
+        alphas['metric'] = metric
+        res.append(alphas)
+    pd_res = pd.concat(res)
 
-        # make a two level index
-        x.set_index(keys=['sequences per sample', 'iteration'], inplace=True)
+    final = dict()
+    for metric in pd_res['metric'].unique():
+        final[metric] = pd_res[pd_res['metric'] == metric].groupby(
+            ['sample_name', 'rarefaction depth'])\
+            .mean()\
+            .reset_index()\
+            .rename(columns={'value': metric})\
+            .loc[:, ['rarefaction depth', 'sample_name', metric]]
+        final[metric]['rarefaction depth'] = \
+            final[metric]['rarefaction depth'].astype(int)
 
-        # remove the column that reports the single rarefaction files,
-        # because it would otherwise become another sample
-        del x['Unnamed: 0']
-
-        # average over all X iterations
-        x = x.groupby(['sequences per sample']).mean()
-
-        # change pandas format of data for easy plotting
-        x = x.stack().to_frame().reset_index()
-
-        # guess metric name from filename
-        if metric is None:
-            metric = filename.split('/')[-1].split('.')[0]
-
-        # give columns more appropriate names
-        x = x.rename(columns={'sequences per sample': 'rarefaction depth',
-                              'level_1': 'sample_name',
-                              0: metric})
-
-        # if there is only one (rarefaction) iteration, stacking results in a
-        # slightly different DataFrame, which we are going to normalize here.
-        if 'level_0' in x.columns:
-            x['level_0'] = None
-            x = x.rename(columns={'level_0': 'rarefaction depth'})
-
-        return x
-    except IOError:
-        raise IOError('Cannot read file "%s"' % filename)
+    return final
 
 
 def _plot_rarefaction_curves(data):
@@ -210,7 +198,7 @@ def _plot_rarefaction_curves(data):
     ax.set_xlim(0, lostHalf * 1.1)
     # p = ax.set_xscale("log", nonposx='clip')
 
-    for i, metric in enumerate(data['metrics'].keys()):
+    for i, metric in enumerate(sorted(data['metrics'].keys())):
         for sample, g in data['metrics'][metric].groupby('sample_name'):
             axes[i+2].errorbar(g['rarefaction depth'], g[g.columns[-1]])
         axes[i+2].set_ylabel(g.columns[-1])
@@ -257,67 +245,99 @@ def rarefaction_curves(counts,
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'])
+        # copy reference tree and correct missing branch lengths
+        if len(set(args['metrics']) &
+               set(['PD_whole_tree'])) > 0:
+            tree_ref = TreeNode.read(
+                _get_ref_phylogeny(args['reference_tree']))
+            for node in tree_ref.preorder():
+                if node.length is None:
+                    node.length = 0
+            tree_ref.write(workdir+'/reference.tree')
 
-    def commands(workdir, ppn, args):
+        # prepare execution list
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
+        f = open("%s/commands.txt" % workdir, "w")
+        for depth in np.linspace(max(1000, args['counts'].sum().min()),
+                                 max_rare_depth,
+                                 args['num_steps'], endpoint=True):
+            for iteration in range(args['num_iterations']):
+                f.write("%i\t%s\n" % (
+                    depth, iteration))
+        f.close()
+
         commands = []
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             '--source-format BIOMV210Format '
+             '--output-path %s') %
+            (workdir+'/input.biom', workdir+'/input'))
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s '
+             '--type "Phylogeny[Rooted]"') %
+            (workdir+'/reference.tree',
+             workdir+'/reference_tree.qza'))
 
-        # Alpha rarefaction command
-        commands.append(('parallel_multiple_rarefactions.py '
-                         '-T '
-                         '-i %s '      # Input filepath, (the otu table)
-                         '-m %i '      # Min seqs/sample
-                         '-x %i '      # Max seqs/sample (inclusive)
-                         '-s %i '      # Levels: min, min+step... for level
-                                       # <= max
-                         '-o %s '      # Write output rarefied otu tables here
-                                       # makes dir if it doesn’t exist
-                         '-n %i '      # number iterations per depth
-                         '--jobs_to_start %i') % (  # Number of jobs to start
-            workdir+'/input.biom',
-            max(1000, args['counts'].sum().min()),
-            max_rare_depth,
-            (max_rare_depth - args['counts'].sum().min())/args['num_steps'],
-            workdir+'/rare/rarefaction/',
-            num_iterations,
-            ppn))
+        # use_grid = executor_args['use_grid'] \
+        #     if 'use_grid' in executor_args else True
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+        cluster_run(commands, environment=QIIME2_ENV,
+                    jobname='prep_rarecurves',
+                    result="%s/reference_tree.qza" % workdir,
+                    ppn=1, pmem='8GB', walltime='1:00:00',
+                    dry=dry,
+                    wait=True, use_grid=False)
 
-        # Alpha diversity on rarefied OTU tables command
-        commands.append(('parallel_alpha_diversity.py '
-                         '-T '
-                         '-i %s '         # Input path, must be directory
-                         '-o %s '         # Output path, must be directory
-                         '--metrics %s '  # Metrics to use, comma delimited
-                         '-t %s '         # Path to newick tree file, required
-                                          # for phylogenetic metrics
-                         '--jobs_to_start %i') % (  # Number of jobs to start
-            workdir+'/rare/rarefaction/',
-            workdir+'/rare/alpha_div/',
-            ",".join(args['metrics']),
-            _get_ref_phylogeny(reference_tree),
-            ppn))
-
-        # Collate alpha command
-        commands.append(('collate_alpha.py '
-                         '-i %s '      # Input path (a directory)
-                         '-o %s') % (  # Output path (a directory).
-                                       # will be created if needed
-            workdir+'/rare/alpha_div/',
-            workdir+'/rare/alpha_div_collated/'))
+    def commands(workdir, ppn, args):
+        commands = [
+            ('var_depth=`head -n ${PBS_ARRAYID} %s/commands.txt | '
+             'tail -n 1 | cut -f 1`') % workdir,
+            ('var_iteration=`head -n ${PBS_ARRAYID} %s/commands.txt | '
+             'tail -n 1 | cut -f 2`') % workdir]
+        commands.append((
+            'qiime feature-table rarefy '
+            '--i-table %s/input.qza '
+            '--p-sampling-depth ${var_depth} '
+            '--o-rarefied-table %s/rare_${var_depth}_${var_iteration} ') % (
+            workdir, workdir))
+        for metric in args['metrics']:
+            plugin = 'alpha'
+            treeinput = ''
+            if metric == 'PD_whole_tree':
+                plugin = 'alpha-phylogenetic'
+                treeinput = '--i-phylogeny %s' % (
+                    workdir+'/reference_tree.qza')
+            commands.append(
+                ('qiime diversity %s '
+                 '--i-table %s/rare_${var_depth}_${var_iteration}.qza '
+                 '--p-metric %s '
+                 ' %s '
+                 '--o-alpha-diversity '
+                 '%s/alpha_${var_depth}_${var_iteration}_%s') %
+                (plugin, workdir,
+                 _update_metric_alpha(metric),
+                 treeinput, workdir, metric))
+            commands.append(
+                ('qiime tools export '
+                 '%s/alpha_${var_depth}_${var_iteration}_%s.qza '
+                 '--output-dir %s/alpharaw_${var_depth}_${var_iteration}_%s') %
+                (workdir, metric,
+                 workdir, metric))
 
         return commands
 
     def post_execute(workdir, args):
         sums = args['counts'].sum()
-        results = {'metrics': dict(),
+        results = {'metrics':
+                   _parse_alpha_div_collated(workdir, args['counts'].columns),
                    'remaining': _getremaining(sums),
                    'readcounts': sums}
-        for metric in args['metrics']:
-            results['metrics'][metric] = _parse_alpha_div_collated(
-                workdir+'/rare/alpha_div_collated/'+metric+'.txt')
-
         return results
 
     def post_cache(cache_results):
@@ -338,12 +358,14 @@ def rarefaction_curves(counts,
                      commands,
                      post_execute,
                      post_cache,
+                     environment=QIIME2_ENV,
+                     ppn=1,
+                     array=num_steps*num_iterations,
                      **executor_args)
 
 
 def rarefy(counts, rarefaction_depth,
-           ppn=1,
-           **executor_args):
+           ppn=1, **executor_args):
     """Rarefies a given OTU table to a given depth. This depth should be
        determined by looking at rarefaction curves.
 
@@ -366,24 +388,28 @@ def rarefy(counts, rarefaction_depth,
 
     def commands(workdir, ppn, args):
         commands = []
-        commands.append(('multiple_rarefactions.py '
-                         '-i %s '                    # input biom file
-                         '-m %i '                    # min rarefaction depth
-                         '-x %i '                    # max rarefaction depth
-                         '-s 1 '                     # depth steps
-                         '-o %s '                    # output directory
-                         '-n 1 '                  # number iterations per depth
-                         ) % (   # number parallel jobs
-            workdir+'/input.biom',
-            args['rarefaction_depth'],
-            args['rarefaction_depth'],
-            workdir+'/rarefactions'))
+
+        commands.append((
+            'qiime tools import '
+            '--input-path %s/input.biom '
+            '--output-path %s/counts '
+            '--type "FeatureTable[Frequency]"') % (workdir, workdir))
+        commands.append((
+            'qiime feature-table rarefy '
+            '--i-table %s/counts.qza '
+            '--p-sampling-depth %i '
+            '--o-rarefied-table %s/rare ') % (
+            workdir, args['rarefaction_depth'], workdir))
+        commands.append(
+            ('qiime tools export '
+             '%s/rare.qza '
+             '--output-dir %s') %
+            (workdir, workdir))
 
         return commands
 
     def post_execute(workdir, args):
-        return biom2pandas(workdir+'/rarefactions/rarefaction_%i_0.biom' %
-                           args['rarefaction_depth'])
+        return biom2pandas(workdir+'/feature-table.biom')
 
     return _executor('rarefy',
                      {'counts': counts,
@@ -392,7 +418,14 @@ def rarefy(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      ppn=ppn,
+                     environment=QIIME2_ENV,
                      **executor_args)
+
+
+def _update_metric_alpha(metric):
+    if metric == 'PD_whole_tree':
+        return 'faith_pd'
+    return metric
 
 
 def alpha_diversity(counts, rarefaction_depth,
@@ -421,14 +454,9 @@ def alpha_diversity(counts, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
-    def update_metric(metric):
-        if metric == 'PD_whole_tree':
-            return 'faith_pd'
-        return metric
-
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
         os.mkdir(workdir+'/rarefaction/')
         os.mkdir(workdir+'/alpha/')
         os.mkdir(workdir+'/alpha_plain/')
@@ -497,7 +525,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      ' %s '
                      '--o-alpha-diversity %s') %
                     (plugin, file_raretable,
-                     update_metric(metric),
+                     _update_metric_alpha(metric),
                      treeinput,
                      file_alpha))
                 commands.append(
@@ -545,6 +573,14 @@ def alpha_diversity(counts, rarefaction_depth,
                      **executor_args)
 
 
+def _update_metric_beta(metric):
+    if metric == 'bray_curtis':
+        return 'braycurtis'
+    elif metric == 'weighted_unifrac':
+        return 'weighted_normalized_unifrac'
+    return metric
+
+
 def beta_diversity(counts,
                    metrics=["unweighted_unifrac",
                             "weighted_unifrac",
@@ -568,16 +604,9 @@ def beta_diversity(counts,
     -------
     Dict of Pandas.DataFrame, one per metric."""
 
-    def update_metric(metric):
-        if metric == 'bray_curtis':
-            return 'braycurtis'
-        elif metric == 'weighted_unifrac':
-            return 'weighted_normalized_unifrac'
-        return metric
-
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
         os.mkdir(workdir+'/beta_qza')
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
@@ -592,7 +621,7 @@ def beta_diversity(counts,
     def commands(workdir, ppn, args):
         metrics_phylo = []
         metrics_nonphylo = []
-        for metric in map(update_metric, args['metrics']):
+        for metric in map(_update_metric_beta, args['metrics']):
             if metric.endswith('_unifrac'):
                 metrics_phylo.append(metric)
             else:
@@ -654,7 +683,7 @@ def beta_diversity(counts,
             results[metric] = DistanceMatrix.read(
                 '%s/beta/%s/distance-matrix.tsv' % (
                     workdir,
-                    update_metric(metric)))
+                    _update_metric_beta(metric)))
         return results
 
     if reference_tree is not None:
@@ -849,7 +878,10 @@ def sepp(counts, chunksize=10000,
                file_taxonomy.endswith('.tsv'):
                 taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
                                   sep="\t", index_col=0))
-        taxonomy = pd.concat(taxonomies)
+        if len(taxonomies) > 0:
+            taxonomy = pd.concat(taxonomies)
+        else:
+            taxonomy = pd.DataFrame()
         sys.stderr.write(' done.\n')
 
         f = open("%s/all_tree.nwk" % workdir, 'r')
@@ -1359,7 +1391,8 @@ def sortmerna(sequences,
                          '-o %s '
                          '--sortmerna_e_value 1 '
                          '-s 0.97 '
-                         '--threads %i ') % (
+                         '--threads %i '
+                         '--suppress_new_clusters ') % (
             workdir + '/sequences.mfa',
             args['reference'],
             precompileddb,
@@ -1395,7 +1428,7 @@ def sortmerna(sequences,
                          reference)
 
     if sortmerna_db is not None:
-        if not os.path.exists(sortmerna_db+'.stasts'):
+        if not os.path.exists(sortmerna_db+'.stats'):
             sys.stderr.write('Could not find SortMeRNA precompiled DB. '
                              'I continue by creating a new DB.')
     # core dump with 8GB with 10 nodes, 4h
@@ -1777,7 +1810,8 @@ def compare_categories(beta_dm, metadata,
                     workdir, name, field, name)
                 if os.path.exists(filename_result):
                     merged[name].append(method(filename_result, field))
-            merged[name] = pd.concat(merged[name])
+            if len(merged[name]) > 0:
+                merged[name] = pd.concat(merged[name])
         return merged
 
     if type(metadata) == pd.core.series.Series:
@@ -1937,10 +1971,14 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         dir_tmp = os.environ['HOME'] + '/TMP/'
 
     # collect all tmp workdirs that contain the right cache signature
-    pot_workdirs = [x[0]  # report directory name
-                    for x in os.walk(dir_tmp)
-                    # shares same cache signature:
-                    if results['file_cache'].split('/')[-1] in x[2]]
+    pot_workdirs = []
+    for _dir in next(os.walk(dir_tmp))[1]:
+        # a potential working directory needs to have the matching job name
+        if _dir.startswith('ana_%s_' % results['jobname']):
+            potwd = os.path.join(dir_tmp, _dir)
+            # and a matching cache file signature
+            if results['file_cache'].split('/')[-1] in next(os.walk(potwd))[2]:
+                pot_workdirs.append(potwd)
     finished_workdirs = []
     for wd in pot_workdirs:
         all_finished = True

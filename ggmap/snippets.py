@@ -681,6 +681,7 @@ def plotTaxonomy(file_otutable,
             colors[taxon] = availColors[len(colors) % len(availColors)]
 
     # plot the actual thing
+    sns.set()
     if (ax is not None):
         if len(grps0) > 1:
             raise Exception('You cannot provide an ax if number of '
@@ -917,6 +918,7 @@ def _add_timing_cmds(commands, file_timing):
         # directory
         if cmd.startswith('cd ') or\
            cmd.startswith('module load ') or\
+           cmd.startswith('var_') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         else:
@@ -1067,12 +1069,17 @@ def cluster_run(cmds, jobname, result, environment=None,
             highmem = ''
             if ppn * int(pmem[:-2]) > 250:
                 highmem = ':highmem'
+            files_loc = ''
+            if file_qid is not None:
+                files_loc = ' -o %s/ -e %s/ ' % tuple(
+                    ["/".join(file_qid.split('/')[:-1])] * 2)
+
             ge_cmd = (
                 ("%s/qsub -d '%s' -V -l "
-                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i") %
+                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i %s") %
                 (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
-                 array))
-            cmd_list = "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
+                 array, files_loc))
+            cmd_list += "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
         else:
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
@@ -1202,7 +1209,7 @@ def detect_distant_groups_alpha(alpha, groupings,
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(alpha.index)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(alpha.index))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
@@ -1266,7 +1273,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
     groupings = groupings.dropna()
 
     # remove samples not in the distance matrix
-    groupings = groupings.loc[list(beta_dm.ids)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(beta_dm.ids))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
@@ -1331,14 +1338,15 @@ def groups_is_significant(group_infos, pthresh=0.05):
     numComp = len(list(combinations(group_infos['n_per_group'].keys(), 2)))
     for a in group_infos['network'].keys():
         for b in group_infos['network'][a].keys():
-            if group_infos['network'][a][b]['p-value'] <= pthresh / numComp:
+            if group_infos['network'][a][b]['p-value'] < pthresh / numComp:
                 return True
     return False
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                        metric_name, group_name, pthresh=0.05, _type='beta',
-                       draw_edgelabel=False, ax=None):
+                       draw_edgelabel=False, ax=None, edge_color_sig=None,
+                       print_title=True, edgelabel_decimals=2):
     """Plots pairwise beta diversity group relations (obtained by
        'detect_distant_groups')
 
@@ -1369,8 +1377,21 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         differences.
     draw_edgelabel : boolean
         If true, draw p-values as edge labels.
+    edgelabel_decimals : int
+        Default: 1
+        Number of digits to be printed for p-values.
     ax : plt axis
         If not none, use this axis to plot on.
+    edge_color_sig : str
+        Default: None
+        If not None, define color significant edges should be drawn with.
+    edgelabel_decimals : int
+        Default: 2
+        Number of digits p-values are printed with.
+    print_title : bool
+        Default: True
+        If True, print information about metadata-field, statistical test,
+        alpha or beta diversity, permutations, ...
 
     Returns
     -------
@@ -1379,6 +1400,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     LINEWIDTH_SIG = 2.0
     LINEWIDTH_NONSIG = 0.2
     NODECOLOR = {'alpha': 'lightblue', 'beta': 'lightgreen'}
+    EDGE_COLOR_NONSIG = 'gray'
 
     # initialize empty graph
     G = nx.Graph()
@@ -1391,12 +1413,16 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     for a in network.keys():
         for b in network[a].keys():
             weight = LINEWIDTH_NONSIG
+            color = EDGE_COLOR_NONSIG
             # naive FDR by just dividing p-value by number of groups-pairs
-            if network[a][b]['p-value'] <= pthresh / numComp:
+            if network[a][b]['p-value'] < pthresh / numComp:
                 weight = LINEWIDTH_SIG
+                if edge_color_sig is not None:
+                    color = edge_color_sig
             G.add_edge(a, b,
-                       pvalue="%.2f" % network[a][b]['p-value'],
-                       weight=weight)
+                       pvalue=("%."+str(edgelabel_decimals)+"f") %
+                       network[a][b]['p-value'],
+                       weight=weight, color=color)
 
     # ignore warnings of matplotlib due to outdated networkx calls
     with warnings.catch_warnings():
@@ -1421,7 +1447,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         weights = [G[u][v]['weight'] for u, v in G.edges()]
         nx.draw(G, with_labels=False, pos=new_pos, width=weights,
                 node_color=NODECOLOR[_type],
-                edge_color='gray',
+                edge_color=[G[u][v]['color'] for u, v in G.edges()],
                 ax=ax)
 
         # draw labels for nodes instead of pure names
@@ -1449,21 +1475,24 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
             # bbox=None, ax=None, rotate=True, **kwds)
 
         # plot title
-        ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
-        text = ''
-        if _type == 'beta':
-            text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
-                                                       metric_name)
-        elif _type == 'alpha':
-            text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
-        ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center', va='top')
+        if print_title:
+            ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
+            text = ''
+            if _type == 'beta':
+                text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
+                                                           metric_name)
+            elif _type == 'alpha':
+                text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
+            ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center',
+                    va='top')
 
         # plot legend
         ax.plot([0], [0], 'gray',
-                label=u'p ≤ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
-                linewidth=LINEWIDTH_SIG)
+                label=u'p < %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                linewidth=LINEWIDTH_SIG,
+                color=edge_color_sig if edge_color_sig is not None else 'gray')
         ax.plot([0], [0], 'gray',
-                label='p > %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                label='p ≥ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
                 linewidth=LINEWIDTH_NONSIG)
         ax.legend(title='FDR corrected')
 
@@ -1493,7 +1522,7 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(alpha.index)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(alpha.index))]
 
     # remove groups with less than minNum samples per group
     groups = [name
@@ -1514,12 +1543,22 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
 def plotGroup_permanovas(beta, groupings,
                          network, n_per_group, min_group_size,
                          num_permutations, metric_name, group_name,
-                         ax=None):
+                         ax=None, horizontal=False, edgelabel_decimals=2):
+    """
+    Parameters
+    ----------
+    horizontal : Bool
+        Default: False.
+        Plot boxes horizontally. Useful for long group names.
+    edgelabel_decimals : int
+        Default: 2
+        Number of digits p-values are printed with.
+    """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(beta.ids)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(beta.ids))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
@@ -1536,12 +1575,19 @@ def plotGroup_permanovas(beta, groupings,
                                           ", ".join(list(n_per_group.index))),
                 ha='center', va='center', fontsize=15)
         ax.axis('off')
-        return ax
+        return ax, []
 
     data = []
     name_left = 'left'
     name_right = 'right'
     name_inter = 'between'
+    label_left = 'left: '
+    label_right = 'right: '
+    x_axis, y_axis = 'edge', metric_name
+    if horizontal:
+        label_left = ''
+        label_right = ''
+        x_axis, y_axis = metric_name, 'edge'
     for a, b in combinations(groups, 2):
         nw = None
         if a in network:
@@ -1551,10 +1597,12 @@ def plotGroup_permanovas(beta, groupings,
             if a in network[b]:
                 nw = network[b][a]
 
-        edgename = 'left:%s\np: %.*f\nright:%s' % (
+        edgename = '%s%s\np: %.*f\n%s%s' % (
+            label_left,
             a,
-            _getfirstsigdigit(nw['p-value']),
+            max(_getfirstsigdigit(nw['p-value']), edgelabel_decimals),
             nw['p-value'],
+            label_right,
             b)
         dists = dict()
         # intra group distances
@@ -1577,16 +1625,21 @@ def plotGroup_permanovas(beta, groupings,
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
-                x='edge',
-                y=metric_name,
+                x=x_axis,
+                y=y_axis,
                 hue='_type',
                 hue_order=[name_left, name_inter, name_right],
                 ax=ax,
                 palette=sns.xkcd_palette(colors))
-    ax.legend(bbox_to_anchor=(1.05, 1))
-    ax.xaxis.label.set_visible(False)
+    if horizontal:
+        ax.legend_.remove()
+        ax.yaxis.tick_right()
+        ax.yaxis.label.set_visible(False)
+    else:
+        ax.legend(bbox_to_anchor=(1.05, 1))
+        ax.xaxis.label.set_visible(False)
 
-    return ax
+    return ax, data
 
 
 def mutate_sequence(sequence, num_mutations=1,
@@ -1975,19 +2028,22 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         taxa = list(diffTaxa[(meta_value_a, meta_value_b)])
         samples_a = metadata_field[metadata_field == meta_value_a].index
         samples_b = metadata_field[metadata_field == meta_value_b].index
-        foldchange = np.log((counts.loc[taxa, samples_a]+1).mean(axis=1) /
-                            (counts.loc[taxa, samples_b]+1).mean(axis=1))
+        foldchange = np.log(
+            (counts.reindex(index=taxa, columns=samples_a)+1).mean(axis=1) /
+            (counts.reindex(index=taxa, columns=samples_b)+1).mean(axis=1))
 
         # only consider current list of taxa, but now also filter out those
         # with too low relative abundance.
         taxa = sorted(list(
             set([idx
                  for idx, meanabund
-                 in relabund.loc[taxa, samples_a].mean(axis=1).iteritems()
+                 in relabund.reindex(
+                     index=taxa, columns=samples_a).mean(axis=1).iteritems()
                  if meanabund >= min_mean_abundance]) |
             set([idx
                  for idx, meanabund
-                 in relabund.loc[taxa, samples_b].mean(axis=1).iteritems()
+                 in relabund.reindex(
+                     index=taxa, columns=samples_b).mean(axis=1).iteritems()
                  if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
@@ -1995,7 +2051,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         relabund_field = []
         for (samples, grpname) in [(samples_a, meta_value_a),
                                    (samples_b, meta_value_b)]:
-            r = relabund.loc[taxa, samples].stack().reset_index().rename(
+            r = relabund.reindex(
+                index=taxa, columns=samples).stack().reset_index().rename(
                 columns={0: 'relative abundance'})
             r['group'] = grpname
             relabund_field.append(r)

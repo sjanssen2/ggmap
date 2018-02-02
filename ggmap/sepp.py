@@ -733,7 +733,7 @@ def binning(value, getorder=False):
 
 
 def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
-                _type='single', hue=None, logy_histo=True):
+                _type='single', hue=None, logy_histo=True, palette=None):
     YLIM = (0, 0.45)
     filtered_distances = distances.dropna()
 
@@ -767,7 +767,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
                         y='distance_'+distance_type,
                         # hue='only_repr._sequences', hue_order=[True, False],
                         hue=value_hue, hue_order=value_hue_order,
-                        ax=ax)
+                        ax=ax, palette=palette)
     elif _type == 'mutations':
         g = sns.pointplot(
             data=filtered_distances.groupby([
@@ -807,7 +807,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
                     x='uniqueness', order=binning(None, getorder=True),
                     y='num',
                     hue=value_hue, hue_order=value_hue_order,
-                    ax=ax, color=color)
+                    ax=ax, color=color, palette=palette)
     g.set_xlabel('')
     g.set_ylabel('# fragments (log-scale)')
     if logy_histo:
@@ -824,8 +824,17 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
 
 
 def plot_errordistribution(distances, distance_type, plotfile_prefix,
-                           lim=3, err=sys.stderr, rank=None):
+                           lim=3, err=sys.stderr, rank=None, bycandidat=False):
     err.write('plot "error distribution" ')
+    CANDIDATE_PHYLA = [
+        'Chimerah', 'p__AC1d', 'p__Acidobacteriad', 'p__Armatimonadetes',
+        'p__Bacteroidetesd', 'p__Caldithrix', 'p__Chloroflexi',
+        'p__Cyanobacteria', 'p__Elusimicrobiae', 'p__GN01', 'p__GN02',
+        'p__GN04', 'p__GN13', 'p__GN14', 'p__KSB3', 'p__NC10', 'p__NKB19',
+        'p__OP1', 'p__OP3', 'p__OP8', 'p__OP9', 'p__Proteobacteriad',
+        'p__SAR406', 'p__SBR1093', 'p__SPAM', 'p__Spirochaetesd',
+        'p__Spirochaetesd,f', 'p__Spirochaetesd;p__SAR406g', 'p__TG3',
+        'p__Verrucomicrobiad', 'p__WS3', 'p__WS5', 'p__WWE3', 'p__ZB3']
 
     # restrict to those fragments that map to only one true OTU and have no
     # point mutations
@@ -856,6 +865,14 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
                            verbose=False)
         t['avg. dist. %s' % distance_type] =\
             t['distance_' + distance_type] / t['num_otus']
+        hue = None
+        if (rank == 'Phylum') & bycandidat:
+            t['is candidate phylum'] = list(map(lambda x: x in CANDIDATE_PHYLA,
+                                                t.index))
+            hue = 'is candidate phylum'
+
+        t.index = list(map(
+            lambda idx: "%s % 5i" % (idx, t.loc[idx, 'num_otus']), t.index))
 
         cat_x, cat_y, orient = 'avg. dist. %s' % distance_type, t.index, 'h'
         width, height = 5, max(2, 0.18 * t.shape[0])
@@ -868,7 +885,9 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
                     x=cat_x,
                     y=cat_y,
                     order=t.sort_values('num_otus', ascending=False).index,
-                    orient=orient, label=rank)
+                    orient=orient,
+                    color=sns.xkcd_rgb["denim blue"],
+                    hue=hue, dodge=False)
         if rank is not None:
             return f
         f.savefig('%s_%s.png' % (plotfile_prefix, rank), bbox_inches='tight')
