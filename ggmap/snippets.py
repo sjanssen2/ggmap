@@ -1981,7 +1981,8 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
-                   min_mean_abundance=0.01):
+                   min_mean_abundance=0.01, max_x_relabundance=1.0,
+                   num_ranks=2, title=None):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2002,6 +2003,16 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Default: 0.01.
         Minimal relative mean abundance a feature must have in both groups to
         be plotted.
+    max_x_relabundance : float
+        Default: 1.0
+        For left plot: maximal x-axis limit, to zoom in if all abundances are
+        low.
+    num_ranks : int
+        Default: 2, i.e. Genus and Species
+        How many last ranks shall be displayed on y-axis of right plot.
+    title : str
+        Default: None
+        Something to print as the suptitle
 
     Returns
     -------
@@ -2057,7 +2068,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         hue='group',
                         ax=curr_ax,
                         orient='h')
-        g.set_xlim((0, 1))
+        g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 
         curr_ax = ax[1]
@@ -2072,14 +2083,18 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         g.set_ylabel('')
         if taxonomy is not None:
             g.set(yticklabels=taxonomy.loc[taxa].apply(
-                lambda x: " ".join(list(map(str.strip, x.split(';')))[-2:])))
+                lambda x: " ".join(list(
+                    map(str.strip, x.split(';')))[-num_ranks:])))
 
         g.set_xlabel('<-- more in %s     |      more in %s -->' %
                      (meta_value_b, meta_value_a))
         g.yaxis.tick_right()
         g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
                    +1*foldchange.loc[taxa].abs().max())
-        fig.suptitle("%s\nminimal relative abundance: %f" %
-                     (metadata_field.name, min_mean_abundance))
+        titletext = "%s\nminimal relative abundance: %f" % (
+            metadata_field.name, min_mean_abundance)
+        if title is not None:
+            titletext = title + "\n" + titletext
+        fig.suptitle(titletext)
 
     return fig
