@@ -381,14 +381,15 @@ class DiffTaxaTests(TestCase):
                            self.taxonomy,
                            min_mean_abundance=0.01)
         file_dummy = mkstemp('.png')[1]
-        f.savefig(file_dummy, bbox_inches='tight')
+        f.set_size_inches(10, 15)
+        f.savefig(file_dummy, dpi=100)
         res = compare_images(
             get_data_path('diffAbundance/plot_difftaxa.png'),
             file_dummy,
             file_image_diff='./diff.diffAbundance.plot_difftaxa.png')
         if res[0] is True:
             remove(file_dummy)
-        return res[0]
+        self.assertTrue(res[0])
 
 
 if __name__ == '__main__':

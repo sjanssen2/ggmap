@@ -159,7 +159,7 @@ class RarefactionTests(TestCase):
         )
 
         filename_obs = 'obs_rare.png'
-        obs_rare['results'].savefig(filename_obs)
+        obs_rare['results'].savefig(filename_obs, bbox_inches='tight')
 
         filename_diff = '/tmp/diff_rare.png'
         res = compare_images(filename_obs, self.filename_rare,
