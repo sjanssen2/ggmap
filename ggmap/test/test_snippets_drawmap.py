@@ -1,6 +1,6 @@
 from unittest import TestCase, main
 import pandas as pd
-from tempfile import mkstemp, gettempdir
+from tempfile import gettempdir
 import numpy as np
 from os import remove
 from os.path import join

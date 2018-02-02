@@ -1,7 +1,7 @@
 from unittest import TestCase, main
 import pandas as pd
 from math import isclose
-from tempfile import mkstemp, gettempdir
+from tempfile import gettempdir
 from os import remove
 from os.path import join
 
