@@ -125,7 +125,7 @@ def _parse_alpha_div_collated(workdir, samplenames):
         alphas = pd.read_csv(
             '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
             sep="\t", index_col=0)
-        alphas = alphas.loc[samplenames, :].reset_index()
+        alphas = alphas.reindex(index=samplenames).reset_index()
         alphas.columns = ['sample_name', 'value']
         alphas['iteration'] = iteration
         alphas['rarefaction depth'] = depth
