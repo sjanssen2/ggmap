@@ -1337,14 +1337,15 @@ def groups_is_significant(group_infos, pthresh=0.05):
     numComp = len(list(combinations(group_infos['n_per_group'].keys(), 2)))
     for a in group_infos['network'].keys():
         for b in group_infos['network'][a].keys():
-            if group_infos['network'][a][b]['p-value'] <= pthresh / numComp:
+            if group_infos['network'][a][b]['p-value'] < pthresh / numComp:
                 return True
     return False
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                        metric_name, group_name, pthresh=0.05, _type='beta',
-                       draw_edgelabel=False, ax=None):
+                       draw_edgelabel=False, ax=None, edge_color_sig=None,
+                       print_title=True, edgelabel_decimals=2):
     """Plots pairwise beta diversity group relations (obtained by
        'detect_distant_groups')
 
@@ -1375,8 +1376,21 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         differences.
     draw_edgelabel : boolean
         If true, draw p-values as edge labels.
+    edgelabel_decimals : int
+        Default: 1
+        Number of digits to be printed for p-values.
     ax : plt axis
         If not none, use this axis to plot on.
+    edge_color_sig : str
+        Default: None
+        If not None, define color significant edges should be drawn with.
+    edgelabel_decimals : int
+        Default: 2
+        Number of digits p-values are printed with.
+    print_title : bool
+        Default: True
+        If True, print information about metadata-field, statistical test,
+        alpha or beta diversity, permutations, ...
 
     Returns
     -------
@@ -1385,6 +1399,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     LINEWIDTH_SIG = 2.0
     LINEWIDTH_NONSIG = 0.2
     NODECOLOR = {'alpha': 'lightblue', 'beta': 'lightgreen'}
+    EDGE_COLOR_NONSIG = 'gray'
 
     # initialize empty graph
     G = nx.Graph()
@@ -1397,12 +1412,16 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
     for a in network.keys():
         for b in network[a].keys():
             weight = LINEWIDTH_NONSIG
+            color = EDGE_COLOR_NONSIG
             # naive FDR by just dividing p-value by number of groups-pairs
-            if network[a][b]['p-value'] <= pthresh / numComp:
+            if network[a][b]['p-value'] < pthresh / numComp:
                 weight = LINEWIDTH_SIG
+                if edge_color_sig is not None:
+                    color = edge_color_sig
             G.add_edge(a, b,
-                       pvalue="%.2f" % network[a][b]['p-value'],
-                       weight=weight)
+                       pvalue=("%."+str(edgelabel_decimals)+"f") %
+                       network[a][b]['p-value'],
+                       weight=weight, color=color)
 
     # ignore warnings of matplotlib due to outdated networkx calls
     with warnings.catch_warnings():
@@ -1427,7 +1446,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         weights = [G[u][v]['weight'] for u, v in G.edges()]
         nx.draw(G, with_labels=False, pos=new_pos, width=weights,
                 node_color=NODECOLOR[_type],
-                edge_color='gray',
+                edge_color=[G[u][v]['color'] for u, v in G.edges()],
                 ax=ax)
 
         # draw labels for nodes instead of pure names
@@ -1455,21 +1474,24 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
             # bbox=None, ax=None, rotate=True, **kwds)
 
         # plot title
-        ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
-        text = ''
-        if _type == 'beta':
-            text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
-                                                       metric_name)
-        elif _type == 'alpha':
-            text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
-        ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center', va='top')
+        if print_title:
+            ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
+            text = ''
+            if _type == 'beta':
+                text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
+                                                           metric_name)
+            elif _type == 'alpha':
+                text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
+            ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center',
+                    va='top')
 
         # plot legend
         ax.plot([0], [0], 'gray',
-                label=u'p ≤ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
-                linewidth=LINEWIDTH_SIG)
+                label=u'p < %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                linewidth=LINEWIDTH_SIG,
+                color=edge_color_sig if edge_color_sig is not None else 'gray')
         ax.plot([0], [0], 'gray',
-                label='p > %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                label='p ≥ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
                 linewidth=LINEWIDTH_NONSIG)
         ax.legend(title='FDR corrected')
 
@@ -1520,7 +1542,17 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
 def plotGroup_permanovas(beta, groupings,
                          network, n_per_group, min_group_size,
                          num_permutations, metric_name, group_name,
-                         ax=None):
+                         ax=None, horizontal=False, edgelabel_decimals=2):
+    """
+    Parameters
+    ----------
+    horizontal : Bool
+        Default: False.
+        Plot boxes horizontally. Useful for long group names.
+    edgelabel_decimals : int
+        Default: 2
+        Number of digits p-values are printed with.
+    """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
 
@@ -1548,6 +1580,13 @@ def plotGroup_permanovas(beta, groupings,
     name_left = 'left'
     name_right = 'right'
     name_inter = 'between'
+    label_left = 'left: '
+    label_right = 'right: '
+    x_axis, y_axis = 'edge', metric_name
+    if horizontal:
+        label_left = ''
+        label_right = ''
+        x_axis, y_axis = metric_name, 'edge'
     for a, b in combinations(groups, 2):
         nw = None
         if a in network:
@@ -1557,10 +1596,12 @@ def plotGroup_permanovas(beta, groupings,
             if a in network[b]:
                 nw = network[b][a]
 
-        edgename = 'left:%s\np: %.*f\nright:%s' % (
+        edgename = '%s%s\np: %.*f\n%s%s' % (
+            label_left,
             a,
-            _getfirstsigdigit(nw['p-value']),
+            max(_getfirstsigdigit(nw['p-value']), edgelabel_decimals),
             nw['p-value'],
+            label_right,
             b)
         dists = dict()
         # intra group distances
@@ -1583,16 +1624,21 @@ def plotGroup_permanovas(beta, groupings,
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
-                x='edge',
-                y=metric_name,
+                x=x_axis,
+                y=y_axis,
                 hue='_type',
                 hue_order=[name_left, name_inter, name_right],
                 ax=ax,
                 palette=sns.xkcd_palette(colors))
-    ax.legend(bbox_to_anchor=(1.05, 1))
-    ax.xaxis.label.set_visible(False)
+    if horizontal:
+        ax.legend_.remove()
+        ax.yaxis.tick_right()
+        ax.yaxis.label.set_visible(False)
+    else:
+        ax.legend(bbox_to_anchor=(1.05, 1))
+        ax.xaxis.label.set_visible(False)
 
-    return ax
+    return ax, data
 
 
 def mutate_sequence(sequence, num_mutations=1,
