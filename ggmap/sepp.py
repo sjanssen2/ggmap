@@ -886,7 +886,6 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
                     y=cat_y,
                     order=t.sort_values('num_otus', ascending=False).index,
                     orient=orient,
-                    #label=rank,
                     color=sns.xkcd_rgb["denim blue"],
                     hue=hue, dodge=False)
         if rank is not None:
