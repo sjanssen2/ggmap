@@ -691,8 +691,8 @@ class SnippetTests(TestCase):
             sep="\t", header=None, index_col=0,
             names=['index', field], dtype=str).loc[:, field]
 
-        res = plotGroup_permanovas(beta, meta, **(self.exp_beta[field]))
-        self.assertEqual(str(type(res)),
+        ax, data = plotGroup_permanovas(beta, meta, **(self.exp_beta[field]))
+        self.assertEqual(str(type(ax)),
                          "<class 'matplotlib.axes._subplots.AxesSubplot'>")
 
     def test_plotGroup_permanovas_toosmallgroups(self):
