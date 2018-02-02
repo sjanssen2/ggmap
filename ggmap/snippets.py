@@ -1575,7 +1575,7 @@ def plotGroup_permanovas(beta, groupings,
                                           ", ".join(list(n_per_group.index))),
                 ha='center', va='center', fontsize=15)
         ax.axis('off')
-        return ax
+        return ax, []
 
     data = []
     name_left = 'left'
