@@ -1,8 +1,9 @@
 from unittest import TestCase, main
 import pandas as pd
 from math import isclose
-from tempfile import mkstemp
+from tempfile import mkstemp, gettempdir
 from os import remove
+from os.path import join
 
 import matplotlib.pyplot as plt
 from skbio.util import get_data_path
@@ -21,6 +22,10 @@ plt.rc('font', family='DejaVu Sans')
 
 class SnippetTests(TestCase):
     def setUp(self):
+        # set following var to True to generate a new set of baseline plots
+        # without testing and aborting after too many differences
+        self.mode_generate_baseline = False
+        self.dpi = 80
         self.fields = ['AGE', 'coll_year', 'diet_brief', 'norm_genpop',
                        'norm_q2_genpop', 'Q2', 'sample_substance', 'seasons',
                        'sex', 'smj_genusspecies', 'weight_log']
@@ -473,6 +478,9 @@ class SnippetTests(TestCase):
             'metric_name': 'unweighted_unifrac',
             'num_permutations': 99}
 
+    def tearDown(self):
+        self.assertFalse(self.mode_generate_baseline)
+
     def compareNetworks(self, a, b):
         for key in a.keys():
             if key == 'network':
@@ -554,8 +562,9 @@ class SnippetTests(TestCase):
                                pthresh=0.05,
                                _type='alpha', draw_edgelabel=True, ax=ax)
             file_plotname = 'alpha_network_%s.png' % field
-            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy, bbox_inches='tight')
+            file_dummy = join(gettempdir(), file_plotname)
+            fig.set_size_inches(16, 11)
+            fig.savefig(file_dummy, dpi=self.dpi)
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_network_%s.png' %
@@ -566,7 +575,8 @@ class SnippetTests(TestCase):
                 remove(file_dummy)
             else:
                 print(field, res)
-            self.assertTrue(res[0])
+            if not self.mode_generate_baseline:
+                self.assertTrue(res[0])
 
     def test_plotDistant_groups_beta(self):
         for field in self.fields:
@@ -575,8 +585,9 @@ class SnippetTests(TestCase):
                                pthresh=0.05,
                                _type='beta', draw_edgelabel=True, ax=ax)
             file_plotname = 'beta_network_%s.png' % field
-            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy, bbox_inches='tight')
+            file_dummy = join(gettempdir(), file_plotname)
+            fig.set_size_inches(16, 11)
+            fig.savefig(file_dummy, dpi=self.dpi)
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Beta/beta_network_%s.png' %
@@ -588,7 +599,8 @@ class SnippetTests(TestCase):
                 remove(file_dummy)
             else:
                 print(field, res)
-            self.assertTrue(res[0])
+            if not self.mode_generate_baseline:
+                self.assertTrue(res[0])
 
     def test_plotGroup_histograms(self):
         for field in self.fields:
@@ -604,8 +616,9 @@ class SnippetTests(TestCase):
 
             plotGroup_histograms(alpha, meta, ax=ax)
             file_plotname = 'alpha_histogram_%s.png' % field
-            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy, bbox_inches='tight')
+            file_dummy = join(gettempdir(), file_plotname)
+            fig.set_size_inches(16, 11)
+            fig.savefig(file_dummy, dpi=self.dpi)
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Alpha/alpha_histogram_%s.png' %
@@ -616,7 +629,8 @@ class SnippetTests(TestCase):
                 remove(file_dummy)
             else:
                 print(res)
-            self.assertTrue(res[0])
+            if not self.mode_generate_baseline:
+                self.assertTrue(res[0])
 
     def test_plotGroup_permanovas(self):
         for field in self.fields:
@@ -630,8 +644,9 @@ class SnippetTests(TestCase):
 
             plotGroup_permanovas(beta, meta, **(self.exp_beta[field]), ax=ax)
             file_plotname = 'beta_permanova_%s.png' % field
-            file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-            plt.savefig(file_dummy, bbox_inches='tight')
+            file_dummy = join(gettempdir(), file_plotname)
+            fig.set_size_inches(16, 11)
+            fig.savefig(file_dummy, dpi=self.dpi)
             plt.close()
             res = compare_images(
                 get_data_path('detectGroups/Beta/beta_permanova_%s.png' %
@@ -642,7 +657,8 @@ class SnippetTests(TestCase):
                 remove(file_dummy)
             else:
                 print(res)
-            self.assertTrue(res[0])
+            if not self.mode_generate_baseline:
+                self.assertTrue(res[0])
 
     def test_plotDistant_groups_externalfigure(self):
         res = plotDistant_groups(**(self.exp_alpha['AGE']),
@@ -690,10 +706,12 @@ class SnippetTests(TestCase):
         network = self.exp_beta[field]
         network['n_per_group'] = network['n_per_group'].iloc[:1]
 
-        plotGroup_permanovas(beta, meta, **(network))
-        file_plotname = 'beta_permanova_%s.png' % field
-        file_dummy = mkstemp('.png', prefix=file_plotname+'.')[1]
-        plt.savefig(file_dummy, bbox_inches='tight')
+        fig, ax = plt.subplots()
+        plotGroup_permanovas(beta, meta, **(network), ax=ax)
+        file_plotname = 'beta_permanova_onegroup.png'
+        file_dummy = join(gettempdir(), file_plotname)
+        fig.set_size_inches(16, 11)
+        fig.savefig(file_dummy, dpi=self.dpi)
         plt.close()
         res = compare_images(
             get_data_path('detectGroups/beta_permanova_onegroup.png'),
@@ -703,7 +721,8 @@ class SnippetTests(TestCase):
             remove(file_dummy)
         else:
             print(res)
-        self.assertTrue(res[0])
+        if not self.mode_generate_baseline:
+            self.assertTrue(res[0])
 
     def test__getfirstsigdigit(self):
         self.assertEqual(0, _getfirstsigdigit(1.0))

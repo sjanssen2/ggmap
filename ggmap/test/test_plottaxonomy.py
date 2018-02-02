@@ -486,7 +486,8 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
             sys.stderr.flush()
             f = plotTaxonomy(**configs[name]['params'])
             filename = outdir + name + extension
-            f[0].savefig(filename, bbox_inches='tight')
+            f[0].set_size_inches(16, 11)
+            f[0].savefig(filename, dpi=80)
             configs[name]['imagefile'] = filename
             plt.close(f[0])
         sys.stderr.write(" done.\n")
