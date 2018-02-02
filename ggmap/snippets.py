@@ -1209,7 +1209,7 @@ def detect_distant_groups_alpha(alpha, groupings,
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(alpha.index)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(alpha.index))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
@@ -1273,7 +1273,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
     groupings = groupings.dropna()
 
     # remove samples not in the distance matrix
-    groupings = groupings.loc[list(beta_dm.ids)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(beta_dm.ids))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
@@ -1500,7 +1500,7 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(alpha.index)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(alpha.index))]
 
     # remove groups with less than minNum samples per group
     groups = [name
@@ -1526,7 +1526,7 @@ def plotGroup_permanovas(beta, groupings,
     groupings = groupings.dropna()
 
     # remove samples for which we don't have alpha div measures
-    groupings = groupings.loc[list(beta.ids)]
+    groupings = groupings.loc[sorted(set(groupings.index) & set(beta.ids))]
 
     # remove groups with less than minNum samples per group
     groups = sorted([name
