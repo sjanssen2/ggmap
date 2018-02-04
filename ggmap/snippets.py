@@ -21,10 +21,10 @@ import matplotlib.cbook
 import random
 from tempfile import mkstemp
 import pickle
+from ggmap import settings
 
 
-RANKS = ['Kingdom', 'Phylum', 'Class', 'Order', 'Family', 'Genus', 'Species']
-EXEC_TIME = '/usr/bin/time'
+settings.init()
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -136,7 +136,7 @@ def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
                                 for annot
                                 in (map(str.strip, linstr.split(';')))}
                 lineage = []
-                for rank in RANKS:
+                for rank in settings.RANKS:
                     rank_char = rank[0].lower()
                     if rank_char in orig_lineage:
                         lineage.append(orig_lineage[rank_char])
@@ -386,9 +386,9 @@ def collapseCounts(file_otutable, rank,
     Pandas.DataFrame: counts of collapsed taxa.
     """
     # check that rank is a valid taxonomic rank
-    if rank not in RANKS + ['raw']:
+    if rank not in settings.RANKS + ['raw']:
         raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
-                         (rank, ", ".join(RANKS)))
+                         (rank, ", ".join(settings.RANKS)))
 
     # check that biom table can be read
     if not os.path.exists(file_otutable):
@@ -423,12 +423,15 @@ def collapseCounts(file_otutable, rank,
         # surrounding whitespaces. If rank does not exist return r+'__' instead
         def _splitranks(x, rank):
             try:
-                return [t.strip() for t in x.split(";")][RANKS.index(rank)]
+                return [t.strip()
+                        for t
+                        in x.split(";")][settings.RANKS.index(rank)]
             except AttributeError:
                 # e.g. if lineage string is missing
-                RANKS[RANKS.index(rank)].lower()[0] + "__"
+                settings.RANKS[settings.RANKS.index(rank)].lower()[0] + "__"
             except IndexError:
-                return RANKS[RANKS.index(rank)].lower()[0] + "__"
+                return settings.RANKS[
+                    settings.RANKS.index(rank)].lower()[0] + "__"
         # add columns for each tax rank, such that we can groupby later on
         rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
                                                           _splitranks(x, rank))
@@ -926,7 +929,7 @@ def _add_timing_cmds(commands, file_timing):
                                 '-v '
                                 '-o %s '
                                 '-a %s') %
-                               (EXEC_TIME, file_timing, cmd))
+                               (settings.EXEC_TIME, file_timing, cmd))
     return timing_cmds
 
 

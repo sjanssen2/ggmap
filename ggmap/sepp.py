@@ -15,8 +15,11 @@ from skbio import TabularMSA, DNA
 from skbio.stats.distance import MissingIDError
 from skbio.tree import TreeNode, NoLengthError, MissingNodeError
 
-from ggmap.snippets import (mutate_sequence, biom2pandas, RANKS, cache,
+from ggmap.snippets import (mutate_sequence, biom2pandas, cache,
                             collapseCounts, pandas2biom)
+from ggmap import settings
+
+settings.init()
 
 
 def read_otumap(file_otumap):
@@ -694,9 +697,9 @@ def get_taxa_radia(file_tree, err=sys.stderr):
     tree = TreeNode.read(file_tree)
 
     taxa_radia = dict()
-    for rank in RANKS:
+    for rank in settings.RANKS:
         status = rank
-        if rank != RANKS[-1]:
+        if rank != settings.RANKS[-1]:
             status += ', '
         else:
             status += ' done.\n'
@@ -747,7 +750,7 @@ def plot_errors(taxa_radia, distances, distance_type, name='unnamed',
     # taxonomy reference
     ax = plt.subplot(gs[0, 0])
     g = sns.barplot(data=taxa_radia, x='rank', y='max_tip_tip_dist',
-                    order=RANKS, ax=ax, color=color)
+                    order=settings.RANKS, ax=ax, color=color)
     ax.set_xticklabels(ax.xaxis.get_majorticklabels(), rotation=90)
     g.set_xlabel('')
     g.set_ylim(YLIM)
@@ -852,7 +855,7 @@ def plot_errordistribution(distances, distance_type, plotfile_prefix,
     pandas2biom('help.biom', countshack.groupby('otuIDs').sum())
 
     # actuall plotting
-    ranks = RANKS[:lim]
+    ranks = settings.RANKS[:lim]
     if rank is not None:
         ranks = [rank]
     for i, rank in enumerate(ranks):
