@@ -20,17 +20,14 @@ from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
-
+from ggmap import settings
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
-
-FILE_REFERENCE_TREE = None
-QIIME_ENV = 'qiime_env'
-QIIME2_ENV = 'qiime2-2017.10'
+settings.init()
 
 
-def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
+def _get_ref_phylogeny(file_tree=None, env=settings.QIIME_ENV):
     """Use QIIME config to infer location of reference tree or pass given tree.
 
     Parameters
@@ -41,17 +38,16 @@ def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
         config and search for the rigth path information.
         Otherwise, specified reference tree is returned without doing anything.
     env : str
-        Default: global constant QIIME_ENV value.
+        Default: global constant settings.QIIME_ENV value.
         Conda environment name for QIIME.
 
     Returns
     -------
     Filepath to reference tree.
     """
-    global FILE_REFERENCE_TREE
     if file_tree is not None:
         return file_tree
-    if FILE_REFERENCE_TREE is None:
+    if settings.FILE_REFERENCE_TREE is None:
         err = StringIO()
         with subprocess.Popen(("source activate %s && "
                                "print_qiime_config.py "
@@ -72,8 +68,8 @@ def _get_ref_phylogeny(file_tree=None, env=QIIME_ENV):
             out = out.rstrip()
             # chop '/rep_set/97_otus.fasta' from found path
             out = '/'.join(out.split('/')[:-2])
-            FILE_REFERENCE_TREE = out + '/trees/97_otus.tree'
-    return FILE_REFERENCE_TREE
+            settings.FILE_REFERENCE_TREE = out + '/trees/97_otus.tree'
+    return settings.FILE_REFERENCE_TREE
 
 
 def _getremaining(counts_sums):
@@ -287,7 +283,7 @@ def rarefaction_curves(counts,
         # use_grid = executor_args['use_grid'] \
         #     if 'use_grid' in executor_args else True
         dry = executor_args['dry'] if 'dry' in executor_args else True
-        cluster_run(commands, environment=QIIME2_ENV,
+        cluster_run(commands, environment=settings.QIIME2_ENV,
                     jobname='prep_rarecurves',
                     result="%s/reference_tree.qza" % workdir,
                     ppn=1, pmem='8GB', walltime='1:00:00',
@@ -358,7 +354,7 @@ def rarefaction_curves(counts,
                      commands,
                      post_execute,
                      post_cache,
-                     environment=QIIME2_ENV,
+                     environment=settings.QIIME2_ENV,
                      ppn=1,
                      array=num_steps*num_iterations,
                      **executor_args)
@@ -418,7 +414,7 @@ def rarefy(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      ppn=ppn,
-                     environment=QIIME2_ENV,
+                     environment=settings.QIIME2_ENV,
                      **executor_args)
 
 
@@ -568,7 +564,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=QIIME2_ENV,
+                     environment=settings.QIIME2_ENV,
                      ppn=1,
                      **executor_args)
 
@@ -695,15 +691,15 @@ def beta_diversity(counts,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=QIIME2_ENV,
+                     environment=settings.QIIME2_ENV,
                      **executor_args)
 
 
 def sepp(counts, chunksize=10000,
          reference_phylogeny=None, reference_alignment=None,
          reference_taxonomy=None,
-         ppn=20, pmem='8GB', walltime='12:00:00', environment=QIIME2_ENV,
-         **executor_args):
+         ppn=20, pmem='8GB', walltime='12:00:00',
+         environment=settings.QIIME2_ENV, **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
     Parameters
@@ -1660,7 +1656,7 @@ def denovo_tree_qiime2(counts, **executor_args):
                      commands,
                      post_execute,
                      post_cache=post_cache,
-                     environment=QIIME2_ENV,
+                     environment=settings.QIIME2_ENV,
                      **executor_args)
 
 
@@ -1859,7 +1855,7 @@ def _parse_timing(workdir, jobname):
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
-              pmem='8GB', environment=QIIME_ENV, walltime='4:00:00',
+              pmem='8GB', environment=settings.QIIME_ENV, walltime='4:00:00',
               wait=True, timing=True, verbose=True, array=1, dirty=False):
     """
 

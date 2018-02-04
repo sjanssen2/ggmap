@@ -31,6 +31,8 @@ requirements:
     - networkx
     - basemap
     - basemap-data-hires
+    - yaml
+    - pyyaml
   run:
     - python 3.5*
     - setuptools
@@ -50,6 +52,8 @@ requirements:
     - networkx
     - basemap
     - basemap-data-hires
+    - yaml
+    - pyyaml
 
 test:
   source_files:
@@ -64,8 +68,8 @@ about:
     `conda config --add channels biocore`
     `conda config --add channels bioconda`
     `conda config --add channels conda-forge`
-    
+
     In order to execute analyses functions you need to have a qiime1 conda environment called "qiime_env".
-    You can use an existing environment with a different name, if you 
-    a) change the value of the global variable "QIIME_ENV" in source file ggmap/analyses.py and 
-    b) re-run the setup: `python setup.py install`
+    You can use an existing environment with a different name, if you
+    a) run program/lib once (a settings file is automatically created as ~/.ggmaprc)
+    b) change according value in the newly created settings file ~/.ggmaprc

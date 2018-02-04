@@ -14,3 +14,5 @@ pillow
 networkx
 basemap
 basemap-data-hires
+yaml
+pyyaml
