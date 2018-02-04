@@ -28,10 +28,6 @@ class SettingsTests(TestCase):
                          self.file_fake_settings)
 
     def test_defaults(self):
-        # check that value is not yet present
-        with self.assertRaises(AttributeError):
-            print(settings.RANKS)
-
         # check that default value is used after init()
         settings.FP_SETTINGS = self.file_fake_settings
         settings.init(err=self.err)
