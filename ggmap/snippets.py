@@ -22,6 +22,7 @@ import random
 from tempfile import mkstemp
 import pickle
 from ggmap import settings
+import re
 
 
 settings.init()
@@ -924,6 +925,14 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('var_') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
+        elif cmd.startswith('if [ '):
+            ifcon, rest = re.findall('(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+            timing_cmds.append(('%s '
+                                '%s '
+                                '-v '
+                                '-o %s '
+                                '-a %s') %
+                               (ifcon, settings.EXEC_TIME, file_timing, rest))
         else:
             timing_cmds.append(('%s '
                                 '-v '
