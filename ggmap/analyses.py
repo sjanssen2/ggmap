@@ -1828,7 +1828,7 @@ def compare_categories(beta_dm, metadata,
                      **executor_args)
 
 
-def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, beta_diversities, **executor_args):
+def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, beta_diversities, environment='qiime2-2018.2', **executor_args):
     """
     Parameters
     ----------
@@ -1838,42 +1838,116 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
     alpha_diversities : pd.DataFrame
     beta_diversities : dict{name, skbio.distanceMatrix}
     """
+    METHODS_ALPHA = ['pearson', 'spearman']
+    METHODS_BETA = ['permanova', 'anosim']
+
     def pre_execute(workdir, args):
         # basic tests
         if len(set(args['cols_cat']) - set(args['meta'].columns)) > 0:
-            raise ValueError('Not all columns of metadata table are described in categorial or nonCategorial!')
+            raise ValueError(('Not all columns of metadata table are described'
+                              ' in categorial or nonCategorial!'))
 
         # write alpha diversity values into files
         for metric in args['alpha'].keys():
-            args['alpha'][metric].to_frame().to_csv('%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
+            args['alpha'][metric].to_frame().to_csv(
+                '%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
         # write beta diversity matrices into files
         for metric in args['beta'].keys():
             args['beta'][metric].write('%s/beta_%s.tsv' % (workdir, metric))
         # escape values that Qiime2 might identify as numeric
         for c in args['cols_cat']:
-            args['meta'][c] = args['meta'][c].apply(lambda x: '_%s' % x if x.startswith('_') else x)
+            args['meta'][c] = args['meta'][c].apply(
+                lambda x: '_%s' % x if x.startswith('_') else x)
         # write metadata into file
-        args['meta'].to_csv('%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
+        args['meta'].to_csv('%s/meta.tsv' % workdir, sep='\t',
+                            index_label='sample_name')
+
+        # import beta distance matrix into Qiime2 artifacts
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+        for metric in args['beta'].keys():
+            cluster_run([
+                ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
+                 ' %s/beta_%s.qza --type "DistanceMatrix"') % (
+                    workdir, metric, workdir, metric)],
+                environment=environment,
+                jobname='import_dm',
+                result="%s/beta_%s.qza" % (workdir, metric),
+                ppn=1, pmem='8GB', walltime='1:00:00',
+                dry=dry,
+                wait=True, use_grid=False)
+
+        # write a file that can provide metric, column and method values for
+        # an array job
+        with open('%s/fields.txt' % workdir, 'w') as f:
+            f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
+            for metric in args['beta'].keys():
+                for column in args['cols_cat']:
+                    for method in METHODS_BETA:
+                        f.write('\t'.join([metric, column, method])+'\n')
 
     def commands(workdir, ppn, args):
         commands = []
 
         # store alpha diversities as Qiime2 artifacts
         for metric in args['alpha'].keys():
-            commands.append('qiime tools import --input-path %s/alpha_%s.tsv --output-path %s/alpha_%s.qza --type "SampleData[AlphaDiversity]"' % (workdir, metric, workdir, metric))
-            commands.append('qiime diversity alpha-group-significance --i-alpha-diversity %s/alpha_%s.qza --m-metadata-file %s/meta.tsv --output-dir %s/alpha-group-significance_%s/' % (workdir, metric, workdir, workdir, metric))
-            commands.append('qiime tools export %s/alpha-group-significance_%s/visualization.qzv --output-dir %s/alpha-group-significance_%s/raw/' % (workdir, metric, workdir, metric))
-            for method in ['pearson', 'spearman']:
-                commands.append('qiime diversity alpha-correlation --i-alpha-diversity %s/alpha_%s.qza --m-metadata-file %s/meta.tsv --p-method %s --output-dir %s/alpha-correlation_%s_%s/' % (workdir, metric, workdir, method, workdir, metric, method))
-                commands.append('qiime tools export %s/alpha-correlation_%s_%s/visualization.qzv --output-dir %s/alpha-correlation_%s_%s/raw/' % (workdir, metric, method, workdir, metric, method))
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime tools import '
+                 '--input-path %s/alpha_%s.tsv '
+                 '--output-path %s/alpha_%s.qza '
+                 '--type "SampleData[AlphaDiversity]"; fi') % (
+                    workdir, metric, workdir, metric))
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime diversity alpha-group-significance '
+                 '--i-alpha-diversity %s/alpha_%s.qza '
+                 '--m-metadata-file %s/meta.tsv '
+                 '--output-dir %s/alpha-group-significance_%s/; fi') % (
+                    workdir, metric, workdir, workdir, metric))
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime tools export '
+                 '%s/alpha-group-significance_%s/visualization.qzv '
+                 '--output-dir %s/alpha-group-significance_%s/raw/; fi') % (
+                    workdir, metric, workdir, metric))
+            for method in METHODS_ALPHA:
+                commands.append(
+                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                     'qiime diversity alpha-correlation '
+                     '--i-alpha-diversity %s/alpha_%s.qza '
+                     '--m-metadata-file %s/meta.tsv '
+                     '--p-method %s '
+                     '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
+                        workdir, metric, workdir, method,
+                        workdir, metric, method))
+                commands.append(
+                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                     'qiime tools export '
+                     '%s/alpha-correlation_%s_%s/visualization.qzv '
+                     '--output-dir %s/alpha-correlation_%s_%s/raw/; fi') % (
+                        workdir, metric, method, workdir, metric, method))
 
-        # store beta diversities as Qiime2 artifacts
-        for metric in args['beta'].keys():
-            commands.append('qiime tools import --input-path %s/beta_%s.tsv --output-path %s/beta_%s.qza --type "DistanceMatrix"' % (workdir, metric, workdir, metric))
-            for column in args['cols_cat']:
-                for method in ['permanova', 'anosim']:
-                    commands.append('qiime diversity beta-group-significance --i-distance-matrix %s/beta_%s.qza --m-metadata-file %s/meta.tsv --m-metadata-column %s --p-method %s --output-dir %s/beta-group-significance_%s_%s_%s/' % (workdir, metric, workdir, column, method, workdir, metric, column, method))
-                    commands.append('qiime tools export %s/beta-group-significance_%s_%s_%s/visualization.qzv --output-dir %s/beta-group-significance_%s_%s_%s/raw/' % (workdir, metric, column, method, workdir, metric, column, method))
+        commands.append(('var_METRIC=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 1`') % workdir)
+        commands.append(('var_COLUMN=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 2`') % workdir)
+        commands.append(('var_METHOD=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 3`') % workdir)
+        commands.append(
+            ('if [ $PBS_ARRAYID -ne 1 ]; then '
+             'qiime diversity beta-group-significance '
+             '--i-distance-matrix %s/beta_${var_METRIC}.qza '
+             '--m-metadata-file %s/meta.tsv '
+             '--m-metadata-column ${var_COLUMN} '
+             '--p-method ${var_METHOD} '
+             '--output-dir %s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/; '
+             'qiime tools export '
+             '%s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
+             '--output-dir %s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
+             'fi') % (workdir, workdir, workdir, workdir, workdir))
 
         return commands
 
@@ -1884,59 +1958,101 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
             for _, _, files in os.walk(fp_asig):
                 for file in files:
                     if file.startswith('column-') and file.endswith('.jsonp'):
-                        column = '.'.join(("-".join(file.split('-')[1:])).split('.')[:-1])
+                        column = '.'.join(("-".join(
+                            file.split('-')[1:])).split('.')[:-1])
                         with open('%s/%s' % (fp_asig, file), 'r') as f:
                             content = "\n".join(f.readlines())
                             results.append({'div': 'alpha',
                                             'type': 'group-significance',
                                             'metric': metric,
                                             'column': column,
-                                            'test-statistic': re.findall(r'"H":\s+(\d*\.\d+)', content)[0],
+                                            'test-statistic':
+                                            re.findall(r'"H":\s+(\d*\.\d+)',
+                                                       content)[0],
                                             'test statistic name': 'H',
-                                            'p-value': re.findall(r'"p":\s+(\d*\.\d+)', content)[0],
-                                            'test': 'Kruskal-Wallis (all groups)'})
+                                            'p-value':
+                                            re.findall(r'"p":\s+(\d*\.\d+)',
+                                                       content)[0],
+                                            'test':
+                                            'Kruskal-Wallis (all groups)'})
                 break
 
+            regexAt = r'"testStat":\s+"?(-?\d*\.\d+)"?'
+            regexAp = r'"pVal":\s+"?(\d*\.\d+)"?'
+            regexAs = r'"sampleSize":\s+"?(\d+)"?'
             for method in ['pearson', 'spearman']:
-                fp_acorr = '%s/alpha-correlation_%s_%s/raw/' % (workdir, metric, method)
+                fp_acorr = '%s/alpha-correlation_%s_%s/raw/' % (
+                    workdir, metric, method)
                 for _, _, files in os.walk(fp_acorr):
                     for file in files:
-                        if file.startswith('column-') and file.endswith('.jsonp'):
-                            column = '.'.join(("-".join(file.split('-')[1:])).split('.')[:-1])
+                        if file.startswith('column-') and \
+                                file.endswith('.jsonp'):
+                            column = '.'.join(("-".join(
+                                file.split('-')[1:])).split('.')[:-1])
                             with open('%s/%s' % (fp_acorr, file), 'r') as f:
                                 content = "\n".join(f.readlines())
                                 results.append({'div': 'alpha',
                                                 'type': 'correlation',
                                                 'metric': metric,
                                                 'column': column,
-                                                'test-statistic': re.findall(r'"testStat":\s+"?(-?\d*\.\d+)"?', content)[0],
-                                                'p-value': re.findall(r'"pVal":\s+"?(\d*\.\d+)"?', content)[0],
-                                                'sampleSize': re.findall(r'"sampleSize":\s+"?(\d+)"?', content)[0],
+                                                'test-statistic':
+                                                re.findall(regexAt,
+                                                           content)[0],
+                                                'p-value':
+                                                re.findall(regexAp,
+                                                           content)[0],
+                                                'sampleSize':
+                                                re.findall(regexAs,
+                                                           content)[0],
                                                 'test': method})
                 break
 
+        regexBtn = r'<th>test statistic name</th>\s*<td>(.+?)</td>'
+        regexBss = r'<th>sample size</th>\s*<td>(.+?)</td>'
+        regexBts = r'<th>test statistic</th>\s*<td>(.+?)</td>'
+        regexBpv = r'<th>p-value</th>\s*<td>(.+?)</td>'
+        regexBnp = r'<th>number of permutations</th>\s*<td>(.+?)</td>'
+        regexBng = r'<th>number of groups</th>\s*<td>(.+?)</td>'
         for metric in args['beta'].keys():
             for method in ['permanova', 'anosim']:
                 for _, dirs, _ in os.walk(workdir):
                     for dir in dirs:
-                        if dir.startswith('beta-group-significance_%s' % metric) and dir.endswith(method):
-                            column = dir[len('beta-group-significance_%s' % metric)+1:-1*(len(method)+1)]
-                            with open('%s/%s/raw/index.html' % (workdir, dir), 'r') as f:
-                                content = ("".join(f.readlines()).replace('\n', ''))
+                        if dir.startswith(
+                                'beta-group-significance_%s' % metric) and \
+                                dir.endswith(method):
+                            column = dir[len(
+                                'beta-group-significance_%s' % metric)+1:
+                                -1*(len(method)+1)]
+                            with open('%s/%s/raw/index.html' % (
+                                    workdir, dir), 'r') as f:
+                                content = ("".join(f.readlines()).replace(
+                                    '\n', ''))
                                 results.append({'div': 'beta',
                                                 'type': 'group-significance',
                                                 'metric': metric,
                                                 'column': column,
-                                                'test statistic name': re.findall(r'<th>test statistic name</th>\s*<td>(.+?)</td>', content)[0],
-                                                'sampleSize': re.findall(r'<th>sample size</th>\s*<td>(.+?)</td>', content)[0],
-                                                'test-statistic': re.findall(r'<th>test statistic</th>\s*<td>(.+?)</td>', content)[0],
-                                                'p-value': re.findall(r'<th>p-value</th>\s*<td>(.+?)</td>', content)[0],
-                                                'number of permutations': re.findall(r'<th>number of permutations</th>\s*<td>(.+?)</td>', content)[0],
-                                                'number of groups': re.findall(r'<th>number of groups</th>\s*<td>(.+?)</td>', content)[0],
+                                                'test statistic name':
+                                                re.findall(regexBtn,
+                                                           content)[0],
+                                                'sampleSize':
+                                                re.findall(regexBss,
+                                                           content)[0],
+                                                'test-statistic':
+                                                re.findall(regexBts,
+                                                           content)[0],
+                                                'p-value':
+                                                re.findall(regexBpv,
+                                                           content)[0],
+                                                'number of permutations':
+                                                re.findall(regexBnp,
+                                                           content)[0],
+                                                'number of groups':
+                                                re.findall(regexBng,
+                                                           content)[0],
                                                 'test': method})
                     break
 
-        return results
+        return pd.DataFrame(results)
 
     return _executor('corr-divmeta',
                      {'alpha': alpha_diversities,
@@ -1946,8 +2062,10 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
                      pre_execute,
                      commands,
                      post_execute,
-                     environment='qiime2-2018.2',
+                     environment=environment,
                      ppn=1,
+                     array=len(beta_diversities.keys()) * len(categorial) *
+                     len(METHODS_BETA) + 1,
                      **executor_args)
 
 
@@ -2065,9 +2183,14 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             cache_args_original[arg] = cache_arguments[arg]
             dm = cache_arguments[arg]
             cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
-        if (type(cache_arguments[arg]) == dict) and (len({type(v) for v in cache_arguments[arg].values()} ^ set([DistanceMatrix])) == 0):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = collections.OrderedDict({k: dm.filter(sorted(dm.ids)).data for k, dm in cache_arguments[arg].items()})
+        if (type(cache_arguments[arg]) == dict):
+            if (len({type(v) for v in cache_arguments[arg].values()} ^
+                    set([DistanceMatrix])) == 0):
+                cache_args_original[arg] = cache_arguments[arg]
+                cache_arguments[arg] = collections.OrderedDict(
+                    {k: dm.filter(sorted(dm.ids)).data
+                     for k, dm
+                     in cache_arguments[arg].items()})
 
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
