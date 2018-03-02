@@ -4,12 +4,15 @@ from datetime import datetime
 import itertools
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 import numpy as np
 import seaborn as sns
 from scipy.stats import chi2_contingency, f_oneway, spearmanr, pearsonr
 import matplotlib.pyplot as plt
 from skbio.stats.distance import DistanceMatrix
+from skbio.stats.ordination import pcoa
 from skbio.tree import TreeNode
+from skbio import OrdinationResults
 from scipy.cluster.hierarchy import ward
 
 from ggmap.analyses import _executor
@@ -319,6 +322,7 @@ def redundancy_analysis_alpha(metadata, alpha,
                     order=rda.sort_values(
                         'effect size', ascending=False)['label'],
                     ax=axes)
+        axes.set_title('Redundancy analysis "%s"' % alpha.name)
         axes.set_ylabel('covariate')
         cache_results['results']['figure'] = fig
         return cache_results
@@ -326,6 +330,153 @@ def redundancy_analysis_alpha(metadata, alpha,
     return _executor('fRDAalpha',
                      {'metadata': metadata,
                       'alpha': alpha,
+                      'categorials': categorials,
+                      'ordinals': ordinals,
+                      'intervals': intervals,
+                      'dates': dates},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     ppn=1,
+                     environment=None,
+                     **executor_args)
+
+
+def redundancy_analysis_beta(metadata, beta, metric_name,
+                             categorials=[], ordinals={}, intervals=[],
+                             dates={}, num_dimensions=10,
+                             **executor_args):
+    """Perform a forward step redundancy analysis rearding alpha diversity.
+
+    Parameters
+    ----------
+    metadata : Pandas.DataFrame
+        DataFrame holding all metadata about an experiment.
+    beta : skbio.DistanceMatrix | skbio.OrdinationResults
+        Series holding alpha diversity values for every sample.
+    metric_name : str
+        Beta diversity metric name; only for printing a speaking label.
+    categorials : [str]
+        List of column names of provided metadata DataFrame.
+    ordinals : dict{str, None | [str]}
+        Two level dictionary, where first key must be metadata column names.
+        Value is either None, i.e. no mapping provided, or it must be an
+        ordered list of labels. Labels not covered by this list will be
+        ignored!
+    intervals : [str]
+        List of column names of provided metadata DataFrame.
+    dates : dict{str: str}
+        Dictionary of column names and their format string to convert the date
+        into a machine readable datetime object.
+    num_dimensions : int
+        Default 10.
+        Number of PCoA dimensions to consider.
+    err : StringIO
+        Default: sys.stderr
+        Stream to print warnings to.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Notes
+    -----
+    Following Serenes approach.
+    """
+    def pre_execute(workdir, args):
+        COL_NAME_BETA = 'forRDA_beta'
+
+        #samples = set(args['metadata'].index) & set(args['alpha'].index)
+        meta, all_columns = _clear_metadata(
+            args['metadata'], args['categorials'], args['ordinals'],
+            args['intervals'], args['dates'])
+
+        if type(args['beta']) == OrdinationResults:
+            dimred = args['beta'].samples
+        else:
+            dimred = pcoa(args['beta']).samples
+        dimred = dimred.iloc[:, :num_dimensions]
+        dimred.columns = ['%s_%s' % (COL_NAME_BETA, c) for c in dimred.columns]
+
+        meta_beta = meta.loc[:, all_columns].merge(
+            dimred, left_index=True, right_index=True)
+        if args['metadata'].shape[0] != dimred.shape[0]:
+            sys.stderr.write(
+                'You provided %s and %s samples in metadata and beta '
+                'respectively. Merging to %s samples for further analysis.\n'
+                % (args['metadata'].shape[0], dimred.shape[0],
+                   meta_beta.shape[0]))
+
+        meta_beta.to_csv('%s/metadata_beta.tsv' % workdir, sep="\t",
+                         index=False)
+        with open('%s/rscript.R' % workdir, 'w') as f:
+            f.write('library(vegan)\n')
+            f.write('meta_beta = read.csv(\'%s/metadata_beta.tsv\', '
+                    'stringsAsFactors=FALSE, sep=\'\\t\')\n' % workdir)
+            f.write('vars_cat = c(\'%s\')\n' %
+                    "', '".join(categorials + list(ordinals.keys())))
+            f.write('vars_pcs = c(\'%s\')\n' %
+                    "', '".join([c for c in dimred.columns]))
+            f.write('vars_meta = c(\'%s\')\n' %
+                    "', '".join(all_columns))
+            f.write('meta_beta[vars_cat] = lapply(meta_beta[vars_cat],'
+                    ' factor)\n')
+            f.write('meta_beta = meta_beta[complete.cases(meta_beta), ]\n')
+            f.write('mod0 <- rda(meta_beta[, vars_pcs] ~ 1., meta_beta[, '
+                    'vars_meta])  # Model with intercept only\n')
+            f.write('mod1 <- rda(meta_beta[, vars_pcs] ~ ., meta_beta[, '
+                    'vars_meta])  # Model with all explanatory variables\n')
+            f.write('step.res <- ordiR2step(mod0, mod1, perm.max = 1000)\n')
+            f.write('write.table(step.res$anova, file=\'%s/result.tsv\', '
+                    'quote=FALSE, sep=\'\\t\', col.names = NA)\n' % workdir)
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('module load R_3.3.0')
+        commands.append('R --vanilla < %s/rscript.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        try:
+            rda = pd.read_csv('%s/result.tsv' % workdir, sep='\t', index_col=0)
+        except EmptyDataError:
+            sys.stderr.write('No significant covariates found!\n')
+            return None
+
+        # drop fields not starting with a +, i.e. are <All variables> or <none>
+        rda = rda.loc[[idx for idx in rda.index if idx.startswith('+')], :]
+
+        # compute adjusted effect size
+        rda['effect size'] = rda['R2.adj'] - ([0] + list(
+            rda['R2.adj'].values)[:-1])
+
+        rda.index = map(lambda x: x.replace('+ ', ''), rda.index)
+
+        rda = rda.reset_index().rename(columns={'index': 'covariate'})
+
+        return {'table': rda}
+
+    def post_cache(cache_results):
+        if cache_results['results'] is not None:
+            fig, axes = plt.subplots(1, 1)
+            rda = cache_results['results']['table']
+            rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
+                lambda x: '(p: %.3f)' % x)
+            sns.barplot(data=rda.reset_index(),
+                        x='effect size',
+                        y='label',
+                        order=rda.sort_values(
+                            'effect size', ascending=False)['label'],
+                        ax=axes)
+            axes.set_ylabel('covariate')
+            axes.set_title('Redundancy analysis "%s"' % metric_name)
+            cache_results['results']['figure'] = fig
+
+    return _executor('fRDAbeta',
+                     {'metadata': metadata,
+                      'beta': beta,
+                      'metric_name': metric_name,
                       'categorials': categorials,
                       'ordinals': ordinals,
                       'intervals': intervals,
