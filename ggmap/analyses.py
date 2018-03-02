@@ -698,7 +698,7 @@ def beta_diversity(counts,
 
 def sepp(counts, chunksize=10000,
          reference_phylogeny=None, reference_alignment=None,
-         reference_taxonomy=None,
+         reference_taxonomy=None, reference_info=None,
          ppn=20, pmem='8GB', walltime='12:00:00',
          environment=settings.QIIME2_ENV, **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
@@ -721,6 +721,10 @@ def sepp(counts, chunksize=10000,
         Default: None.
         Filepath to a qza "FeatureData[Taxonomy]" artifact, holding an
         alternative reference taxonomy for SEPP.
+    reference_info : str
+        Default: None.
+        Filepath to a RAxML info file storing model information about reference
+        phylogeny constructed from alignment.
     chunksize: int
         Default: 10000
         SEPP jobs seem to fail if too many sequences are submitted per job.
@@ -761,14 +765,18 @@ def sepp(counts, chunksize=10000,
         if reference_alignment is not None:
             ref_alignment = ' --i-reference-alignment %s ' % (
                 reference_alignment)
+        ref_info = ""
+        if reference_info is not None:
+            ref_info = ' --i-reference-info %s ' % (
+                reference_info)
 
         commands.append(
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
              '--p-threads %i '
-             '%s%s'
+             '%s%s%s'
              '--output-dir %s/res_${PBS_ARRAYID}') %
-            (workdir, ppn, ref_phylogeny, ref_alignment, workdir))
+            (workdir, ppn, ref_phylogeny, ref_alignment, ref_info, workdir))
 
         # export the placements
         commands.append(
@@ -904,10 +912,13 @@ def sepp(counts, chunksize=10000,
         reference_phylogeny = os.path.abspath(reference_phylogeny)
     if reference_taxonomy is not None:
         reference_taxonomy = os.path.abspath(reference_taxonomy)
+    if reference_info is not None:
+        reference_info = os.path.abspath(reference_info)
     args = {'seqs': seqs,
             'reference_alignment': reference_alignment,
             'reference_phylogeny': reference_phylogeny,
             'reference_taxonomy': reference_taxonomy,
+            'reference_info': reference_info,
             'chunksize': chunksize}
     return _executor('sepp',
                      args,
