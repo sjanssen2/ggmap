@@ -1632,8 +1632,16 @@ def plotGroup_permanovas(beta, groupings,
                              groupings[groupings == b].index]
 
         for _type in dists.keys():
+            grp_name = None
+            if _type == 'left':
+                grp_name = a
+            elif _type == 'right':
+                grp_name = b
+            else:
+                grp_name = 'inter'
             for d in dists[_type]:
-                data.append({'edge': edgename, '_type': _type, metric_name: d})
+                data.append({'edge': edgename, '_type': _type, metric_name: d,
+                             'group': grp_name})
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
