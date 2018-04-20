@@ -1191,7 +1191,8 @@ def cluster_run(cmds, jobname, result, environment=None,
 
 
 def detect_distant_groups_alpha(alpha, groupings,
-                                min_group_size=21):
+                                min_group_size=21,
+                                fct_test=mannwhitneyu):
     """Given metadata field, test for sig. group differences in alpha
        distances.
 
@@ -1204,6 +1205,10 @@ def detect_distant_groups_alpha(alpha, groupings,
     min_group_size : int
         A minimal group size to be considered. Smaller group labels will be
         ignored. Default: 21.
+    fct_test : function
+        Default: mannwhitneyu
+        The statistical test that is used to test for differences between
+        groups.
 
     Returns
     -------
@@ -1216,6 +1221,7 @@ def detect_distant_groups_alpha(alpha, groupings,
         num_permutations : None
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
+        testfunction :     string name of test function
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1231,9 +1237,13 @@ def detect_distant_groups_alpha(alpha, groupings,
 
     network = dict()
     for a, b in combinations(groups, 2):
-        res = mannwhitneyu(alpha.loc[groupings[groupings == a].index],
-                           alpha.loc[groupings[groupings == b].index],
-                           alternative='two-sided')
+        args = {'a': alpha.loc[groupings[groupings == a].index],
+                'b': alpha.loc[groupings[groupings == b].index]}
+        if fct_test == mannwhitneyu:
+            args['alternative'] = 'two-sided'
+            args['x'] = args.pop('a')
+            args['y'] = args.pop('b')
+        res = fct_test(**args)
 
         if a not in network:
             network[a] = dict()
@@ -1246,7 +1256,8 @@ def detect_distant_groups_alpha(alpha, groupings,
              'min_group_size': min_group_size,
              'num_permutations': None,
              'metric_name': alpha.name,
-             'group_name': groupings.name})
+             'group_name': groupings.name,
+             'testfunction': fct_test.__name__})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -1356,9 +1367,10 @@ def groups_is_significant(group_infos, pthresh=0.05):
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
-                       metric_name, group_name, pthresh=0.05, _type='beta',
-                       draw_edgelabel=False, ax=None, edge_color_sig=None,
-                       print_title=True, edgelabel_decimals=2):
+                       metric_name, group_name, testfunction=None,
+                       pthresh=0.05, _type='beta', draw_edgelabel=False,
+                       ax=None, edge_color_sig=None, print_title=True,
+                       edgelabel_decimals=2):
     """Plots pairwise beta diversity group relations (obtained by
        'detect_distant_groups')
 
@@ -1379,6 +1391,9 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         The beta diversity metric name used.
     group_name : str
         A label for the grouping criterion.
+    testfunction : str
+        Default: None
+        The name of the statistical test function used.
     pthresh : float
         The maximal p-value of a group difference to be considered significant.
         It will be corrected for multiple hypothesis testing in a naive way,
