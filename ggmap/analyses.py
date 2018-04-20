@@ -699,6 +699,7 @@ def beta_diversity(counts,
 def sepp(counts, chunksize=10000,
          reference_phylogeny=None, reference_alignment=None,
          reference_taxonomy=None, reference_info=None,
+         alignment_subset_size=None, placement_subset_size=None,
          ppn=20, pmem='8GB', walltime='12:00:00',
          environment=settings.QIIME2_ENV, **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
@@ -725,6 +726,24 @@ def sepp(counts, chunksize=10000,
         Default: None.
         Filepath to a RAxML info file storing model information about reference
         phylogeny constructed from alignment.
+    alignment_subset_size : int
+        Default: None, i.e. 1000
+        Each placement subset is further broken into
+        subsets of at most these many sequences and
+        a separate HMM is trained on each subset.
+        The default alignment subset size is set to
+        balance the exhaustiveness of the alignment
+        step with the running time.
+    placement-subset-size : int
+        Default: None, i.e. 5000
+        The tree is divided into subsets such that
+        each subset includes at most these many
+        subsets. The placement step places the
+        fragment on only one subset, determined
+        based on alignment scores. The default
+        placement subset is set to make sure the
+        memory requirement of the pplacer step does
+        not become prohibitively large.
     chunksize: int
         Default: 10000
         SEPP jobs seem to fail if too many sequences are submitted per job.
@@ -769,14 +788,23 @@ def sepp(counts, chunksize=10000,
         if reference_info is not None:
             ref_info = ' --i-reference-info %s ' % (
                 reference_info)
+        ss_alignment = ""
+        if args['alignment_subset_size'] is not None:
+            ss_alignment = ' --p-alignment-subset-size %s ' % (
+                args['alignment_subset_size'])
+        ss_placement = ""
+        if args['placement_subset_size'] is not None:
+            ss_placement = ' --p-placement-subset-size %s ' % (
+                args['placement_subset_size'])
 
         commands.append(
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
              '--p-threads %i '
-             '%s%s%s'
+             '%s%s%s%s%s'
              '--output-dir %s/res_${PBS_ARRAYID}') %
-            (workdir, ppn, ref_phylogeny, ref_alignment, ref_info, workdir))
+            (workdir, ppn, ref_phylogeny, ref_alignment, ref_info,
+             ss_alignment, ss_placement, workdir))
 
         # export the placements
         commands.append(
@@ -919,6 +947,8 @@ def sepp(counts, chunksize=10000,
             'reference_phylogeny': reference_phylogeny,
             'reference_taxonomy': reference_taxonomy,
             'reference_info': reference_info,
+            'alignment_subset_size': alignment_subset_size,
+            'placement_subset_size': placement_subset_size,
             'chunksize': chunksize}
     return _executor('sepp',
                      args,
@@ -1839,7 +1869,10 @@ def compare_categories(beta_dm, metadata,
                      **executor_args)
 
 
-def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, beta_diversities, environment='qiime2-2018.2', **executor_args):
+def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
+                                      beta_diversities,
+                                      environment='qiime2-2018.2',
+                                      **executor_args):
     """
     Parameters
     ----------
@@ -1864,14 +1897,15 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
                 '%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
         # write beta diversity matrices into files
         for metric in args['beta'].keys():
-            args['beta'][metric].write('%s/beta_%s.tsv' % (workdir, metric))
+            args['beta'][metric].write(
+                '%s/beta_%s.tsv' % (workdir, metric))
         # escape values that Qiime2 might identify as numeric
         for c in args['cols_cat']:
             args['meta'][c] = args['meta'][c].apply(
-                lambda x: '_%s' % x if x.startswith('_') else x)
+                lambda x: '_%s' % x if not x.startswith('_') else x)
         # write metadata into file
-        args['meta'].to_csv('%s/meta.tsv' % workdir, sep='\t',
-                            index_label='sample_name')
+        args['meta'].to_csv(
+            '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
 
         # import beta distance matrix into Qiime2 artifacts
         dry = executor_args['dry'] if 'dry' in executor_args else True
@@ -1988,7 +2022,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
                                             'Kruskal-Wallis (all groups)'})
                 break
 
-            regexAt = r'"testStat":\s+"?(-?\d*\.\d+)"?'
+            regexAt = r'"testStat":\s+"?(-?\d*\.\d+|nan)"?'
             regexAp = r'"pVal":\s+"?(\d*\.\d+)"?'
             regexAs = r'"sampleSize":\s+"?(\d+)"?'
             for method in ['pearson', 'spearman']:
@@ -2063,19 +2097,63 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities, b
                                                 'test': method})
                     break
 
-        return pd.DataFrame(results)
+        # add information about those columns of the metadata that have not
+        # been tested because all their values were the same.
+        for col in args['cols_onevalue']:
+            results.append({'type': 'unique value',
+                            'column': col,
+                            'test statistic name': 'not executed',
+                            'p-value': 1.0,
+                            'test': 'not executed'})
+
+        pd_results = pd.DataFrame(results)
+        pd_results['p-value'] = pd_results['p-value'].apply(
+            lambda x: np.nan if x == 'nan' else x).astype(float)
+        return pd_results
+
+    # synchronize samples across metadata, alpha and beta diversity to the
+    # smallest shared group
+    idx_samples = set(metadata.index)
+    idx_samples &= set(alpha_diversities.index)
+    for metric in beta_diversities.keys():
+        idx_samples &= set(beta_diversities[metric].ids)
+    if (len(idx_samples) < metadata.shape[0]) |\
+            (len(idx_samples) < alpha_diversities.shape[0]) |\
+            any([len(idx_samples) < m.shape[0]
+                 for m in beta_diversities.values()]):
+        sys.stderr.write(
+            'Reducing analysis to %i samples.\n' % len(idx_samples))
+
+    # find columns that a) have only one value for all samples ...
+    cols_onevalue = [col
+                     for col in metadata.columns
+                     if len(metadata.loc[idx_samples, col].unique()) == 1]
+    # ... or b) are categorial, but have different values for all samples
+    cols_alldiff = [col
+                    for col in categorial
+                    if len(metadata.loc[idx_samples, col].unique()) ==
+                    metadata.loc[idx_samples, col].shape[0]]
 
     return _executor('corr-divmeta',
-                     {'alpha': alpha_diversities,
-                      'beta': beta_diversities,
-                      'meta': metadata.sort_index(),
-                      'cols_cat': sorted(categorial)},
+                     {'alpha': alpha_diversities.loc[idx_samples, :],
+                      'beta': {k: m.filter(idx_samples)
+                               for k, m in beta_diversities.items()},
+                      'meta': metadata.loc[idx_samples,
+                                           sorted(list(set(metadata.columns) -
+                                                       set(cols_onevalue)))]
+                      .sort_index(),
+                      'cols_cat': sorted(list(set(categorial) -
+                                              set(cols_alldiff) -
+                                              set(cols_onevalue))),
+                      'cols_onevalue': sorted(cols_onevalue)},
                      pre_execute,
                      commands,
                      post_execute,
                      environment=environment,
                      ppn=1,
-                     array=len(beta_diversities.keys()) * len(categorial) *
+                     array=len(beta_diversities.keys()) * len(
+                         set(categorial) - set(cols_alldiff) -
+                         set(cols_onevalue)) *
                      len(METHODS_BETA) + 1,
                      **executor_args)
 
