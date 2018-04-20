@@ -32,7 +32,11 @@ def _cramers_corrected_stat(chi2, confusion_matrix):
     phi2corr = max(0, phi2 - ((k-1)*(r-1))/(n-1))
     rcorr = r - ((r-1)**2)/(n-1)
     kcorr = k - ((k-1)**2)/(n-1)
-    return np.sqrt(phi2corr / min((kcorr-1), (rcorr-1)))
+    denominator = min((kcorr-1), (rcorr-1))
+    if denominator == 0:
+        return np.nan
+    else:
+        return np.sqrt(phi2corr / denominator)
 
 
 def _get_pivot(field_a, field_b, metadata):
@@ -42,7 +46,8 @@ def _get_pivot(field_a, field_b, metadata):
 
 def _clear_metadata(metadata,
                     categorials=[], ordinals={}, intervals=[], dates={},
-                    err=sys.stderr):
+                    err=sys.stderr,
+                    for_metadata_correlation=False):
     """Clean up metadata and perform necessary conversions.
     """
     if type(ordinals) != dict:
@@ -63,8 +68,25 @@ def _clear_metadata(metadata,
             'categorials or intervals. Make sure a column name only occures in'
             ' one of those three categories!')
 
-    if len(all_columns) < 2:
-        raise ValueError('You need to specify at least two columns!')
+    for obj, name in zip([categorials, ordinals, intervals, dates],
+                         ['categorials', 'ordinals', 'intervals', 'dates']):
+        keys = []
+        if type(obj) == list:
+            keys = obj
+        elif type(obj) == dict:
+            keys = obj.keys()
+        value_counts = {k: 0 for k in keys}
+        for k in keys:
+            value_counts[k] += 1
+        duplicate_keys = [k for k, v in value_counts.items() if v > 1]
+        if len(duplicate_keys) > 0:
+            raise ValueError('You specified columns "%s" as %s more than once!'
+                             % ('", "'.join(duplicate_keys), name))
+
+    min_col_nr = 2 if for_metadata_correlation else 1
+    if len(all_columns) < min_col_nr:
+        raise ValueError('You need to specify at least %s columns!' %
+                         min_col_nr)
 
     # check that all columns are actually in metadata
     not_present = []
@@ -91,7 +113,7 @@ def _clear_metadata(metadata,
     for column in dates.keys():
         meta[column] = meta[column].apply(
             lambda x: time.mktime(datetime.strptime(
-                x, dates[column]).timetuple()))
+                x, dates[column]).timetuple()) if type(x) != float else x)
 
     # convert ordinal labels into floats
     for column in ordinals.keys():
@@ -103,10 +125,12 @@ def _clear_metadata(metadata,
                 raise ValueError(
                     'Mapping for ordinal "%s" must be either None or a list '
                     'but not a "%s"!' % (column, type(ordinals[column])))
-            if len(meta[column].unique()) > len(ordinals[column]):
+            if len(meta[column].dropna().unique()) > len(ordinals[column]):
+                print(column, meta[column].unique())
                 err.write('Ordinal "%s" does not specify label(s) "%s".\n' % (
-                    column, '", "'.join(sorted(set(meta[column].unique()) -
-                                        set(ordinals[column])))))
+                    column, '", "'.join(sorted(
+                        set(meta[column].dropna().unique()) - set(
+                            ordinals[column])))))
             meta[column] = meta[column].dropna().apply(
                 lambda x: ordinals[column].index(x)
                 if x in ordinals[column] else np.nan)
@@ -141,10 +165,11 @@ def correlate_metadata(metadata,
 
     Returns
     -------
-    ??
+    fig, correlations : pd.DataFrame , tree : skbio.tree.TreeNode
     """
     meta, all_columns = _clear_metadata(
-        metadata, categorials, ordinals, intervals, dates, err)
+        metadata, categorials, ordinals, intervals, dates, err,
+        for_metadata_correlation=True)
 
     summary = dict()
     # start computing correlations
@@ -205,9 +230,11 @@ def correlate_metadata(metadata,
     correlations = pd.DataFrame.from_dict(summary, orient='index')['r_'].unstack().fillna(0.0)
 
     # create heatmap visualization
-    heatmap = sns.clustermap(correlations, cmap='viridis')
+    heatmap = sns.clustermap(correlations, cmap='viridis',
+                             yticklabels=1, xticklabels=1)
     plt.setp(heatmap.ax_heatmap.yaxis.get_majorticklabels(), rotation=0)
     fig = plt.gcf()
+    # fig.set_size_inches(15, 15, forward=True)
 
     # create cluster tree
     dm = DistanceMatrix(1-correlations, ids=correlations.columns)
@@ -256,7 +283,7 @@ def redundancy_analysis_alpha(metadata, alpha,
         #samples = set(args['metadata'].index) & set(args['alpha'].index)
         meta, all_columns = _clear_metadata(
             args['metadata'], args['categorials'], args['ordinals'],
-            args['intervals'], args['dates'])
+            args['intervals'], args['dates'], for_metadata_correlation=False)
         _alpha = args['alpha'].copy()
         _alpha.name = COL_NAME_ALPHA
         meta_alpha = meta.loc[:, all_columns].merge(
@@ -296,7 +323,10 @@ def redundancy_analysis_alpha(metadata, alpha,
         return commands
 
     def post_execute(workdir, args):
-        rda = pd.read_csv('%s/result.tsv' % workdir, sep='\t', index_col=0)
+        try:
+            rda = pd.read_csv('%s/result.tsv' % workdir, sep='\t', index_col=0)
+        except EmptyDataError:
+            return {'table': pd.DataFrame()}
 
         # drop fields not starting with a +, i.e. are <All variables> or <none>
         rda = rda.loc[[idx for idx in rda.index if idx.startswith('+')], :]
@@ -312,19 +342,22 @@ def redundancy_analysis_alpha(metadata, alpha,
         return {'table': rda}
 
     def post_cache(cache_results):
-        fig, axes = plt.subplots(1, 1)
-        rda = cache_results['results']['table']
-        rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
-            lambda x: '(p: %.3f)' % x)
-        sns.barplot(data=rda.reset_index(),
-                    x='effect size',
-                    y='label',
-                    order=rda.sort_values(
-                        'effect size', ascending=False)['label'],
-                    ax=axes)
-        axes.set_title('Redundancy analysis "%s"' % alpha.name)
-        axes.set_ylabel('covariate')
-        cache_results['results']['figure'] = fig
+        if cache_results['results']['table'].shape[0] > 0:
+            fig, axes = plt.subplots(1, 1)
+            rda = cache_results['results']['table']
+            rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
+                lambda x: '(p: %.3f)' % x)
+            sns.barplot(data=rda.reset_index(),
+                        x='effect size',
+                        y='label',
+                        order=rda.sort_values(
+                            'effect size', ascending=False)['label'],
+                        ax=axes)
+            axes.set_title('Redundancy analysis "%s"' % alpha.name)
+            axes.set_ylabel('covariate')
+            cache_results['results']['figure'] = fig
+        else:
+            sys.stderr.write('No significant findings.\n')
         return cache_results
 
     return _executor('fRDAalpha',
@@ -388,7 +421,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
         #samples = set(args['metadata'].index) & set(args['alpha'].index)
         meta, all_columns = _clear_metadata(
             args['metadata'], args['categorials'], args['ordinals'],
-            args['intervals'], args['dates'])
+            args['intervals'], args['dates'], for_metadata_correlation=False)
 
         if type(args['beta']) == OrdinationResults:
             dimred = args['beta'].samples
@@ -442,7 +475,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
             rda = pd.read_csv('%s/result.tsv' % workdir, sep='\t', index_col=0)
         except EmptyDataError:
             sys.stderr.write('No significant covariates found!\n')
-            return None
+            return {'table': pd.DataFrame()}
 
         # drop fields not starting with a +, i.e. are <All variables> or <none>
         rda = rda.loc[[idx for idx in rda.index if idx.startswith('+')], :]
@@ -458,7 +491,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
         return {'table': rda}
 
     def post_cache(cache_results):
-        if cache_results['results'] is not None:
+        if cache_results['results']['table'].shape[0] > 0:
             fig, axes = plt.subplots(1, 1)
             rda = cache_results['results']['table']
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
@@ -472,6 +505,9 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
             axes.set_ylabel('covariate')
             axes.set_title('Redundancy analysis "%s"' % metric_name)
             cache_results['results']['figure'] = fig
+        else:
+            sys.stderr.write('No significant findings.\n')
+        return cache_results
 
     return _executor('fRDAbeta',
                      {'metadata': metadata,
