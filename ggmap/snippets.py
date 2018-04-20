@@ -1175,9 +1175,15 @@ def cluster_run(cmds, jobname, result, environment=None,
             with subprocess.Popen(cmd_list,
                                   shell=True,
                                   stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE,
                                   executable="bash") as call_x:
                 if (call_x.wait() != 0):
-                    raise ValueError("something went wrong!")
+                    out, err = call_x.communicate()
+                    raise ValueError((
+                        "SYSTEM CALL FAILED.\n==== STDERR ====\n%s"
+                        "\n\n==== STDOUT ====\n%s\n") % (
+                            err.decode("utf-8", 'backslashreplace'),
+                            out.decode("utf-8", 'backslashreplace')))
                 return call_x.pid
 
 
