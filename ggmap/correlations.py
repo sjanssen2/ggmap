@@ -245,7 +245,7 @@ def correlate_metadata(metadata,
 
 def redundancy_analysis_alpha(metadata, alpha,
                               categorials=[], ordinals={}, intervals=[],
-                              dates={},
+                              dates={}, title=None, colors=None, ax=None,
                               **executor_args):
     """Perform a forward step redundancy analysis rearding alpha diversity.
 
@@ -267,6 +267,12 @@ def redundancy_analysis_alpha(metadata, alpha,
         into a machine readable datetime object.
     intervals : [str]
         List of column names of provided metadata DataFrame.
+    title : str
+        Additional string that will be printed into figure's title
+    ax : plt.axes
+        The axis to plot on.
+    colors : dict(str -> str)
+    	A dictionary, defining the color for every metadata column.
     err : StringIO
         Default: sys.stderr
         Stream to print warnings to.
@@ -343,7 +349,10 @@ def redundancy_analysis_alpha(metadata, alpha,
 
     def post_cache(cache_results):
         if cache_results['results']['table'].shape[0] > 0:
-            fig, axes = plt.subplots(1, 1)
+            if ax is None:
+                fig, axes = plt.subplots(1, 1)
+            else:
+                axes = ax
             rda = cache_results['results']['table']
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
@@ -352,10 +361,14 @@ def redundancy_analysis_alpha(metadata, alpha,
                         y='label',
                         order=rda.sort_values(
                             'effect size', ascending=False)['label'],
-                        ax=axes)
-            axes.set_title('Redundancy analysis "%s"' % alpha.name)
+                        ax=axes,
+                        palette={row['label']: colors[row['covariate']] for idx, row in rda.iterrows()})
+            ttl = 'Redundancy analysis "%s"' % alpha.name
+            if title is not None:
+                ttl = '%s\n%s' % (ttl, title)
+            axes.set_title(ttl)
             axes.set_ylabel('covariate')
-            cache_results['results']['figure'] = fig
+            cache_results['results']['figure'] = axes
         else:
             sys.stderr.write('No significant findings.\n')
         return cache_results
@@ -378,7 +391,8 @@ def redundancy_analysis_alpha(metadata, alpha,
 
 def redundancy_analysis_beta(metadata, beta, metric_name,
                              categorials=[], ordinals={}, intervals=[],
-                             dates={}, num_dimensions=10,
+                             dates={}, num_dimensions=10, title=None,
+                             colors=None, ax=None,
                              **executor_args):
     """Perform a forward step redundancy analysis rearding alpha diversity.
 
@@ -405,6 +419,12 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
     num_dimensions : int
         Default 10.
         Number of PCoA dimensions to consider.
+    title : str
+        Additional string that will be printed into figure's title
+    colors : dict(str -> str)
+    	A dictionary, defining the color for every metadata column.
+    ax : plt.axes
+        The axis to plot on.
     err : StringIO
         Default: sys.stderr
         Stream to print warnings to.
@@ -492,7 +512,10 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
 
     def post_cache(cache_results):
         if cache_results['results']['table'].shape[0] > 0:
-            fig, axes = plt.subplots(1, 1)
+            if ax is None:
+                fig, axes = plt.subplots(1, 1)
+            else:
+                axes = ax
             rda = cache_results['results']['table']
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
@@ -501,10 +524,14 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
                         y='label',
                         order=rda.sort_values(
                             'effect size', ascending=False)['label'],
-                        ax=axes)
+                        ax=axes,
+                        palette={row['label']: colors[row['covariate']] for idx, row in rda.iterrows()})
             axes.set_ylabel('covariate')
-            axes.set_title('Redundancy analysis "%s"' % metric_name)
-            cache_results['results']['figure'] = fig
+            ttl = 'Redundancy analysis "%s"' % metric_name
+            if title is not None:
+                ttl = '%s\n%s' % (ttl, title)
+            axes.set_title(ttl)
+            cache_results['results']['figure'] = axes
         else:
             sys.stderr.write('No significant findings.\n')
         return cache_results
