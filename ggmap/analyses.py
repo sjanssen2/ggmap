@@ -1827,6 +1827,111 @@ def compare_categories(beta_dm, metadata,
                      **executor_args)
 
 
+def picrust(counts, **executor_args):
+    """Translate closed ref OTU tables into predicted meta-transcriptomics.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    One hash with following 8 tables:
+    {'rfam': [c],
+     'KEGG_Pathways': [c, c, c, c],
+     'COG_Category': [c, c, c]}
+
+    Install
+    -------
+    conda create --name picrust python=2.7
+    source activate picrust
+    wget https://github.com/picrust/picrust/releases/down \
+        load/v1.1.3/picrust-1.1.3.tar.gz
+    tar xzvf picrust-1.1.3.tar.gz
+    pip install numpy
+    pip install h5py
+    pip install .
+    download_picrust_files.py -t ko
+    download_picrust_files.py -t cog
+    download_picrust_files.py -t rfam
+    """
+    TYPES = ['rfam', 'ko', 'cog']
+
+    def get_catname_levels(type_):
+        levels = None
+        category = None
+        if type_ == 'ko':
+            category = 'KEGG_Pathways'
+            levels = list(range(1, 4))
+        elif type_ == 'cog':
+            category = 'COG_Category'
+            levels = list(range(1, 3))
+        elif type_ == 'rfam':
+            category = 'Rfam'
+            levels = []
+        return category, levels
+
+    def pre_execute(workdir, args):
+        if all(map(lambda x: x.isdigit(), args['counts'].index)):
+            pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
+        else:
+            raise ValueError(
+                ('Not all features are numerical, that might point to the fact'
+                 ' that your count table does not stem from closed reference '
+                 'picking vs. Greengenes.'))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # Normalize to copy number
+        commands.append(('normalize_by_copy_number.py '
+                         '-i "%s/input.biom" '
+                         '-o "%s/normalized.biom"') %
+                        (workdir, workdir))
+
+        # PICRUSt prediction
+        for type_ in TYPES:
+            commands.append(('predict_metagenomes.py '
+                             '-t %s '
+                             '-i "%s/normalized.biom" '
+                             '-o "%s/%s"') % (
+                    type_, workdir, workdir, 'picrust_%s_coll-0.biom' % type_))
+
+        # Collapse at higher hierarchy levels
+        for type_ in TYPES:
+            category, levels = get_catname_levels(type_)
+            for level in levels:
+                commands.append((
+                    'categorize_by_function.py '
+                    '-i "%s/picrust_%s_coll-0.biom" '
+                    '-o "%s/picrust_%s_coll-%s.biom" -l %i -c %s') %
+                    (workdir, type_, workdir, type_, level, level, category))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        for type_ in TYPES:
+            category, levels = get_catname_levels(type_)
+            results[category] = dict()
+            for level in [0] + levels:
+                results[category][level] = biom2pandas(
+                    '%s/picrust_%s_coll-%s.biom' % (workdir, type_, level))
+        return results
+
+    return _executor('picrust',
+                     {'counts': counts},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=1,
+                     environment=settings.PICRUST_ENV,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -1856,7 +1961,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='8GB', environment=settings.QIIME_ENV, walltime='4:00:00',
-              wait=True, timing=True, verbose=True, array=1, dirty=False):
+              wait=True, timing=True, verbose=sys.stderr, array=1,
+              dirty=False):
     """
 
     Parameters
@@ -1901,9 +2007,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     timing : bool
         Default: True
         Use '/usr/bin/time' to log run time of commands.
-    verbose : bool
-        Default: True
-        If True, report progress on sys.stderr.
+    verbose : stream
+        Default: sys.stderr
+        To silence this function, set verbose=None.
     array : int
         Default: 1 = deactivated.
         Only for Torque submits: make the job an array job.
@@ -1953,8 +2059,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     # phase 2: if cache contains matching file, load from cache and return
     if os.path.exists(results['file_cache']) and (nocache is not True):
         if verbose:
-            sys.stderr.write("Using existing results from '%s'. \n" %
-                             results['file_cache'])
+            verbose.write("Using existing results from '%s'. \n" %
+                          results['file_cache'])
         f = open(results['file_cache'], 'rb')
         results = pickle.load(f)
         f.close()
@@ -1989,7 +2095,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             finished_workdirs.append(wd)
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
         if verbose:
-            sys.stderr.write(
+            verbose.write(
                 ('Found %i temporary working directories, but non of '
                  'them have finished. If no job is currently running,'
                  ' you might want to delete these directories and res'
@@ -2000,15 +2106,15 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         # arbitrarily pick first found workdir
         results['workdir'] = finished_workdirs[0]
         if verbose:
-            sys.stderr.write('found matching working dir "%s"\n' %
-                             results['workdir'])
+            verbose.write('found matching working dir "%s"\n' %
+                          results['workdir'])
     else:
         # create a temporary working directory
         prefix = 'ana_%s_' % jobname
         results['workdir'] = tempfile.mkdtemp(prefix=prefix, dir=dir_tmp)
         if verbose:
-            sys.stderr.write("Working directory is '%s'. " %
-                             results['workdir'])
+            verbose.write("Working directory is '%s'. " %
+                          results['workdir'])
         # leave an empty file in workdir with cache file name to later
         # parse results from tmp dir
         f = open("%s/%s" % (results['workdir'],
@@ -2049,7 +2155,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if not dirty:
             shutil.rmtree(results['workdir'])
             if verbose:
-                sys.stderr.write(" Was removed.\n")
+                verbose.write(" Was removed.\n")
 
     os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
     f = open(results['file_cache'], 'wb')
