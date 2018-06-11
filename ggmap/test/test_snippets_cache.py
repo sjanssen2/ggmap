@@ -2,7 +2,6 @@ from unittest import TestCase, main
 from io import StringIO
 from tempfile import mkstemp
 import os
-import sys
 
 from ggmap.snippets import (cache)
 from ggmap.analyses import _executor
