@@ -8,6 +8,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                 'variable_name': 'QIIME_ENV'},
             'condaenv_qiime2': {'default': 'qiime2-2017.10',
                                 'variable_name': 'QIIME2_ENV'},
+            'condaenv_picrust': {'default': 'picrust',
+                                 'variable_name': 'PICRUST_ENV'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
             'fp_reference_taxonomy': {
@@ -43,6 +45,8 @@ def init(err=sys.stderr):
     QIIME_ENV = config['condaenv_qiime1']
     global QIIME2_ENV
     QIIME2_ENV = config['condaenv_qiime2']
+    global PICRUST_ENV
+    PICRUST_ENV = config['condaenv_picrust']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
     global FILE_REFERENCE_TAXONOMY

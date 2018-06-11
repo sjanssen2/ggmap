@@ -2,12 +2,15 @@ from unittest import TestCase, main
 import shutil
 import tempfile
 import pandas as pd
+import io
+import os.path
 from pandas.util.testing import assert_frame_equal
 
 from skbio.util import get_data_path
 
 from ggmap.analyses import (_parse_alpha_div_collated, _get_ref_phylogeny,
-                            _parse_timing)
+                            _parse_timing, picrust)
+from ggmap.snippets import biom2pandas
 
 
 class AnalysesHelperTests(TestCase):
@@ -51,6 +54,26 @@ class AnalysesHelperTests(TestCase):
 
         obs = _parse_timing('/dev/', jobname)
         self.assertEqual(obs, None)
+
+
+class PicrustHelperTest(TestCase):
+    msg_stdout = io.StringIO()
+
+    def tearDown(self):
+        for line in self.msg_stdout.getvalue().split('\n'):
+            if line.startswith("Working directory is '"):
+                workdir = line.split("'")[1]
+                if os.path.exists(workdir):
+                    shutil.rmtree(workdir)
+
+    def test_picrust_nonClosedRefWarning(self):
+        counts = biom2pandas(get_data_path('25x25.biom'))
+        with self.assertRaisesRegex(
+                ValueError,
+                'Not all features are numerical, that might point'):
+            picrust(counts.rename(index={'1726408': 'aucguacgua'}),
+                    dry=False, nocache=True, timing=False,
+                    use_grid=False, dirty=False, verbose=self.msg_stdout)
 
 
 if __name__ == '__main__':
