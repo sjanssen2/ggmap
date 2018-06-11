@@ -10,6 +10,10 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                 'variable_name': 'QIIME2_ENV'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
+            'fp_reference_taxonomy': {
+                'default': ('/projects/emp/03-otus/reference/'
+                            '97_otu_taxonomy.txt'),
+                'variable_name': 'FILE_REFERENCE_TAXONOMY'},
             'fp_binary_time': {'default': '/usr/bin/time',
                                'variable_name': 'EXEC_TIME'},
             'list_ranks': {'default': ['Kingdom', 'Phylum', 'Class', 'Order',
@@ -41,6 +45,8 @@ def init(err=sys.stderr):
     QIIME2_ENV = config['condaenv_qiime2']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
+    global FILE_REFERENCE_TAXONOMY
+    FILE_REFERENCE_TAXONOMY = config['fp_reference_taxonomy']
     global EXEC_TIME
     EXEC_TIME = config['fp_binary_time']
     global RANKS
