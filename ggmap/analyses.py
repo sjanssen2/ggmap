@@ -1965,6 +1965,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     dir_tmp = tempfile.gettempdir()
     if use_grid:
         dir_tmp = os.environ['HOME'] + '/TMP/'
+        if not os.path.exists(dir_tmp):
+            raise ValueError('Temporary directory "%s" does not exist. '
+                             'Please create it and restart.' % dir_tmp)
 
     # collect all tmp workdirs that contain the right cache signature
     pot_workdirs = []
