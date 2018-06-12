@@ -29,7 +29,9 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
 def init(err=sys.stderr):
     # load settings from file
     if os.path.exists(FP_SETTINGS):
-        err.write("Reading settings file '%s'" % FP_SETTINGS)
+        err.write('ggmap is custome code from Stefan Janssen, '
+                  'download at https://github.com/sjanssen2/ggmap\n')
+        err.write("Reading settings file '%s'\n" % FP_SETTINGS)
         with open(FP_SETTINGS, 'r') as f:
             config = yaml.load(f)
     else:
