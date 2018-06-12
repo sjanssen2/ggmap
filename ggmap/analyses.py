@@ -1932,6 +1932,87 @@ def picrust(counts, **executor_args):
                      **executor_args)
 
 
+def bugbase(counts, **executor_args):
+    """BugBase is a microbiome analysis tool that determines high-level
+       phenotypes present in microbiome samples.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    A dict of count tables, where every BugBase trait is one key-value pair,
+    i.e. currently, following 9 traits get predicted:
+      'Gram_Negative', 'Aerobic', 'Anaerobic', 'Stress_Tolerant',
+      'Forms_Biofilms', 'Facultatively_Anaerobic', 'Potentially_Pathogenic',
+      'Contains_Mobile_Elements', 'Gram_Positive'
+    Input counts get normalized as with Picrust.
+
+    Install
+    -------
+    git clone https://github.com/knights-lab/BugBase
+    export BUGBASE_PATH=~/miniconda2/envs/notebookServer/src/bugbase/BugBase
+    sudo apt-get install gfortran libblas-dev liblapack-dev
+    edit: ...envs/notebookServer/etc/conda/activate.d/env_vars.sh
+        #!/bin/bash
+        export PATH=...envs/notebookServer/src/bugbase/BugBase/bin:$PATH
+        export BUGBASE_PATH=...envs/notebookServer/src/bugbase/BugBase
+    ./bin/run.bugbase.r
+    """
+    def pre_execute(workdir, args):
+        if (type(args['counts'].index) == pd.core.indexes.numeric.Int64Index) \
+                or all(map(lambda x: x.isdigit(), args['counts'].index)):
+            args['counts'].to_csv('%s/input.txt' % workdir, sep="\t")
+        else:
+            raise ValueError(
+                ('Not all features are numerical, that might point to the fact'
+                 ' that your count table does not stem from closed reference '
+                 'picking vs. Greengenes.'))
+        if args['counts'].max().max() < 1:
+            raise ValueError('You need to insert frequencies, '
+                             'not relative abundances')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('run.bugbase.r -i %s/input.txt -a -o %s/results' %
+                        (workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        normalized_counts = pd.read_csv(
+            '%s/results/normalized_otus/16s_normalized_otus.txt' % workdir,
+            sep="\t", index_col=0)
+        # normalize to abundances
+        normalized_counts /= normalized_counts.sum()
+        contrib_otus = pd.read_csv(
+            '%s/results/otu_contributions/contributing_otus.txt' % workdir,
+            sep="\t", index_col=0)
+
+        results = dict()
+        for trait in contrib_otus.columns:
+            results[trait] = pd.DataFrame(
+                (normalized_counts.values.T * contrib_otus[trait].values).T,
+                index=normalized_counts.index,
+                columns=normalized_counts.columns)
+
+        return results
+
+    return _executor('bugbase',
+                     {'counts': counts},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=1,
+                     environment='notebookServer',
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
