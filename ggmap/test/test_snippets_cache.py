@@ -4,6 +4,7 @@ from tempfile import mkstemp
 import os
 
 from ggmap.snippets import (cache)
+from ggmap.analyses import _executor
 
 
 @cache
@@ -16,7 +17,7 @@ class Snippets_CacheTests(TestCase):
         self.file_cache = mkstemp('.cache')[1]
         os.remove(self.file_cache)
 
-    def TearDown(self):
+    def tearDown(self):
         os.remove(self.file_cache)
 
     def test_cache(self):
@@ -89,6 +90,30 @@ class Snippets_CacheTests(TestCase):
                     cache_filename=self.file_cache, cache_err=err)
         self.assertIn('fct_example: removed empty cache.', err.getvalue())
         self.assertIn('fct_example: stored results in cache "', err.getvalue())
+
+
+class Snippets_tmpdir(TestCase):
+    renamed = False
+    dir_tmp = os.environ['HOME'] + '/TMP'
+
+    def setUp(self):
+        if os.path.exists(self.dir_tmp):
+            os.rename(self.dir_tmp, self.dir_tmp + '.unittest')
+            self.renamed = True
+        else:
+            self.renamed = False
+
+    def tearDown(self):
+        if self.renamed:
+            os.rename(self.dir_tmp + '.unittest', self.dir_tmp)
+
+    def test_tmpdir_existence(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            ('Temporary directory "%s/" does not exist. '
+             'Please create it and restart.') % self.dir_tmp):
+                _executor('testTMP', {'fake': 'test'}, None, ['ls -la'], None,
+                          dry=False, use_grid=True)
 
 
 if __name__ == '__main__':
