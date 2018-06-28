@@ -1650,6 +1650,85 @@ def plotGroup_permanovas(beta, groupings,
     return ax, data
 
 
+# definition of network plots
+def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
+                 permutations=999, name=None, minnumalpha=21):
+    """Plot a series of alpha- / beta- diversity sig. difference networks.
+
+    Parameters
+    ----------
+    field : str
+        Name of the metdata columns, which shall split samples into groups.
+    metadata : pd.DataFrame
+        Metadata for samples.
+    alpha : pd.DataFrame
+        One column per diversity metric.
+    beta : dict(str: skbio.DistanceMatrix)
+        One key, value pair per diversity metric.
+    b_min_num : int
+        Default: 5.
+        Minimal number of samples per group to be included in beta diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+    pthresh : float
+        Default: 0.05
+        Significance niveau.
+    permutations : int
+        Default: 999.
+        Number permutations for PERMANOVA tests.
+    name : str
+        Default: None
+        A title for the returned plot.
+    minnumalpha : int
+        Default: 21.
+        Minimal number of samples per group to be included in alpha diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+
+    Returns
+    -------
+    plt.Figure
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        num_rows = 0
+        if beta is not None:
+            num_rows += len(beta.keys())
+        if alpha is not None:
+            num_rows += alpha.shape[1]
+        f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
+
+        row = 0
+        if alpha is not None:
+            for a_metric in alpha.columns:
+                a = detect_distant_groups_alpha(
+                    alpha[a_metric], metadata[field],
+                    min_group_size=minnumalpha)
+                plotDistant_groups(
+                    **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_histograms(
+                    alpha[a_metric], metadata[field], ax=axarr[row][1],
+                    min_group_size=minnumalpha)
+                # axarr[row][1].set_xlim((0, 20))
+                row += 1
+
+        if beta is not None:
+            for b_metric in beta.keys():
+                b = detect_distant_groups(
+                    beta[b_metric], b_metric, metadata[field],
+                    min_group_size=b_min_num, num_permutations=permutations)
+                plotDistant_groups(
+                    **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_permanovas(
+                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                    horizontal=True)
+                row += 1
+
+        if name is not None:
+            plt.suptitle(name)
+        return f
+
+
 def mutate_sequence(sequence, num_mutations=1,
                     alphabet=['A', 'C', 'G', 'T']):
     """Introduce a number of point mutations to a DNA sequence.
