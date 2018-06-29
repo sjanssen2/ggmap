@@ -1891,7 +1891,7 @@ def _map_metadata_calout(metadata, calour_experiment, field):
 
 
 def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
-                            out=sys.stdout):
+                            out=sys.stdout, method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata field.
 
@@ -1910,6 +1910,14 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1930,7 +1938,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         ediff = e.diff_abundance(field,
                                  _map_values[a],
                                  _map_values[b],
-                                 fdr_method='dsfdr')
+                                 fdr_method='dsfdr', method=method)
         out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
                   % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
@@ -1946,7 +1954,8 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
 
 def _find_diff_taxa_singlelevel(calour_experiment, metadata,
                                 groups, diffTaxa=None,
-                                out=sys.stdout):
+                                out=sys.stdout,
+                                method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata group of fields, i.e. samples are controlled for the first :-1
        fields and abundance is checked for the latest field.
@@ -1967,6 +1976,14 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -2002,7 +2019,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             diffTaxa = _find_diff_taxa_runpfdr(e_filtered,
                                                metadata,
                                                groups[-1],
-                                               diffTaxa)
+                                               diffTaxa, method=method)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
@@ -2013,7 +2030,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
 
 
 def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
-                   out=sys.stdout):
+                   out=sys.stdout, method='meandiff'):
     # TODO: rephrase docstring
     # TODO: unit tests for all three functions
     # TODO: include calour in requirements
@@ -2038,6 +2055,14 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -2051,7 +2076,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
     for i in range(len(groups)):
         sub_groups = groups[len(groups)-i-1:]
         diffTaxa = _find_diff_taxa_singlelevel(
-            calour_experiment, metadata, sub_groups, diffTaxa)
+            calour_experiment, metadata, sub_groups, diffTaxa, method=method)
         out.write("\n")
 
     merged_diffTaxa = dict()
@@ -2069,7 +2094,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=1.0,
-                   num_ranks=2, title=None):
+                   num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2100,12 +2125,16 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     title : str
         Default: None
         Something to print as the suptitle
+    scale_height : float
+        Default: 5.0
+        Scaling factor for height of figure.
 
     Returns
     -------
     Matplotlib Figure.
     """
-    fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
+    fig, ax = plt.subplots(len(diffTaxa), 2,
+                           figsize=(10, scale_height*len(diffTaxa)))
 
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
