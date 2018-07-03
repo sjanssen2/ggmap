@@ -1650,6 +1650,85 @@ def plotGroup_permanovas(beta, groupings,
     return ax, data
 
 
+# definition of network plots
+def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
+                 permutations=999, name=None, minnumalpha=21):
+    """Plot a series of alpha- / beta- diversity sig. difference networks.
+
+    Parameters
+    ----------
+    field : str
+        Name of the metdata columns, which shall split samples into groups.
+    metadata : pd.DataFrame
+        Metadata for samples.
+    alpha : pd.DataFrame
+        One column per diversity metric.
+    beta : dict(str: skbio.DistanceMatrix)
+        One key, value pair per diversity metric.
+    b_min_num : int
+        Default: 5.
+        Minimal number of samples per group to be included in beta diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+    pthresh : float
+        Default: 0.05
+        Significance niveau.
+    permutations : int
+        Default: 999.
+        Number permutations for PERMANOVA tests.
+    name : str
+        Default: None
+        A title for the returned plot.
+    minnumalpha : int
+        Default: 21.
+        Minimal number of samples per group to be included in alpha diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+
+    Returns
+    -------
+    plt.Figure
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        num_rows = 0
+        if beta is not None:
+            num_rows += len(beta.keys())
+        if alpha is not None:
+            num_rows += alpha.shape[1]
+        f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
+
+        row = 0
+        if alpha is not None:
+            for a_metric in alpha.columns:
+                a = detect_distant_groups_alpha(
+                    alpha[a_metric], metadata[field],
+                    min_group_size=minnumalpha)
+                plotDistant_groups(
+                    **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_histograms(
+                    alpha[a_metric], metadata[field], ax=axarr[row][1],
+                    min_group_size=minnumalpha)
+                # axarr[row][1].set_xlim((0, 20))
+                row += 1
+
+        if beta is not None:
+            for b_metric in beta.keys():
+                b = detect_distant_groups(
+                    beta[b_metric], b_metric, metadata[field],
+                    min_group_size=b_min_num, num_permutations=permutations)
+                plotDistant_groups(
+                    **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_permanovas(
+                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                    horizontal=True)
+                row += 1
+
+        if name is not None:
+            plt.suptitle(name)
+        return f
+
+
 def mutate_sequence(sequence, num_mutations=1,
                     alphabet=['A', 'C', 'G', 'T']):
     """Introduce a number of point mutations to a DNA sequence.
@@ -1812,7 +1891,7 @@ def _map_metadata_calout(metadata, calour_experiment, field):
 
 
 def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
-                            out=sys.stdout):
+                            out=sys.stdout, method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata field.
 
@@ -1831,6 +1910,14 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1851,7 +1938,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         ediff = e.diff_abundance(field,
                                  _map_values[a],
                                  _map_values[b],
-                                 fdr_method='dsfdr')
+                                 fdr_method='dsfdr', method=method)
         out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
                   % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
@@ -1867,7 +1954,8 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
 
 def _find_diff_taxa_singlelevel(calour_experiment, metadata,
                                 groups, diffTaxa=None,
-                                out=sys.stdout):
+                                out=sys.stdout,
+                                method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata group of fields, i.e. samples are controlled for the first :-1
        fields and abundance is checked for the latest field.
@@ -1888,6 +1976,14 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1923,7 +2019,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             diffTaxa = _find_diff_taxa_runpfdr(e_filtered,
                                                metadata,
                                                groups[-1],
-                                               diffTaxa)
+                                               diffTaxa, method=method)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
@@ -1934,7 +2030,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
 
 
 def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
-                   out=sys.stdout):
+                   out=sys.stdout, method='meandiff'):
     # TODO: rephrase docstring
     # TODO: unit tests for all three functions
     # TODO: include calour in requirements
@@ -1959,6 +2055,14 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1972,7 +2076,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
     for i in range(len(groups)):
         sub_groups = groups[len(groups)-i-1:]
         diffTaxa = _find_diff_taxa_singlelevel(
-            calour_experiment, metadata, sub_groups, diffTaxa)
+            calour_experiment, metadata, sub_groups, diffTaxa, method=method)
         out.write("\n")
 
     merged_diffTaxa = dict()
@@ -1990,7 +2094,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=1.0,
-                   num_ranks=2, title=None):
+                   num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2021,12 +2125,16 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     title : str
         Default: None
         Something to print as the suptitle
+    scale_height : float
+        Default: 5.0
+        Scaling factor for height of figure.
 
     Returns
     -------
     Matplotlib Figure.
     """
-    fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
+    fig, ax = plt.subplots(len(diffTaxa), 2,
+                           figsize=(10, scale_height*len(diffTaxa)))
 
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
