@@ -2214,3 +2214,94 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         fig.suptitle(titletext)
 
     return fig
+
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+def identify_important_features(metadata_group, counts, num_trees=1000, stdout=sys.stdout, test_size=0.25, num_repeats=5, num_cores=1, max_features=100, n_jobs=1):
+    """Use Random Forests to determine most X important features to predict
+       sample labels.
+
+    Parameters
+    ----------
+    metadata_group : pd.Series
+        Labels for samples which shall be predicted of the feature counts.
+    counts : pd.DataFrame
+        Feature counts. Rows = features, Columns = samples.
+    num_trees : int
+        Default: 1000.
+        Number of decision trees used for random forests.
+        Larger number = more precise, but also slower.
+    stdout : StringIO
+        Default: sys.stdout
+        Stream onto which messages to the user are printed.
+    test_size : float
+        Default: 0.25
+        If float, should be between 0.0 and 1.0 and represent the proportion
+        of the dataset to include in the test split. If int, represents the
+        absolute number of test samples.
+    num_repeats : int
+        Default: 5.
+        Number of repeats of the random forest runs.
+    n_jobs : int
+        Default: 1.
+        Number of CPU cores to use for computation.
+    max_features : int
+        Default: 100.
+        Stop after exploring accuracy for max_features number of features.
+    Returns
+    -------
+    ?
+    """
+    idx_samples = sorted(list(set(metadata_group.index) & set(counts.columns)))
+    merged_meta = metadata_group.loc[idx_samples]
+    # note that matrix is now transposed to comply with sklearn!!
+    merged_counts = counts.loc[:, idx_samples].T
+
+    stdout.write("Predicting class labels from counts for:\n")
+    stdout.write(str(merged_meta.value_counts()) + "\n")
+
+    # First pass to determine feature importance list
+    X_train, X_test, y_train, y_test = train_test_split(merged_counts, merged_meta, test_size=test_size, random_state=42)
+    best_RF = None
+    for i in range(num_repeats):
+        clf = RandomForestClassifier(n_estimators=num_trees, n_jobs=n_jobs)
+        clf = clf.fit(X_train, y_train)
+        clf._has_score = clf.score(X_test, y_test)
+        if (best_RF is None) or (best_RF._has_score < clf._has_score):
+            best_RF = clf
+        print("repeat %i, score %.4f" % (i+1, clf._has_score))
+    feature_importance = pd.Series(best_RF.feature_importances_, index=X_train.columns).sort_values(ascending=False)
+
+    # Second pass to check how many features are necessary for sufficient prediction accuracy
+    res = []
+    for num_features in range(1, feature_importance.shape[0]):
+        if num_features > max_features:
+            break
+
+        stdout.write('% 3i features ' % num_features)
+        X_train, X_test, y_train, y_test = train_test_split(merged_counts.loc[:, feature_importance.iloc[:num_features].index], merged_meta, test_size=test_size, random_state=42)
+        best_RF = None
+        for i in range(num_repeats):
+            stdout.write('.')
+            clf = RandomForestClassifier(n_estimators=num_trees, n_jobs=n_jobs)
+            clf = clf.fit(X_train, y_train)
+            clf._has_score = clf.score(X_test, y_test)
+            if (best_RF is None) or (best_RF._has_score < clf._has_score):
+                best_RF = clf
+        stdout.write(' %.4f\n' % best_RF._has_score)
+        res.append({'number features': num_features,
+                    'R^2 score': best_RF._has_score,
+                    'sum of feature importance': feature_importance.iloc[:num_features].sum(),
+                    'features': feature_importance.iloc[:num_features].index})
+        if best_RF._has_score >= 1:
+            break
+    res = pd.DataFrame(res)
+
+    p = plt.scatter(res['number features'], res['sum of feature importance'], s=1, color="blue", label="sum of feature importance")
+    p = plt.scatter(res['number features'], res['R^2 score'], s=1, color="green", label="R^2 score")
+
+    p = plt.xlabel("number features")
+    p = plt.ylabel("sum of feature importance")
+
+    p = plt.legend(loc=4)
+    return res, p
