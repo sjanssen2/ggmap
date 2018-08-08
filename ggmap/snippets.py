@@ -534,6 +534,14 @@ def plotTaxonomy(file_otutable,
              '#CCCCCC', '#BBBBBB']
     random.seed(42)
 
+    if metadata.index.value_counts().max() > 1:
+        raise ValueError(
+            ('The following %i sample(s) occure several times in your '
+             'metadata. Please de-replicate and try again:\n\t%s\n') % (
+             sum(metadata.index.value_counts() > 1),
+             '\n\t'.join(set(metadata[metadata.index.value_counts() > 1].index))
+             ))
+
     # Parameter checks: check that grouping fields are in metadata table
     for i, field in enumerate([group_l0, group_l1, group_l2]):
         if field is not None:
