@@ -143,7 +143,8 @@ def _parse_alpha_div_collated(workdir, samplenames):
     return final
 
 
-def _plot_rarefaction_curves(data):
+def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
+                             control_sample_names=[]):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -154,6 +155,10 @@ def _plot_rarefaction_curves(data):
         - metrics
         - remaining
         - readcounts
+    control_sample_names : {str}
+        Default: [].
+        A set of samples that serve as controls, i.e. samples that we are
+        willing to loose during rarefaction. Only used for plotting.
 
     Returns
     -------
@@ -178,6 +183,10 @@ def _plot_rarefaction_curves(data):
 
     # loosing samples
     ax = axes[1]
+    for control in control_sample_names:
+        # plot a vertical gray line to indicate one control sample.
+        if control in data['readcounts']:
+            ax.axvline(x=data['readcounts'].loc[control], color='lightgray')
     x = data['remaining']
     x['lost'] = data['readcounts'].shape[0] - x['remaining']
     x.index.name = 'readcounts'
@@ -196,8 +205,9 @@ def _plot_rarefaction_curves(data):
 
     for i, metric in enumerate(sorted(data['metrics'].keys())):
         for sample, g in data['metrics'][metric].groupby('sample_name'):
-            axes[i+2].errorbar(g['rarefaction depth'], g[g.columns[-1]])
-        axes[i+2].set_ylabel(g.columns[-1])
+            gsorted = g.sort_values('rarefaction depth')
+            axes[i+2].errorbar(gsorted['rarefaction depth'], gsorted[gsorted.columns[-1]])
+        axes[i+2].set_ylabel(gsorted.columns[-1])
         axes[i+2].set_xlabel('rarefaction depth')
         axes[i+2].set_xlim(0, lostHalf * 1.1)
         axes[i+2].get_xaxis().set_major_formatter(
@@ -209,7 +219,8 @@ def _plot_rarefaction_curves(data):
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
-                       num_iterations=10, **executor_args):
+                       num_iterations=10, control_sample_names=[],
+                       **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -231,6 +242,10 @@ def rarefaction_curves(counts,
     num_iterations : int
         Default: 10.
         Number of iterations to rarefy the input table.
+    control_sample_names : {str}
+        Default: [].
+        A set of samples that serve as controls, i.e. samples that we are
+        willing to loose during rarefaction. Only used for plotting.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -338,7 +353,8 @@ def rarefaction_curves(counts,
 
     def post_cache(cache_results):
         cache_results['results'] = \
-            _plot_rarefaction_curves(cache_results['results'])
+            _plot_rarefaction_curves(cache_results['results'],
+                                     control_sample_names=control_sample_names)
         return cache_results
 
     if reference_tree is not None:
