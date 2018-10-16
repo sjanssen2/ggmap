@@ -356,13 +356,17 @@ def redundancy_analysis_alpha(metadata, alpha,
             rda = cache_results['results']['table']
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
+            if colors is not None:
+                palette = {row['label']: colors[row['covariate']] for idx, row in rda.iterrows()}
+            else:
+                palette = None
             sns.barplot(data=rda.reset_index(),
                         x='effect size',
                         y='label',
                         order=rda.sort_values(
                             'effect size', ascending=False)['label'],
                         ax=axes,
-                        palette={row['label']: colors[row['covariate']] for idx, row in rda.iterrows()})
+                        palette=palette)
             ttl = 'Redundancy analysis "%s"' % alpha.name
             if title is not None:
                 ttl = '%s\n%s' % (ttl, title)
@@ -519,13 +523,17 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
             rda = cache_results['results']['table']
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
+            if colors is not None:
+                palette = {row['label']: colors[row['covariate']] for idx, row in rda.iterrows()}
+            else:
+                palette = None
             sns.barplot(data=rda.reset_index(),
                         x='effect size',
                         y='label',
                         order=rda.sort_values(
                             'effect size', ascending=False)['label'],
                         ax=axes,
-                        palette={row['label']: colors[row['covariate']] for idx, row in rda.iterrows()})
+                        palette=palette)
             axes.set_ylabel('covariate')
             ttl = 'Redundancy analysis "%s"' % metric_name
             if title is not None:
