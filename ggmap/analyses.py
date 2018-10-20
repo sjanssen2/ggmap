@@ -2360,6 +2360,93 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
+def emperor(metadata, beta_diversities, fp_results, **executor_args):
+    """Generates Emperor plots as qzv.
+
+    Parameters
+    ----------
+    metadata : Pandas.DataFrame
+        The metadata about samples to be plotted. Samples not included in
+        metadata will be omitted from ordination and plotting!
+    beta_diversities : dict(str: DistanceMatrix)
+        Dictionary of (multiple) beta diversity distance metrices.
+    fp_results : str
+        Filepath to directory where to store generated emperor plot qzvs.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ?"""
+    def pre_execute(workdir, args):
+        samples = set(args['metadata'].index)
+        for metric in args['beta_diversities'].keys():
+            samples &= set(args['beta_diversities'][metric].ids)
+
+        if (args['metadata'].shape[0] != len(samples)):
+            sys.stderr.write('Info: reducing number of samples for Emperor plot to %i\n' % len(samples))
+
+        # write metadata to tmp file
+        args['metadata'].loc[samples, :].to_csv(workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+
+        # write distance metrices to tmp files
+        for metric in args['beta_diversities'].keys():
+            os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
+            args['beta_diversities'][metric].filter(samples).write('%s/%s/distance-matrix.tsv' % (workdir, metric))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        for metric in args['beta_diversities'].keys():
+            # import diversity matrix as qiime2 artifact
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "DistanceMatrix" '
+                 '--source-format DistanceMatrixDirectoryFormat '
+                 '--output-path %s ') %
+                ('%s/%s' % (workdir, metric),
+                 #" % Properties([\"phylogenetic\"])" if 'unifrac' in metric else '',
+                 '%s/beta_%s.qza' % (workdir, metric)))
+            # compute PcoA
+            commands.append(
+                ('qiime diversity pcoa '
+                 '--i-distance-matrix %s '
+                 '--o-pcoa %s ') %
+                ('%s/beta_%s.qza' % (workdir, metric),
+                 '%s/pcoa_%s' % (workdir, metric))
+            )
+            # generate emperor plot
+            commands.append(
+                ('qiime emperor plot '
+                 '--i-pcoa %s '
+                 '--m-metadata-file %s '
+                 '--o-visualization %s ') %
+                ('%s/pcoa_%s.qza' % (workdir, metric),
+                 '%s/metadata.tsv' % workdir,
+                 '%s/emperor_%s.qzv' % (workdir, metric))
+            )
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        os.makedirs(fp_results, exist_ok=True)
+        for metric in args['beta_diversities']:
+            results[metric] = os.path.join(fp_results, 'emperor_%s.qzv' % metric)
+            shutil.move("%s/emperor_%s.qzv" % (workdir, metric), results[metric])
+        return results
+
+    return _executor('emperor',
+                     {'metadata': metadata.loc[sorted(metadata.index), sorted(metadata.columns)],
+                      'beta_diversities': beta_diversities},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.QIIME2_ENV,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
