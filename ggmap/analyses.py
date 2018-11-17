@@ -11,6 +11,7 @@ import datetime
 import time
 import numpy as np
 import json
+import re
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -143,7 +144,8 @@ def _parse_alpha_div_collated(workdir, samplenames):
     return final
 
 
-def _plot_rarefaction_curves(data):
+def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
+                             control_sample_names=[]):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -154,6 +156,10 @@ def _plot_rarefaction_curves(data):
         - metrics
         - remaining
         - readcounts
+    control_sample_names : {str}
+        Default: [].
+        A set of samples that serve as controls, i.e. samples that we are
+        willing to loose during rarefaction. Only used for plotting.
 
     Returns
     -------
@@ -178,6 +184,10 @@ def _plot_rarefaction_curves(data):
 
     # loosing samples
     ax = axes[1]
+    for control in control_sample_names:
+        # plot a vertical gray line to indicate one control sample.
+        if control in data['readcounts']:
+            ax.axvline(x=data['readcounts'].loc[control], color='lightgray')
     x = data['remaining']
     x['lost'] = data['readcounts'].shape[0] - x['remaining']
     x.index.name = 'readcounts'
@@ -196,8 +206,9 @@ def _plot_rarefaction_curves(data):
 
     for i, metric in enumerate(sorted(data['metrics'].keys())):
         for sample, g in data['metrics'][metric].groupby('sample_name'):
-            axes[i+2].errorbar(g['rarefaction depth'], g[g.columns[-1]])
-        axes[i+2].set_ylabel(g.columns[-1])
+            gsorted = g.sort_values('rarefaction depth')
+            axes[i+2].errorbar(gsorted['rarefaction depth'], gsorted[gsorted.columns[-1]])
+        axes[i+2].set_ylabel(gsorted.columns[-1])
         axes[i+2].set_xlabel('rarefaction depth')
         axes[i+2].set_xlim(0, lostHalf * 1.1)
         axes[i+2].get_xaxis().set_major_formatter(
@@ -209,7 +220,8 @@ def _plot_rarefaction_curves(data):
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
-                       num_iterations=10, **executor_args):
+                       num_iterations=10, control_sample_names=[],
+                       **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -231,6 +243,10 @@ def rarefaction_curves(counts,
     num_iterations : int
         Default: 10.
         Number of iterations to rarefy the input table.
+    control_sample_names : {str}
+        Default: [].
+        A set of samples that serve as controls, i.e. samples that we are
+        willing to loose during rarefaction. Only used for plotting.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -338,7 +354,8 @@ def rarefaction_curves(counts,
 
     def post_cache(cache_results):
         cache_results['results'] = \
-            _plot_rarefaction_curves(cache_results['results'])
+            _plot_rarefaction_curves(cache_results['results'],
+                                     control_sample_names=control_sample_names)
         return cache_results
 
     if reference_tree is not None:
@@ -697,7 +714,8 @@ def beta_diversity(counts,
 
 def sepp(counts, chunksize=10000,
          reference_phylogeny=None, reference_alignment=None,
-         reference_taxonomy=None,
+         reference_taxonomy=None, reference_info=None,
+         alignment_subset_size=None, placement_subset_size=None,
          ppn=20, pmem='8GB', walltime='12:00:00',
          environment=settings.QIIME2_ENV, **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
@@ -720,6 +738,28 @@ def sepp(counts, chunksize=10000,
         Default: None.
         Filepath to a qza "FeatureData[Taxonomy]" artifact, holding an
         alternative reference taxonomy for SEPP.
+    reference_info : str
+        Default: None.
+        Filepath to a RAxML info file storing model information about reference
+        phylogeny constructed from alignment.
+    alignment_subset_size : int
+        Default: None, i.e. 1000
+        Each placement subset is further broken into
+        subsets of at most these many sequences and
+        a separate HMM is trained on each subset.
+        The default alignment subset size is set to
+        balance the exhaustiveness of the alignment
+        step with the running time.
+    placement-subset-size : int
+        Default: None, i.e. 5000
+        The tree is divided into subsets such that
+        each subset includes at most these many
+        subsets. The placement step places the
+        fragment on only one subset, determined
+        based on alignment scores. The default
+        placement subset is set to make sure the
+        memory requirement of the pplacer step does
+        not become prohibitively large.
     chunksize: int
         Default: 10000
         SEPP jobs seem to fail if too many sequences are submitted per job.
@@ -760,14 +800,27 @@ def sepp(counts, chunksize=10000,
         if reference_alignment is not None:
             ref_alignment = ' --i-reference-alignment %s ' % (
                 reference_alignment)
+        ref_info = ""
+        if reference_info is not None:
+            ref_info = ' --i-reference-info %s ' % (
+                reference_info)
+        ss_alignment = ""
+        if args['alignment_subset_size'] is not None:
+            ss_alignment = ' --p-alignment-subset-size %s ' % (
+                args['alignment_subset_size'])
+        ss_placement = ""
+        if args['placement_subset_size'] is not None:
+            ss_placement = ' --p-placement-subset-size %s ' % (
+                args['placement_subset_size'])
 
         commands.append(
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
              '--p-threads %i '
-             '%s%s'
+             '%s%s%s%s%s'
              '--output-dir %s/res_${PBS_ARRAYID}') %
-            (workdir, ppn, ref_phylogeny, ref_alignment, workdir))
+            (workdir, ppn, ref_phylogeny, ref_alignment, ref_info,
+             ss_alignment, ss_placement, workdir))
 
         # export the placements
         commands.append(
@@ -903,10 +956,15 @@ def sepp(counts, chunksize=10000,
         reference_phylogeny = os.path.abspath(reference_phylogeny)
     if reference_taxonomy is not None:
         reference_taxonomy = os.path.abspath(reference_taxonomy)
+    if reference_info is not None:
+        reference_info = os.path.abspath(reference_info)
     args = {'seqs': seqs,
             'reference_alignment': reference_alignment,
             'reference_phylogeny': reference_phylogeny,
             'reference_taxonomy': reference_taxonomy,
+            'reference_info': reference_info,
+            'alignment_subset_size': alignment_subset_size,
+            'placement_subset_size': placement_subset_size,
             'chunksize': chunksize}
     return _executor('sepp',
                      args,
@@ -2013,6 +2071,382 @@ def bugbase(counts, **executor_args):
                      **executor_args)
 
 
+def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
+                                      beta_diversities,
+                                      environment='qiime2-2018.2',
+                                      **executor_args):
+    """
+    Parameters
+    ----------
+    metadata : pd.DataFrame
+    categorial : [str]
+        List of column names that contain categorial data
+    alpha_diversities : pd.DataFrame
+    beta_diversities : dict{name, skbio.distanceMatrix}
+    """
+    METHODS_ALPHA = ['pearson', 'spearman']
+    METHODS_BETA = ['permanova', 'anosim']
+
+    def pre_execute(workdir, args):
+        # basic tests
+        if len(set(args['cols_cat']) - set(args['meta'].columns)) > 0:
+            raise ValueError(('Not all columns of metadata table are described'
+                              ' in categorial or nonCategorial!'))
+
+        # write alpha diversity values into files
+        for metric in args['alpha'].keys():
+            args['alpha'][metric].to_frame().to_csv(
+                '%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
+        # write beta diversity matrices into files
+        for metric in args['beta'].keys():
+            args['beta'][metric].write(
+                '%s/beta_%s.tsv' % (workdir, metric))
+        # escape values that Qiime2 might identify as numeric
+        for c in args['cols_cat']:
+            args['meta'][c] = args['meta'][c].apply(
+                lambda x: '_%s' % x if not x.startswith('_') else x)
+        # write metadata into file
+        args['meta'].to_csv(
+            '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
+
+        # import beta distance matrix into Qiime2 artifacts
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+        for metric in args['beta'].keys():
+            cluster_run([
+                ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
+                 ' %s/beta_%s.qza --type "DistanceMatrix"') % (
+                    workdir, metric, workdir, metric)],
+                environment=environment,
+                jobname='import_dm',
+                result="%s/beta_%s.qza" % (workdir, metric),
+                ppn=1, pmem='8GB', walltime='1:00:00',
+                dry=dry,
+                wait=True, use_grid=False)
+
+        # write a file that can provide metric, column and method values for
+        # an array job
+        with open('%s/fields.txt' % workdir, 'w') as f:
+            f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
+            for metric in args['beta'].keys():
+                for column in args['cols_cat']:
+                    for method in METHODS_BETA:
+                        f.write('\t'.join([metric, column, method])+'\n')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # store alpha diversities as Qiime2 artifacts
+        for metric in args['alpha'].keys():
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime tools import '
+                 '--input-path %s/alpha_%s.tsv '
+                 '--output-path %s/alpha_%s.qza '
+                 '--type "SampleData[AlphaDiversity]"; fi') % (
+                    workdir, metric, workdir, metric))
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime diversity alpha-group-significance '
+                 '--i-alpha-diversity %s/alpha_%s.qza '
+                 '--m-metadata-file %s/meta.tsv '
+                 '--output-dir %s/alpha-group-significance_%s/; fi') % (
+                    workdir, metric, workdir, workdir, metric))
+            commands.append(
+                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                 'qiime tools export '
+                 '%s/alpha-group-significance_%s/visualization.qzv '
+                 '--output-dir %s/alpha-group-significance_%s/raw/; fi') % (
+                    workdir, metric, workdir, metric))
+            for method in METHODS_ALPHA:
+                commands.append(
+                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                     'qiime diversity alpha-correlation '
+                     '--i-alpha-diversity %s/alpha_%s.qza '
+                     '--m-metadata-file %s/meta.tsv '
+                     '--p-method %s '
+                     '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
+                        workdir, metric, workdir, method,
+                        workdir, metric, method))
+                commands.append(
+                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                     'qiime tools export '
+                     '%s/alpha-correlation_%s_%s/visualization.qzv '
+                     '--output-dir %s/alpha-correlation_%s_%s/raw/; fi') % (
+                        workdir, metric, method, workdir, metric, method))
+
+        commands.append(('var_METRIC=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 1`') % workdir)
+        commands.append(('var_COLUMN=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 2`') % workdir)
+        commands.append(('var_METHOD=`head -n $PBS_ARRAYID %s/fields.txt | '
+                         'tail -n 1 | cut -f 3`') % workdir)
+        commands.append(
+            ('if [ $PBS_ARRAYID -ne 1 ]; then '
+             'qiime diversity beta-group-significance '
+             '--i-distance-matrix %s/beta_${var_METRIC}.qza '
+             '--m-metadata-file %s/meta.tsv '
+             '--m-metadata-column ${var_COLUMN} '
+             '--p-method ${var_METHOD} '
+             '--output-dir %s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/; '
+             'qiime tools export '
+             '%s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
+             '--output-dir %s/beta-group-significance_'
+             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
+             'fi') % (workdir, workdir, workdir, workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = []
+        for metric in args['alpha'].keys():
+            fp_asig = '%s/alpha-group-significance_%s/raw/' % (workdir, metric)
+            for _, _, files in os.walk(fp_asig):
+                for file in files:
+                    if file.startswith('column-') and file.endswith('.jsonp'):
+                        column = '.'.join(("-".join(
+                            file.split('-')[1:])).split('.')[:-1])
+                        with open('%s/%s' % (fp_asig, file), 'r') as f:
+                            content = "\n".join(f.readlines())
+                            results.append({'div': 'alpha',
+                                            'type': 'group-significance',
+                                            'metric': metric,
+                                            'column': column,
+                                            'test-statistic':
+                                            re.findall(r'"H":\s+(\d*\.\d+)',
+                                                       content)[0],
+                                            'test statistic name': 'H',
+                                            'p-value':
+                                            re.findall(r'"p":\s+(\d*\.\d+)',
+                                                       content)[0],
+                                            'test':
+                                            'Kruskal-Wallis (all groups)'})
+                break
+
+            regexAt = r'"testStat":\s+"?(-?\d*\.\d+|nan)"?'
+            regexAp = r'"pVal":\s+"?(\d*\.\d+)"?'
+            regexAs = r'"sampleSize":\s+"?(\d+)"?'
+            for method in ['pearson', 'spearman']:
+                fp_acorr = '%s/alpha-correlation_%s_%s/raw/' % (
+                    workdir, metric, method)
+                for _, _, files in os.walk(fp_acorr):
+                    for file in files:
+                        if file.startswith('column-') and \
+                                file.endswith('.jsonp'):
+                            column = '.'.join(("-".join(
+                                file.split('-')[1:])).split('.')[:-1])
+                            with open('%s/%s' % (fp_acorr, file), 'r') as f:
+                                content = "\n".join(f.readlines())
+                                results.append({'div': 'alpha',
+                                                'type': 'correlation',
+                                                'metric': metric,
+                                                'column': column,
+                                                'test-statistic':
+                                                re.findall(regexAt,
+                                                           content)[0],
+                                                'p-value':
+                                                re.findall(regexAp,
+                                                           content)[0],
+                                                'sampleSize':
+                                                re.findall(regexAs,
+                                                           content)[0],
+                                                'test': method})
+                break
+
+        regexBtn = r'<th>test statistic name</th>\s*<td>(.+?)</td>'
+        regexBss = r'<th>sample size</th>\s*<td>(.+?)</td>'
+        regexBts = r'<th>test statistic</th>\s*<td>(.+?)</td>'
+        regexBpv = r'<th>p-value</th>\s*<td>(.+?)</td>'
+        regexBnp = r'<th>number of permutations</th>\s*<td>(.+?)</td>'
+        regexBng = r'<th>number of groups</th>\s*<td>(.+?)</td>'
+        for metric in args['beta'].keys():
+            for method in ['permanova', 'anosim']:
+                for _, dirs, _ in os.walk(workdir):
+                    for dir in dirs:
+                        if dir.startswith(
+                                'beta-group-significance_%s' % metric) and \
+                                dir.endswith(method):
+                            column = dir[len(
+                                'beta-group-significance_%s' % metric)+1:
+                                -1*(len(method)+1)]
+                            with open('%s/%s/raw/index.html' % (
+                                    workdir, dir), 'r') as f:
+                                content = ("".join(f.readlines()).replace(
+                                    '\n', ''))
+                                results.append({'div': 'beta',
+                                                'type': 'group-significance',
+                                                'metric': metric,
+                                                'column': column,
+                                                'test statistic name':
+                                                re.findall(regexBtn,
+                                                           content)[0],
+                                                'sampleSize':
+                                                re.findall(regexBss,
+                                                           content)[0],
+                                                'test-statistic':
+                                                re.findall(regexBts,
+                                                           content)[0],
+                                                'p-value':
+                                                re.findall(regexBpv,
+                                                           content)[0],
+                                                'number of permutations':
+                                                re.findall(regexBnp,
+                                                           content)[0],
+                                                'number of groups':
+                                                re.findall(regexBng,
+                                                           content)[0],
+                                                'test': method})
+                    break
+
+        # add information about those columns of the metadata that have not
+        # been tested because all their values were the same.
+        for col in args['cols_onevalue']:
+            results.append({'type': 'unique value',
+                            'column': col,
+                            'test statistic name': 'not executed',
+                            'p-value': 1.0,
+                            'test': 'not executed'})
+
+        pd_results = pd.DataFrame(results)
+        pd_results['p-value'] = pd_results['p-value'].apply(
+            lambda x: np.nan if x == 'nan' else x).astype(float)
+        return pd_results
+
+    # synchronize samples across metadata, alpha and beta diversity to the
+    # smallest shared group
+    idx_samples = set(metadata.index)
+    idx_samples &= set(alpha_diversities.index)
+    for metric in beta_diversities.keys():
+        idx_samples &= set(beta_diversities[metric].ids)
+    if (len(idx_samples) < metadata.shape[0]) |\
+            (len(idx_samples) < alpha_diversities.shape[0]) |\
+            any([len(idx_samples) < m.shape[0]
+                 for m in beta_diversities.values()]):
+        sys.stderr.write(
+            'Reducing analysis to %i samples.\n' % len(idx_samples))
+
+    # find columns that a) have only one value for all samples ...
+    cols_onevalue = [col
+                     for col in metadata.columns
+                     if len(metadata.loc[idx_samples, col].unique()) == 1]
+    # ... or b) are categorial, but have different values for all samples
+    cols_alldiff = [col
+                    for col in categorial
+                    if len(metadata.loc[idx_samples, col].unique()) ==
+                    metadata.loc[idx_samples, col].shape[0]]
+
+    return _executor('corr-divmeta',
+                     {'alpha': alpha_diversities.loc[idx_samples, :],
+                      'beta': {k: m.filter(idx_samples)
+                               for k, m in beta_diversities.items()},
+                      'meta': metadata.loc[idx_samples,
+                                           sorted(list(set(metadata.columns) -
+                                                       set(cols_onevalue)))]
+                      .sort_index(),
+                      'cols_cat': sorted(list(set(categorial) -
+                                              set(cols_alldiff) -
+                                              set(cols_onevalue))),
+                      'cols_onevalue': sorted(cols_onevalue)},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=environment,
+                     ppn=1,
+                     array=len(beta_diversities.keys()) * len(
+                         set(categorial) - set(cols_alldiff) -
+                         set(cols_onevalue)) *
+                     len(METHODS_BETA) + 1,
+                     **executor_args)
+
+
+def emperor(metadata, beta_diversities, fp_results, **executor_args):
+    """Generates Emperor plots as qzv.
+
+    Parameters
+    ----------
+    metadata : Pandas.DataFrame
+        The metadata about samples to be plotted. Samples not included in
+        metadata will be omitted from ordination and plotting!
+    beta_diversities : dict(str: DistanceMatrix)
+        Dictionary of (multiple) beta diversity distance metrices.
+    fp_results : str
+        Filepath to directory where to store generated emperor plot qzvs.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ?"""
+    def pre_execute(workdir, args):
+        samples = set(args['metadata'].index)
+        for metric in args['beta_diversities'].keys():
+            samples &= set(args['beta_diversities'][metric].ids)
+
+        if (args['metadata'].shape[0] != len(samples)):
+            sys.stderr.write('Info: reducing number of samples for Emperor plot to %i\n' % len(samples))
+
+        # write metadata to tmp file
+        args['metadata'].loc[samples, :].to_csv(workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+
+        # write distance metrices to tmp files
+        for metric in args['beta_diversities'].keys():
+            os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
+            args['beta_diversities'][metric].filter(samples).write('%s/%s/distance-matrix.tsv' % (workdir, metric))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        for metric in args['beta_diversities'].keys():
+            # import diversity matrix as qiime2 artifact
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "DistanceMatrix" '
+                 '--source-format DistanceMatrixDirectoryFormat '
+                 '--output-path %s ') %
+                ('%s/%s' % (workdir, metric),
+                 #" % Properties([\"phylogenetic\"])" if 'unifrac' in metric else '',
+                 '%s/beta_%s.qza' % (workdir, metric)))
+            # compute PcoA
+            commands.append(
+                ('qiime diversity pcoa '
+                 '--i-distance-matrix %s '
+                 '--o-pcoa %s ') %
+                ('%s/beta_%s.qza' % (workdir, metric),
+                 '%s/pcoa_%s' % (workdir, metric))
+            )
+            # generate emperor plot
+            commands.append(
+                ('qiime emperor plot '
+                 '--i-pcoa %s '
+                 '--m-metadata-file %s '
+                 '--o-visualization %s ') %
+                ('%s/pcoa_%s.qza' % (workdir, metric),
+                 '%s/metadata.tsv' % workdir,
+                 '%s/emperor_%s.qzv' % (workdir, metric))
+            )
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        os.makedirs(fp_results, exist_ok=True)
+        for metric in args['beta_diversities']:
+            results[metric] = os.path.join(fp_results, 'emperor_%s.qzv' % metric)
+            shutil.move("%s/emperor_%s.qzv" % (workdir, metric), results[metric])
+        return results
+
+    return _executor('emperor',
+                     {'metadata': metadata.loc[sorted(metadata.index), sorted(metadata.columns)],
+                      'beta_diversities': beta_diversities},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.QIIME2_ENV,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -2128,6 +2562,14 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             cache_args_original[arg] = cache_arguments[arg]
             dm = cache_arguments[arg]
             cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
+        if (type(cache_arguments[arg]) == dict):
+            if (len({type(v) for v in cache_arguments[arg].values()} ^
+                    set([DistanceMatrix])) == 0):
+                cache_args_original[arg] = cache_arguments[arg]
+                cache_arguments[arg] = collections.OrderedDict(
+                    {k: dm.filter(sorted(dm.ids)).data
+                     for k, dm
+                     in cache_arguments[arg].items()})
 
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(

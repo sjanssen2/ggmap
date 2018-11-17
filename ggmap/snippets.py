@@ -22,6 +22,7 @@ import random
 from tempfile import mkstemp
 import pickle
 from ggmap import settings
+import re
 
 
 settings.init()
@@ -931,6 +932,14 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('var_') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
+        elif cmd.startswith('if [ '):
+            ifcon, rest = re.findall('(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+            timing_cmds.append(('%s '
+                                '%s '
+                                '-v '
+                                '-o %s '
+                                '-a %s') %
+                               (ifcon, settings.EXEC_TIME, file_timing, rest))
         else:
             timing_cmds.append(('%s '
                                 '-v '
@@ -1195,7 +1204,8 @@ def cluster_run(cmds, jobname, result, environment=None,
 
 
 def detect_distant_groups_alpha(alpha, groupings,
-                                min_group_size=21):
+                                min_group_size=21,
+                                fct_test=mannwhitneyu):
     """Given metadata field, test for sig. group differences in alpha
        distances.
 
@@ -1208,6 +1218,10 @@ def detect_distant_groups_alpha(alpha, groupings,
     min_group_size : int
         A minimal group size to be considered. Smaller group labels will be
         ignored. Default: 21.
+    fct_test : function
+        Default: mannwhitneyu
+        The statistical test that is used to test for differences between
+        groups.
 
     Returns
     -------
@@ -1220,6 +1234,7 @@ def detect_distant_groups_alpha(alpha, groupings,
         num_permutations : None
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
+        testfunction :     string name of test function
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1235,9 +1250,13 @@ def detect_distant_groups_alpha(alpha, groupings,
 
     network = dict()
     for a, b in combinations(groups, 2):
-        res = mannwhitneyu(alpha.loc[groupings[groupings == a].index],
-                           alpha.loc[groupings[groupings == b].index],
-                           alternative='two-sided')
+        args = {'a': alpha.loc[groupings[groupings == a].index],
+                'b': alpha.loc[groupings[groupings == b].index]}
+        if fct_test == mannwhitneyu:
+            args['alternative'] = 'two-sided'
+            args['x'] = args.pop('a')
+            args['y'] = args.pop('b')
+        res = fct_test(**args)
 
         if a not in network:
             network[a] = dict()
@@ -1250,7 +1269,8 @@ def detect_distant_groups_alpha(alpha, groupings,
              'min_group_size': min_group_size,
              'num_permutations': None,
              'metric_name': alpha.name,
-             'group_name': groupings.name})
+             'group_name': groupings.name,
+             'testfunction': fct_test.__name__})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -1360,9 +1380,10 @@ def groups_is_significant(group_infos, pthresh=0.05):
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
-                       metric_name, group_name, pthresh=0.05, _type='beta',
-                       draw_edgelabel=False, ax=None, edge_color_sig=None,
-                       print_title=True, edgelabel_decimals=2):
+                       metric_name, group_name, testfunction=None,
+                       pthresh=0.05, _type='beta', draw_edgelabel=False,
+                       ax=None, edge_color_sig=None, print_title=True,
+                       edgelabel_decimals=2):
     """Plots pairwise beta diversity group relations (obtained by
        'detect_distant_groups')
 
@@ -1383,6 +1404,9 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         The beta diversity metric name used.
     group_name : str
         A label for the grouping criterion.
+    testfunction : str
+        Default: None
+        The name of the statistical test function used.
     pthresh : float
         The maximal p-value of a group difference to be considered significant.
         It will be corrected for multiple hypothesis testing in a naive way,
@@ -1636,8 +1660,16 @@ def plotGroup_permanovas(beta, groupings,
                              groupings[groupings == b].index]
 
         for _type in dists.keys():
+            grp_name = None
+            if _type == 'left':
+                grp_name = a
+            elif _type == 'right':
+                grp_name = b
+            else:
+                grp_name = 'inter'
             for d in dists[_type]:
-                data.append({'edge': edgename, '_type': _type, metric_name: d})
+                data.append({'edge': edgename, '_type': _type, metric_name: d,
+                             'group': grp_name})
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
@@ -1656,6 +1688,85 @@ def plotGroup_permanovas(beta, groupings,
         ax.xaxis.label.set_visible(False)
 
     return ax, data
+
+
+# definition of network plots
+def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
+                 permutations=999, name=None, minnumalpha=21):
+    """Plot a series of alpha- / beta- diversity sig. difference networks.
+
+    Parameters
+    ----------
+    field : str
+        Name of the metdata columns, which shall split samples into groups.
+    metadata : pd.DataFrame
+        Metadata for samples.
+    alpha : pd.DataFrame
+        One column per diversity metric.
+    beta : dict(str: skbio.DistanceMatrix)
+        One key, value pair per diversity metric.
+    b_min_num : int
+        Default: 5.
+        Minimal number of samples per group to be included in beta diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+    pthresh : float
+        Default: 0.05
+        Significance niveau.
+    permutations : int
+        Default: 999.
+        Number permutations for PERMANOVA tests.
+    name : str
+        Default: None
+        A title for the returned plot.
+    minnumalpha : int
+        Default: 21.
+        Minimal number of samples per group to be included in alpha diversity
+        analysis. Lower numbers would have to less power for statistical tests.
+
+    Returns
+    -------
+    plt.Figure
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        num_rows = 0
+        if beta is not None:
+            num_rows += len(beta.keys())
+        if alpha is not None:
+            num_rows += alpha.shape[1]
+        f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
+
+        row = 0
+        if alpha is not None:
+            for a_metric in alpha.columns:
+                a = detect_distant_groups_alpha(
+                    alpha[a_metric], metadata[field],
+                    min_group_size=minnumalpha)
+                plotDistant_groups(
+                    **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_histograms(
+                    alpha[a_metric], metadata[field], ax=axarr[row][1],
+                    min_group_size=minnumalpha)
+                # axarr[row][1].set_xlim((0, 20))
+                row += 1
+
+        if beta is not None:
+            for b_metric in beta.keys():
+                b = detect_distant_groups(
+                    beta[b_metric], b_metric, metadata[field],
+                    min_group_size=b_min_num, num_permutations=permutations)
+                plotDistant_groups(
+                    **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
+                    ax=axarr[row][0])
+                plotGroup_permanovas(
+                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                    horizontal=True)
+                row += 1
+
+        if name is not None:
+            plt.suptitle(name)
+        return f
 
 
 def mutate_sequence(sequence, num_mutations=1,
@@ -1820,7 +1931,7 @@ def _map_metadata_calout(metadata, calour_experiment, field):
 
 
 def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
-                            out=sys.stdout):
+                            out=sys.stdout, method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata field.
 
@@ -1839,6 +1950,14 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1859,7 +1978,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         ediff = e.diff_abundance(field,
                                  _map_values[a],
                                  _map_values[b],
-                                 fdr_method='dsfdr')
+                                 fdr_method='dsfdr', method=method)
         out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
                   % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
@@ -1875,7 +1994,8 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
 
 def _find_diff_taxa_singlelevel(calour_experiment, metadata,
                                 groups, diffTaxa=None,
-                                out=sys.stdout):
+                                out=sys.stdout,
+                                method='meandiff'):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata group of fields, i.e. samples are controlled for the first :-1
        fields and abundance is checked for the latest field.
@@ -1896,6 +2016,14 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1931,7 +2059,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
             diffTaxa = _find_diff_taxa_runpfdr(e_filtered,
                                                metadata,
                                                groups[-1],
-                                               diffTaxa)
+                                               diffTaxa, method=method)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
@@ -1942,7 +2070,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
 
 
 def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
-                   out=sys.stdout):
+                   out=sys.stdout, method='meandiff'):
     # TODO: rephrase docstring
     # TODO: unit tests for all three functions
     # TODO: include calour in requirements
@@ -1967,6 +2095,14 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
         A prefilled return object, for cases where we want to combine evidence.
     out : StringIO
         The strem onto which messages should be written. Default is sys.stdout.
+    method : str or function
+        Default: 'meandiff'
+        the method to use for the t-statistic test. options:
+        'meandiff' : mean(A)-mean(B) (binary)
+        'mannwhitney' : mann-whitneu u-test (binary)
+        'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
+        function : use this function to calculate the t-statistic
+        (input is data,labels, output is array of float)
 
     Returns
     -------
@@ -1980,7 +2116,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
     for i in range(len(groups)):
         sub_groups = groups[len(groups)-i-1:]
         diffTaxa = _find_diff_taxa_singlelevel(
-            calour_experiment, metadata, sub_groups, diffTaxa)
+            calour_experiment, metadata, sub_groups, diffTaxa, method=method)
         out.write("\n")
 
     merged_diffTaxa = dict()
@@ -1998,7 +2134,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=1.0,
-                   num_ranks=2, title=None):
+                   num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2029,12 +2165,16 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     title : str
         Default: None
         Something to print as the suptitle
+    scale_height : float
+        Default: 5.0
+        Scaling factor for height of figure.
 
     Returns
     -------
     Matplotlib Figure.
     """
-    fig, ax = plt.subplots(len(diffTaxa), 2, figsize=(10, 5*len(diffTaxa)))
+    fig, ax = plt.subplots(len(diffTaxa), 2,
+                           figsize=(10, scale_height*len(diffTaxa)))
 
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
