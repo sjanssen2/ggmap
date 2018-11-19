@@ -16,3 +16,4 @@ basemap
 basemap-data-hires
 yaml
 pyyaml
+scikit-learn
