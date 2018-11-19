@@ -2067,7 +2067,7 @@ def bugbase(counts, **executor_args):
                      commands,
                      post_execute,
                      ppn=1,
-                     environment='notebookServer',
+                     environment='bugbase',
                      **executor_args)
 
 
