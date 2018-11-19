@@ -2127,7 +2127,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
-                   min_mean_abundance=0.01, max_x_relabundance=1.0,
+                   min_mean_abundance=0.01, max_x_relabundance=None,
                    num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
@@ -2150,7 +2150,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Minimal relative mean abundance a feature must have in both groups to
         be plotted.
     max_x_relabundance : float
-        Default: 1.0
+        Default: None, i.e. max value from data is taken. 
         For left plot: maximal x-axis limit, to zoom in if all abundances are
         low.
     num_ranks : int
@@ -2218,6 +2218,11 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         hue='group',
                         ax=curr_ax,
                         orient='h')
+        if max_x_relabundance is None:
+            if relabund_field.max() is not None:
+                max_x_relabundance = min(relabund_field['relative abundance'].max() * 1.1, 1.0)
+            else:
+                max_x_relabundance = 1.0
         g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 
