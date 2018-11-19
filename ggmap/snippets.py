@@ -24,6 +24,7 @@ import pickle
 from ggmap import settings
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+import re
 
 
 settings.init()
@@ -925,6 +926,14 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('var_') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
+        elif cmd.startswith('if [ '):
+            ifcon, rest = re.findall('(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+            timing_cmds.append(('%s '
+                                '%s '
+                                '-v '
+                                '-o %s '
+                                '-a %s') %
+                               (ifcon, settings.EXEC_TIME, file_timing, rest))
         else:
             timing_cmds.append(('%s '
                                 '-v '
@@ -1189,7 +1198,8 @@ def cluster_run(cmds, jobname, result, environment=None,
 
 
 def detect_distant_groups_alpha(alpha, groupings,
-                                min_group_size=21):
+                                min_group_size=21,
+                                fct_test=mannwhitneyu):
     """Given metadata field, test for sig. group differences in alpha
        distances.
 
@@ -1202,6 +1212,10 @@ def detect_distant_groups_alpha(alpha, groupings,
     min_group_size : int
         A minimal group size to be considered. Smaller group labels will be
         ignored. Default: 21.
+    fct_test : function
+        Default: mannwhitneyu
+        The statistical test that is used to test for differences between
+        groups.
 
     Returns
     -------
@@ -1214,6 +1228,7 @@ def detect_distant_groups_alpha(alpha, groupings,
         num_permutations : None
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
+        testfunction :     string name of test function
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1229,9 +1244,13 @@ def detect_distant_groups_alpha(alpha, groupings,
 
     network = dict()
     for a, b in combinations(groups, 2):
-        res = mannwhitneyu(alpha.loc[groupings[groupings == a].index],
-                           alpha.loc[groupings[groupings == b].index],
-                           alternative='two-sided')
+        args = {'a': alpha.loc[groupings[groupings == a].index],
+                'b': alpha.loc[groupings[groupings == b].index]}
+        if fct_test == mannwhitneyu:
+            args['alternative'] = 'two-sided'
+            args['x'] = args.pop('a')
+            args['y'] = args.pop('b')
+        res = fct_test(**args)
 
         if a not in network:
             network[a] = dict()
@@ -1244,7 +1263,8 @@ def detect_distant_groups_alpha(alpha, groupings,
              'min_group_size': min_group_size,
              'num_permutations': None,
              'metric_name': alpha.name,
-             'group_name': groupings.name})
+             'group_name': groupings.name,
+             'testfunction': fct_test.__name__})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -1354,9 +1374,10 @@ def groups_is_significant(group_infos, pthresh=0.05):
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
-                       metric_name, group_name, pthresh=0.05, _type='beta',
-                       draw_edgelabel=False, ax=None, edge_color_sig=None,
-                       print_title=True, edgelabel_decimals=2):
+                       metric_name, group_name, testfunction=None,
+                       pthresh=0.05, _type='beta', draw_edgelabel=False,
+                       ax=None, edge_color_sig=None, print_title=True,
+                       edgelabel_decimals=2):
     """Plots pairwise beta diversity group relations (obtained by
        'detect_distant_groups')
 
@@ -1377,6 +1398,9 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         The beta diversity metric name used.
     group_name : str
         A label for the grouping criterion.
+    testfunction : str
+        Default: None
+        The name of the statistical test function used.
     pthresh : float
         The maximal p-value of a group difference to be considered significant.
         It will be corrected for multiple hypothesis testing in a naive way,
@@ -1630,8 +1654,16 @@ def plotGroup_permanovas(beta, groupings,
                              groupings[groupings == b].index]
 
         for _type in dists.keys():
+            grp_name = None
+            if _type == 'left':
+                grp_name = a
+            elif _type == 'right':
+                grp_name = b
+            else:
+                grp_name = 'inter'
             for d in dists[_type]:
-                data.append({'edge': edgename, '_type': _type, metric_name: d})
+                data.append({'edge': edgename, '_type': _type, metric_name: d,
+                             'group': grp_name})
 
     colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
     sns.boxplot(data=pd.DataFrame(data),
@@ -2095,7 +2127,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
-                   min_mean_abundance=0.01, max_x_relabundance=1.0,
+                   min_mean_abundance=0.01, max_x_relabundance=None,
                    num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
@@ -2118,7 +2150,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Minimal relative mean abundance a feature must have in both groups to
         be plotted.
     max_x_relabundance : float
-        Default: 1.0
+        Default: None, i.e. max value from data is taken. 
         For left plot: maximal x-axis limit, to zoom in if all abundances are
         low.
     num_ranks : int
@@ -2186,6 +2218,11 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         hue='group',
                         ax=curr_ax,
                         orient='h')
+        if max_x_relabundance is None:
+            if relabund_field.max() is not None:
+                max_x_relabundance = min(relabund_field['relative abundance'].max() * 1.1, 1.0)
+            else:
+                max_x_relabundance = 1.0
         g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 

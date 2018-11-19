@@ -1,6 +1,6 @@
 package:
   name: ggmap
-  version: "0.1.0"
+  version: "0.3.0"
 
 source:
   url: https://github.com/sjanssen2/ggmap/archive/v0.1.0.tar.gz
