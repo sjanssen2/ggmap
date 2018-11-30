@@ -460,6 +460,7 @@ def plotTaxonomy(file_otutable,
                  verbose=True,
                  reorder_samples=False,
                  print_sample_labels=False,
+                 sample_label_column=None,
                  print_meanrelabunances=False,
                  minreadnr=50,
                  plottaxa=None,
@@ -489,6 +490,10 @@ def plotTaxonomy(file_otutable,
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
+    sample_label_column : str
+        Default: None
+        Use column <sample_label_column> from metadata to print sample labels,
+        instead of metadata.index.
     print_meanrelabunances : Bool
         Default: False.
         If True, print mean relative abundance of taxa in legend.
@@ -534,6 +539,14 @@ def plotTaxonomy(file_otutable,
     GRAYS = ['#888888', '#EEEEEE', '#999999', '#DDDDDD', '#AAAAAA',
              '#CCCCCC', '#BBBBBB']
     random.seed(42)
+
+    if metadata.index.value_counts().max() > 1:
+        raise ValueError(
+            ('The following %i sample(s) occure several times in your '
+             'metadata. Please de-replicate and try again:\n\t%s\n') % (
+             sum(metadata.index.value_counts() > 1),
+             '\n\t'.join(set(metadata[metadata.index.value_counts() > 1].index))
+             ))
 
     # Parameter checks: check that grouping fields are in metadata table
     for i, field in enumerate([group_l0, group_l1, group_l2]):
@@ -743,10 +756,16 @@ def plotTaxonomy(file_otutable,
                                                  right_index=True)
             labels = []
             for idx, row in data.sort_values(by='xpos').iterrows():
-                if '###' in idx:
+                label_value = idx
+                if (sample_label_column is not None) and \
+                   (sample_label_column in metadata.columns) and \
+                   (idx in metadata.index) and \
+                   (pd.notnull(meta.loc[idx, sample_label_column])):
+                    label_value = meta.loc[idx, sample_label_column]
+                if '###' in label_value:
                     label = "%s" % idx.split('###')[-1]
                 else:
-                    label = idx
+                    label = label_value
                 if 'num' in row.index:
                     label += " (n=%i)" % row['num']
                 labels.append(label)
