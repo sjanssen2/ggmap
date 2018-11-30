@@ -460,6 +460,7 @@ def plotTaxonomy(file_otutable,
                  verbose=True,
                  reorder_samples=False,
                  print_sample_labels=False,
+                 sample_label_column=None,
                  print_meanrelabunances=False,
                  minreadnr=50,
                  plottaxa=None,
@@ -489,6 +490,10 @@ def plotTaxonomy(file_otutable,
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
+    sample_label_column : str
+        Default: None
+        Use column <sample_label_column> from metadata to print sample labels,
+        instead of metadata.index.
     print_meanrelabunances : Bool
         Default: False.
         If True, print mean relative abundance of taxa in legend.
@@ -751,10 +756,16 @@ def plotTaxonomy(file_otutable,
                                                  right_index=True)
             labels = []
             for idx, row in data.sort_values(by='xpos').iterrows():
-                if '###' in idx:
+                label_value = idx
+                if (sample_label_column is not None) and \
+                   (sample_label_column in metadata.columns) and \
+                   (idx in metadata.index) and \
+                   (pd.notnull(meta.loc[idx, sample_label_column])):
+                    label_value = meta.loc[idx, sample_label_column]
+                if '###' in label_value:
                     label = "%s" % idx.split('###')[-1]
                 else:
-                    label = idx
+                    label = label_value
                 if 'num' in row.index:
                     label += " (n=%i)" % row['num']
                 labels.append(label)
@@ -1737,6 +1748,11 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
         f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
 
         row = 0
+        axisrow = None
+        if axarr.ndim == 1:
+            axisrow = axarr
+        else:
+            axisrow = axarr[row]
         if alpha is not None:
             for a_metric in alpha.columns:
                 a = detect_distant_groups_alpha(
@@ -1744,9 +1760,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=minnumalpha)
                 plotDistant_groups(
                     **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                    ax=axarr[row][0])
+                    ax=axisrow[0])
                 plotGroup_histograms(
-                    alpha[a_metric], metadata[field], ax=axarr[row][1],
+                    alpha[a_metric], metadata[field], ax=axisrow[1],
                     min_group_size=minnumalpha)
                 # axarr[row][1].set_xlim((0, 20))
                 row += 1
@@ -1758,9 +1774,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=b_min_num, num_permutations=permutations)
                 plotDistant_groups(
                     **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                    ax=axarr[row][0])
+                    ax=axisrow[0])
                 plotGroup_permanovas(
-                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                    beta[b_metric], metadata[field], **b, ax=axisrow[1],
                     horizontal=True)
                 row += 1
 
@@ -2133,7 +2149,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
-                   min_mean_abundance=0.01, max_x_relabundance=1.0,
+                   min_mean_abundance=0.01, max_x_relabundance=None,
                    num_ranks=2, title=None, scale_height=5.0):
     """Plots relative abundance and fold change for taxa.
 
@@ -2156,7 +2172,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Minimal relative mean abundance a feature must have in both groups to
         be plotted.
     max_x_relabundance : float
-        Default: 1.0
+        Default: None, i.e. max value from data is taken.
         For left plot: maximal x-axis limit, to zoom in if all abundances are
         low.
     num_ranks : int
@@ -2224,6 +2240,11 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         hue='group',
                         ax=curr_ax,
                         orient='h')
+        if max_x_relabundance is None:
+            if relabund_field.max() is not None:
+                max_x_relabundance = min(relabund_field['relative abundance'].max() * 1.1, 1.0)
+            else:
+                max_x_relabundance = 1.0
         g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 
