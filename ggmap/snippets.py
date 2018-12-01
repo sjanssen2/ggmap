@@ -25,6 +25,7 @@ from ggmap import settings
 import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from matplotlib.lines import Line2D
 
 
 settings.init()
@@ -462,6 +463,7 @@ def plotTaxonomy(file_otutable,
                  verbose=True,
                  reorder_samples=False,
                  print_sample_labels=False,
+                 sample_label_column=None,
                  print_meanrelabunances=False,
                  minreadnr=50,
                  plottaxa=None,
@@ -491,6 +493,10 @@ def plotTaxonomy(file_otutable,
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
+    sample_label_column : str
+        Default: None
+        Use column <sample_label_column> from metadata to print sample labels,
+        instead of metadata.index.
     print_meanrelabunances : Bool
         Default: False.
         If True, print mean relative abundance of taxa in legend.
@@ -536,6 +542,14 @@ def plotTaxonomy(file_otutable,
     GRAYS = ['#888888', '#EEEEEE', '#999999', '#DDDDDD', '#AAAAAA',
              '#CCCCCC', '#BBBBBB']
     random.seed(42)
+
+    if metadata.index.value_counts().max() > 1:
+        raise ValueError(
+            ('The following %i sample(s) occure several times in your '
+             'metadata. Please de-replicate and try again:\n\t%s\n') % (
+             sum(metadata.index.value_counts() > 1),
+             '\n\t'.join(set(metadata[metadata.index.value_counts() > 1].index))
+             ))
 
     # Parameter checks: check that grouping fields are in metadata table
     for i, field in enumerate([group_l0, group_l1, group_l2]):
@@ -745,10 +759,16 @@ def plotTaxonomy(file_otutable,
                                                  right_index=True)
             labels = []
             for idx, row in data.sort_values(by='xpos').iterrows():
-                if '###' in idx:
+                label_value = idx
+                if (sample_label_column is not None) and \
+                   (sample_label_column in metadata.columns) and \
+                   (idx in metadata.index) and \
+                   (pd.notnull(meta.loc[idx, sample_label_column])):
+                    label_value = meta.loc[idx, sample_label_column]
+                if '###' in label_value:
                     label = "%s" % idx.split('###')[-1]
                 else:
-                    label = idx
+                    label = label_value
                 if 'num' in row.index:
                     label += " (n=%i)" % row['num']
                 labels.append(label)
@@ -1731,6 +1751,11 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
         f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
 
         row = 0
+        axisrow = None
+        if axarr.ndim == 1:
+            axisrow = axarr
+        else:
+            axisrow = axarr[row]
         if alpha is not None:
             for a_metric in alpha.columns:
                 a = detect_distant_groups_alpha(
@@ -1738,9 +1763,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=minnumalpha)
                 plotDistant_groups(
                     **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                    ax=axarr[row][0])
+                    ax=axisrow[0])
                 plotGroup_histograms(
-                    alpha[a_metric], metadata[field], ax=axarr[row][1],
+                    alpha[a_metric], metadata[field], ax=axisrow[1],
                     min_group_size=minnumalpha)
                 # axarr[row][1].set_xlim((0, 20))
                 row += 1
@@ -1752,9 +1777,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=b_min_num, num_permutations=permutations)
                 plotDistant_groups(
                     **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                    ax=axarr[row][0])
+                    ax=axisrow[0])
                 plotGroup_permanovas(
-                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                    beta[b_metric], metadata[field], **b, ax=axisrow[1],
                     horizontal=True)
                 row += 1
 
@@ -2128,7 +2153,8 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=None,
-                   num_ranks=2, title=None, scale_height=5.0):
+                   num_ranks=2, title=None, scale_height=5.0,
+                   feature_color_map=None):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2150,7 +2176,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Minimal relative mean abundance a feature must have in both groups to
         be plotted.
     max_x_relabundance : float
-        Default: None, i.e. max value from data is taken. 
+        Default: None, i.e. max value from data is taken.
         For left plot: maximal x-axis limit, to zoom in if all abundances are
         low.
     num_ranks : int
@@ -2162,6 +2188,9 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     scale_height : float
         Default: 5.0
         Scaling factor for height of figure.
+    feature_color_map : pd.Series
+        Colores for tick label plotting of features.
+        Black if no value is mentioned.
 
     Returns
     -------
@@ -2226,6 +2255,21 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 
+        # define colors for taxons
+        if (feature_color_map is not None) and (feature_color_map.shape[0] > 0):
+            availColors = \
+                sns.color_palette('Paired', 12) +\
+                sns.color_palette('Dark2', 12) +\
+                sns.color_palette('Pastel1', 12)
+            colors = dict()
+            for i, state in enumerate(feature_color_map.unique()):
+                if state not in colors:
+                    colors[state] = availColors[len(colors) % len(availColors)]
+            # color the labels of the Y-axis according to different categories given by feature_color_map
+            for tick in curr_ax.get_yticklabels():
+                if tick.get_text() in feature_color_map.index:
+                    tick.set_color(colors[feature_color_map[tick.get_text()]])
+
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
@@ -2237,13 +2281,22 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         color=sns.xkcd_rgb["denim blue"])
         g.set_ylabel('')
         if taxonomy is not None:
+            g.yaxis.tick_right()
             g.set(yticklabels=taxonomy.loc[taxa].apply(
                 lambda x: " ".join(list(
                     map(str.strip, x.split(';')))[-num_ranks:])))
+            # color the labels of the Y-axis according to different categories given by feature_color_map
+            if feature_color_map is not None:
+                for tick_feature, tick_taxonomy in zip(ax[0].get_yticklabels(), g.yaxis.get_ticklabels()):
+                    if tick_feature.get_text() in feature_color_map.index:
+                        tick_taxonomy.set_color(colors[feature_color_map[tick_feature.get_text()]])
+                # adding a legend to the plot, explaining the font colors
+                g.legend(
+                    [Line2D([0], [0], color=colors[category], lw=8) for category in feature_color_map.unique()],
+                    [category for category in feature_color_map.unique()])
 
         g.set_xlabel('<-- more in %s     |      more in %s -->' %
                      (meta_value_b, meta_value_a))
-        g.yaxis.tick_right()
         g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
                    +1*foldchange.loc[taxa].abs().max())
         titletext = "%s\nminimal relative abundance: %f" % (
