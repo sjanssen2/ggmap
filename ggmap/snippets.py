@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from itertools import combinations
-from skbio.stats.distance import permanova
+from skbio.stats.distance import permanova, anosim
 from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
@@ -127,7 +127,7 @@ def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
                           len(idx_missing_intable),
                           ", ".join(idx_missing_intable)))
             idx_missing_intaxonomy = set(taxonomy.index) - set(table.index)
-            if len(idx_missing_intaxonomy) > 0:
+            if (len(idx_missing_intaxonomy) > 0) and err:
                 err.write(('Warning: following %i taxa are not in the '
                            'provided count table, but in taxonomy:\n%s\n') % (
                           len(idx_missing_intaxonomy),
@@ -357,6 +357,72 @@ def _get_sample_numbers(num_samples, fields, names):
     return x[0].sum()
 
 
+def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
+    # check that rank is a valid taxonomic rank
+    if rank not in settings.RANKS + ['raw']:
+        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
+                         (rank, ", ".join(settings.RANKS)))
+
+    if rank != 'raw':
+        # split lineage string into individual taxa names on ';' and remove
+        # surrounding whitespaces. If rank does not exist return r+'__' instead
+        def _splitranks(x, rank):
+            try:
+                return [t.strip()
+                        for t
+                        in x.split(";")][settings.RANKS.index(rank)]
+            except AttributeError:
+                # e.g. if lineage string is missing
+                settings.RANKS[settings.RANKS.index(rank)].lower()[0] + "__"
+            except IndexError:
+                return settings.RANKS[
+                    settings.RANKS.index(rank)].lower()[0] + "__"
+        # add columns for each tax rank, such that we can groupby later on
+        counts_taxonomy[rank] = counts_taxonomy['taxonomy'].apply(
+            lambda x: _splitranks(x, rank))
+        # sum counts according to the selected rank
+        counts_taxonomy = counts_taxonomy.reset_index().groupby(rank).sum()
+        # get rid of the old index, i.e. OTU ids, since we have grouped by some
+        # rank
+
+        if out:
+            out.write('%i taxa left after collapsing to %s.\n' %
+                      (counts_taxonomy.shape[0], rank))
+    else:
+        counts_taxonomy = counts_taxonomy.loc[:, set(counts_taxonomy.columns) - set(['taxonomy'])]
+
+    return counts_taxonomy
+
+
+def collapseCounts_objects(counts, rank, taxonomy, out=sys.stdout):
+    """
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Feature table in raw format, i.e. index is OTU-IDs or deblur seqs,
+        while columns are samples.
+    rank : str
+        Set taxonomic level to collapse abundances. Use 'raw' to de-activate
+        collapsing.
+    taxonomy : pd.Series
+        Index are OTU-IDs or deblur seqs, values are ; separated taxonomic
+        lineages.
+    verbose : bool
+        Default is true. Report messages if true.
+    out : StringIO
+        Buffer onto which messages should be written. Default is sys.stdout.
+
+    Returns
+    -------
+    pd.DataFrame of collapsed counts.
+    """
+    tax = taxonomy.copy()
+    tax.name = 'taxonomy'
+    return _collapse_counts(
+        pd.merge(counts, tax.to_frame(), how='left', left_index=True, right_index=True),
+        rank,
+        out=out)
+
 def collapseCounts(file_otutable, rank,
                    file_taxonomy=None,
                    verbose=True, out=sys.stdout, astype=int):
@@ -389,11 +455,6 @@ def collapseCounts(file_otutable, rank,
     -------
     Pandas.DataFrame: counts of collapsed taxa.
     """
-    # check that rank is a valid taxonomic rank
-    if rank not in settings.RANKS + ['raw']:
-        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
-                         (rank, ", ".join(settings.RANKS)))
-
     # check that biom table can be read
     if not os.path.exists(file_otutable):
         raise IOError('OTU table file not found')
@@ -422,35 +483,7 @@ def collapseCounts(file_otutable, rank,
             rank_counts = pd.merge(counts, taxonomy, how='left',
                                    left_index=True, right_index=True)
 
-    if rank != 'raw':
-        # split lineage string into individual taxa names on ';' and remove
-        # surrounding whitespaces. If rank does not exist return r+'__' instead
-        def _splitranks(x, rank):
-            try:
-                return [t.strip()
-                        for t
-                        in x.split(";")][settings.RANKS.index(rank)]
-            except AttributeError:
-                # e.g. if lineage string is missing
-                settings.RANKS[settings.RANKS.index(rank)].lower()[0] + "__"
-            except IndexError:
-                return settings.RANKS[
-                    settings.RANKS.index(rank)].lower()[0] + "__"
-        # add columns for each tax rank, such that we can groupby later on
-        rank_counts[rank] = rank_counts['taxonomy'].apply(lambda x:
-                                                          _splitranks(x, rank))
-        # sum counts according to the selected rank
-        rank_counts = rank_counts.reset_index().groupby(rank).sum()
-        # get rid of the old index, i.e. OTU ids, since we have grouped by some
-        # rank
-
-        if verbose:
-            out.write('%i taxa left after collapsing to %s.\n' %
-                      (rank_counts.shape[0], rank))
-    else:
-        rank_counts = counts
-
-    return rank_counts
+    return _collapse_counts(rank_counts, rank, out=out)
 
 
 def plotTaxonomy(file_otutable,
@@ -1288,7 +1321,8 @@ def detect_distant_groups_alpha(alpha, groupings,
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
-                          num_permutations=999, err=None):
+                          num_permutations=999, err=None,
+                          fct_test=permanova):
     """Given metadata field, test for sig. group differences in beta distances.
 
     Parameters
@@ -1305,6 +1339,10 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
         ignored. Default: 5.
     num_permutations : int
         Number of permutations to use for permanova test.
+    fct_test : function
+        Default: skbio.stats.distance.permanova
+        Python function to execute test.
+        Valid functions are "permanova" or "anosim" from skbio.stats.distance.
 
     Returns
     -------
@@ -1317,6 +1355,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
         num_permutations : passes num_permutations
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
+        fct_name :         fct_test.__name__
     """
 
     # remove samples whose grouping in NaN
@@ -1337,7 +1376,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
             err.write('%s vs %s\n' % (a, b))
         group = groupings[groupings.isin([a, b])]
         group_dm = beta_dm.filter(group.index)
-        res = permanova(group_dm, group, permutations=num_permutations)
+        res = fct_test(group_dm, group, permutations=num_permutations)
 
         if a not in network:
             network[a] = dict()
@@ -1354,7 +1393,8 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
              'min_group_size': min_group_size,
              'num_permutations': num_permutations,
              'metric_name': metric_name,
-             'group_name': groupings.name})
+             'group_name': groupings.name,
+             'fct_name': fct_test.__name__})
 
 
 def _getfirstsigdigit(number):
@@ -1394,7 +1434,7 @@ def groups_is_significant(group_infos, pthresh=0.05):
 
 
 def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
-                       metric_name, group_name, testfunction=None,
+                       metric_name, group_name, fct_name="permanova",
                        pthresh=0.05, _type='beta', draw_edgelabel=False,
                        ax=None, edge_color_sig=None, print_title=True,
                        edgelabel_decimals=2):
@@ -1418,7 +1458,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
         The beta diversity metric name used.
     group_name : str
         A label for the grouping criterion.
-    testfunction : str
+    fct_name : str
         Default: None
         The name of the statistical test function used.
     pthresh : float
@@ -1533,7 +1573,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
             ax.set_title("%s: %s" % (_type, group_name), fontsize=20)
             text = ''
             if _type == 'beta':
-                text = 'p-wise permanova\n%i perm., %s' % (num_permutations,
+                text = 'p-wise %s\n%i perm., %s' % (fct_name, num_permutations,
                                                            metric_name)
             elif _type == 'alpha':
                 text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
@@ -1596,7 +1636,7 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
 
 def plotGroup_permanovas(beta, groupings,
                          network, n_per_group, min_group_size,
-                         num_permutations, metric_name, group_name,
+                         num_permutations, metric_name, group_name, fct_name,
                          ax=None, horizontal=False, edgelabel_decimals=2):
     """
     Parameters
@@ -1706,7 +1746,8 @@ def plotGroup_permanovas(beta, groupings,
 
 # definition of network plots
 def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
-                 permutations=999, name=None, minnumalpha=21):
+                 permutations=999, name=None, minnumalpha=21,
+                 fct_beta_test=permanova):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
 
     Parameters
@@ -1736,6 +1777,10 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
         Default: 21.
         Minimal number of samples per group to be included in alpha diversity
         analysis. Lower numbers would have to less power for statistical tests.
+    fct_beta_test : function
+        Default: skbio.stats.distance.permanova
+        Python function to execute test.
+        Valid functions are "permanova" or "anosim" from skbio.stats.distance.
 
     Returns
     -------
@@ -1769,7 +1814,8 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
             for b_metric in beta.keys():
                 b = detect_distant_groups(
                     beta[b_metric], b_metric, metadata[field],
-                    min_group_size=b_min_num, num_permutations=permutations)
+                    min_group_size=b_min_num, num_permutations=permutations,
+                    fct_test=fct_beta_test)
                 plotDistant_groups(
                     **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
                     ax=axarr[row][0])

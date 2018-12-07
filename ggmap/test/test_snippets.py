@@ -287,7 +287,7 @@ class ReadWriteTests(TestCase):
             get_data_path('tax_mock_counts.biom'),
             'Order',
             file_taxonomy=get_data_path('tax_mock_taxonomy_errors.txt'),
-            verbose=False)
+            out=None)
         self.assertTrue(c.shape[0] <= 1)
 
 
