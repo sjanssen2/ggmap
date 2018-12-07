@@ -1751,11 +1751,6 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
         f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
 
         row = 0
-        axisrow = None
-        if axarr.ndim == 1:
-            axisrow = axarr
-        else:
-            axisrow = axarr[row]
         if alpha is not None:
             for a_metric in alpha.columns:
                 a = detect_distant_groups_alpha(
@@ -1763,9 +1758,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=minnumalpha)
                 plotDistant_groups(
                     **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                    ax=axisrow[0])
+                    ax=axarr[row][0])
                 plotGroup_histograms(
-                    alpha[a_metric], metadata[field], ax=axisrow[1],
+                    alpha[a_metric], metadata[field], ax=axarr[row][1],
                     min_group_size=minnumalpha)
                 # axarr[row][1].set_xlim((0, 20))
                 row += 1
@@ -1777,9 +1772,9 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     min_group_size=b_min_num, num_permutations=permutations)
                 plotDistant_groups(
                     **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                    ax=axisrow[0])
+                    ax=axarr[row][0])
                 plotGroup_permanovas(
-                    beta[b_metric], metadata[field], **b, ax=axisrow[1],
+                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
                     horizontal=True)
                 row += 1
 
