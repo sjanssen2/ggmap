@@ -2360,7 +2360,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
-def emperor(metadata, beta_diversities, fp_results, **executor_args):
+def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
     """Generates Emperor plots as qzv.
 
     Parameters
@@ -2372,6 +2372,8 @@ def emperor(metadata, beta_diversities, fp_results, **executor_args):
         Dictionary of (multiple) beta diversity distance metrices.
     fp_results : str
         Filepath to directory where to store generated emperor plot qzvs.
+    infix : str
+        Output filenames have pattern: "emperor%s_%s.gzv" % (infix, metric)
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -2433,7 +2435,7 @@ def emperor(metadata, beta_diversities, fp_results, **executor_args):
         results = dict()
         os.makedirs(fp_results, exist_ok=True)
         for metric in args['beta_diversities']:
-            results[metric] = os.path.join(fp_results, 'emperor_%s.qzv' % metric)
+            results[metric] = os.path.join(fp_results, 'emperor%s_%s.qzv' % (infix, metric))
             shutil.move("%s/emperor_%s.qzv" % (workdir, metric), results[metric])
         return results
 
