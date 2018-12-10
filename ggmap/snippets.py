@@ -26,6 +26,7 @@ import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from matplotlib.lines import Line2D
+import math
 
 
 settings.init()
@@ -242,7 +243,7 @@ def get_great_circle_distance(p1, p2):
 
     return distance * 1.852
 
-    
+
 def drawMap(points, basemap=None, ax=None, no_legend=False):
     """ Plots coordinates of metadata to a worldmap.
 
