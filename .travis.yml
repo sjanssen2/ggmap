@@ -26,6 +26,7 @@ install:
   #- conda create -n qiime_env python=2.7 qiime matplotlib=1.4.3 mock nose -c bioconda
   - conda create -n test_env python=$PYVERSION
   - source activate test_env
+  - conda install -c conda-forge pyproj
   - conda install --file ci/conda_requirements.txt
   - pip install -r ci/pip_requirements.txt
   - pip install . --no-deps
