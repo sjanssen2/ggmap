@@ -459,7 +459,7 @@ def collapseCounts(file_otutable, rank,
     if not os.path.exists(file_otutable):
         raise IOError('OTU table file not found')
 
-    counts, taxonomy = None, None
+    counts, taxonomy, rank_counts = None, None, pd.DataFrame()
     if file_taxonomy is None:
         counts, taxonomy = biom2pandas(file_otutable, withTaxonomy=True,
                                        astype=astype)
@@ -471,7 +471,7 @@ def collapseCounts(file_otutable, rank,
         if (not os.path.exists(file_taxonomy)) and (rank != 'raw'):
             raise IOError('Taxonomy file not found!')
 
-        counts = biom2pandas(file_otutable, withTaxonomy=False, astype=astype)
+        rank_counts = biom2pandas(file_otutable, withTaxonomy=False, astype=astype)
         if rank != 'raw':
             taxonomy = pd.read_csv(file_taxonomy, sep="\t", header=None,
                                    names=['otuID', 'taxonomy'],
@@ -480,7 +480,7 @@ def collapseCounts(file_otutable, rank,
             taxonomy.set_index('otuID', inplace=True)
             # add taxonomic lineage information to the counts as
             # column "taxonomy"
-            rank_counts = pd.merge(counts, taxonomy, how='left',
+            rank_counts = pd.merge(rank_counts, taxonomy, how='left',
                                    left_index=True, right_index=True)
 
     return _collapse_counts(rank_counts, rank, out=out)
