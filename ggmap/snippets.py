@@ -1281,7 +1281,7 @@ def detect_distant_groups_alpha(alpha, groupings,
         num_permutations : None
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
-        testfunction :     string name of test function
+        fct_name :         string name of test function
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1317,7 +1317,7 @@ def detect_distant_groups_alpha(alpha, groupings,
              'num_permutations': None,
              'metric_name': alpha.name,
              'group_name': groupings.name,
-             'testfunction': fct_test.__name__})
+             'fct_name': fct_test.__name__})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -1576,7 +1576,9 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                 text = 'p-wise %s\n%i perm., %s' % (fct_name, num_permutations,
                                                            metric_name)
             elif _type == 'alpha':
-                text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
+                text = 'p-wise two-sided %s\n%s' % (
+                    fct_name.replace('mannwhitneyu', 'Mann-Whitney'),
+                    metric_name)
             ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center',
                     va='top')
 
