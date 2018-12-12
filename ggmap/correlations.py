@@ -175,8 +175,7 @@ def correlate_metadata(metadata,
     # if err is not None:
     #     err.write('correlations intra categorial\n')
     for (column_a, column_b) in itertools.combinations(categorials, 2):
-        pivot = _get_pivot(column_a, column_b, meta).as_matrix()
-        # future: pivot = _get_pivot(column_a, column_b, meta).values
+        pivot = _get_pivot(column_a, column_b, meta).values
 
         if (pivot.shape[0] > 1) & (pivot.shape[1] > 1):
             chi2, p, _, _ = chi2_contingency(pivot)
