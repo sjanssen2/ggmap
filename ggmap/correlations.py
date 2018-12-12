@@ -126,7 +126,6 @@ def _clear_metadata(metadata,
                     'Mapping for ordinal "%s" must be either None or a list '
                     'but not a "%s"!' % (column, type(ordinals[column])))
             if len(meta[column].dropna().unique()) > len(ordinals[column]):
-                print(column, meta[column].unique())
                 err.write('Ordinal "%s" does not specify label(s) "%s".\n' % (
                     column, '", "'.join(sorted(
                         set(meta[column].dropna().unique()) - set(
@@ -177,6 +176,7 @@ def correlate_metadata(metadata,
         # err.write('correlations intra categorial\n')
     for (column_a, column_b) in itertools.combinations(categorials, 2):
         pivot = _get_pivot(column_a, column_b, meta).as_matrix()
+        # future: pivot = _get_pivot(column_a, column_b, meta).values
 
         if (pivot.shape[0] > 1) & (pivot.shape[1] > 1):
             chi2, p, _, _ = chi2_contingency(pivot)
