@@ -46,17 +46,18 @@ class TaxPlotTests(TestCase):
                 no_sample_numbers=True,
                 min_abundance_grayscale=0.0005)
 
-            file_plot = mkstemp('__amina_%s_nogray.png' % bodysite)[1]
-            res[0].savefig(file_plot)
-            file_diff = mkstemp('_diff_amina_%s_nogray.png' % bodysite)[1]
+            file_plot = mkstemp('__amina_nogray_%s.png' % bodysite)[1]
+            res[0].set_size_inches(16, 11)
+            res[0].savefig(file_plot, dpi=80)
+            file_diff = mkstemp('_diff_amina_nogray_%s.png' % bodysite)[1]
             cmp = compare_images(
                 file_plot,
-                get_data_path('plot_baseline/amina_%s_nogray.png' % bodysite),
+                get_data_path('plot_baseline/amina_nogray_%s.png' % bodysite),
                 file_image_diff=file_diff,
                 threshold=0)
-
-            print(cmp)
-            break
+            self.assertTrue(cmp[0])
+            #print(cmp)
+            #break
 
 
 if __name__ == '__main__':
