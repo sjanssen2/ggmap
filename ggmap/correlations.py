@@ -172,8 +172,8 @@ def correlate_metadata(metadata,
 
     summary = dict()
     # start computing correlations
-    if err is not None:
-        err.write('correlations intra categorial\n')
+    # if err is not None:
+    #     err.write('correlations intra categorial\n')
     for (column_a, column_b) in itertools.combinations(categorials, 2):
         pivot = _get_pivot(column_a, column_b, meta).as_matrix()
         # future: pivot = _get_pivot(column_a, column_b, meta).values
@@ -188,8 +188,8 @@ def correlate_metadata(metadata,
             summary[(column_a, column_b)] = res
             summary[(column_b, column_a)] = res
 
-    if err is not None:
-        err.write('correlations intra ordinal & interval\n')
+    # if err is not None:
+    #     err.write('correlations intra ordinal & interval\n')
     set_of_fields = list(ordinals.keys()) + intervals + list(dates.keys())
     for (column_a, column_b) in itertools.combinations(set_of_fields, 2):
         sub = meta[[column_a, column_b]].dropna()
@@ -207,8 +207,8 @@ def correlate_metadata(metadata,
         summary[(column_a, column_b)] = res
         summary[(column_b, column_a)] = res
 
-    if err is not None:
-        err.write('correlations between categorial and ordinal/interval\n')
+    # if err is not None:
+    #     err.write('correlations between categorial and ordinal/interval\n')
     for column_a in categorials:
         for column_b in list(ordinals.keys()) + intervals + list(dates.keys()):
             if (len(meta[column_a].dropna().unique()) <= 1) or \
