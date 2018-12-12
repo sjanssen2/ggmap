@@ -59,17 +59,21 @@ def compare_images(file_image_a, file_image_b, threshold=0,
                   (label, size_a, size_b))
         return (False, -1 * numpy.infty)
 
-    res = subprocess.check_output(["compare", "-metric", "AE",
-                                   "-dissimilarity-threshold", "1",
-                                   file_image_a,
-                                   file_image_b,
-                                   file_image_diff],
-                                  stderr=subprocess.STDOUT)
-    res = int(res.decode().split('\n')[0])
-    if res > threshold:
+    image_difference = 0
+    try:
+        res = subprocess.check_output(["compare", "-metric", "AE",
+                                       file_image_a,
+                                       file_image_b,
+                                       file_image_diff],
+                                      stderr=subprocess.STDOUT)
+        image_difference = int(res.decode().split('\n')[0])
+    except subprocess.CalledProcessError as e:
+        image_difference = int(e.output.decode().split('\n')[0])
+
+    if image_difference > threshold:
         sys.stdout.write(("Images differ %s by %i pixels. "
                           "Check differences in %s.\n") %
-                         (label, res, file_image_diff))
+                         (label, image_difference, file_image_diff))
         cmd = ('echo "==== start file contents (%s)"; '
                'cat %s | base64; '
                'echo "=== end file contents ===";'
@@ -80,7 +84,7 @@ def compare_images(file_image_a, file_image_b, threshold=0,
         rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
         for line in rescmd:
             print(line)
-        return (file_image_diff, res)
+        return (file_image_diff, image_difference)
     else:
         remove(file_image_diff)
-        return (True, res)
+        return (True, image_difference)
