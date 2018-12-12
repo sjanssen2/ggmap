@@ -481,7 +481,7 @@ def generate_plots(biomfile, metadata, taxonomy, outdir=None, extension='.png',
     if not list_existing:
         sys.stderr.write("Plotting graphs (%i): " % len(configs))
         sys.stderr.flush()
-        for name in configs:
+        for name in sorted(configs):
             sys.stderr.write(".")
             sys.stderr.flush()
             f = plotTaxonomy(**configs[name]['params'])
@@ -581,16 +581,16 @@ class TaxPlotTests(TestCase):
                              out=out)
             plt.close(f[0])
 
-        with self.assertRaisesRegex(ValueError,
-                                    'is not a valid taxonomic rank. Choose'):
-            f = plotTaxonomy(self.filename_biom, self.metadata, rank='noRank',
-                             out=out)
-            plt.close(f[0])
-
         with self.assertRaisesRegex(IOError, 'Taxonomy file not found!'):
             f = plotTaxonomy(self.filename_biom, self.metadata,
                              file_taxonomy='noFile',
                              out=out)
+            plt.close(f[0])
+
+        with self.assertRaisesRegex(ValueError,
+                                    'is not a valid taxonomic rank. Choose'):
+            f = plotTaxonomy(self.filename_biom, self.metadata, rank='noRank',
+                             file_taxonomy=self.taxonomy, out=out)
             plt.close(f[0])
 
     def test_plotTaxonomy_filenotfound(self):
