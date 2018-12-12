@@ -1,21 +1,12 @@
 from unittest import TestCase, main
-import warnings
 import matplotlib.pyplot as plt
-import tempfile
-import random
-import os
-import sys
 import numpy as np
-from io import StringIO
 from tempfile import mkstemp
-from os import remove
-from biom.table import Table
-from biom.util import biom_open
 
 from skbio.util import get_data_path
 import pandas as pd
 
-from ggmap.snippets import pandas2biom, biom2pandas, plotTaxonomy
+from ggmap.snippets import plotTaxonomy
 from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
@@ -66,6 +57,7 @@ class TaxPlotTests(TestCase):
 
             print(cmp)
             break
+
 
 if __name__ == '__main__':
     main()

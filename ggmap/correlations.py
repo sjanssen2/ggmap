@@ -172,8 +172,8 @@ def correlate_metadata(metadata,
 
     summary = dict()
     # start computing correlations
-    # if err:
-        # err.write('correlations intra categorial\n')
+    if err is not None:
+        err.write('correlations intra categorial\n')
     for (column_a, column_b) in itertools.combinations(categorials, 2):
         pivot = _get_pivot(column_a, column_b, meta).as_matrix()
         # future: pivot = _get_pivot(column_a, column_b, meta).values
@@ -188,15 +188,17 @@ def correlate_metadata(metadata,
             summary[(column_a, column_b)] = res
             summary[(column_b, column_a)] = res
 
-    # if err:
-    #     err.write('correlations intra ordinal & interval\n')
-    for (column_a, column_b) in itertools.combinations(list(ordinals.keys()) + intervals + list(dates.keys()), 2):
+    if err is not None:
+        err.write('correlations intra ordinal & interval\n')
+    set_of_fields = list(ordinals.keys()) + intervals + list(dates.keys())
+    for (column_a, column_b) in itertools.combinations(set_of_fields, 2):
         sub = meta[[column_a, column_b]].dropna()
-        if (len(sub[column_a].unique()) > 1) and (len(sub[column_b].unique()) > 1):
+        if (len(sub[column_a].unique()) > 1) and \
+           (len(sub[column_b].unique()) > 1):
             spearman_r, spearman_p = spearmanr(sub[column_a], sub[column_b])
             pearson_r, pearson_p = pearsonr(sub[column_a], sub[column_b])
         else:
-            spearman_r, spearman_p = np.nan, np.nan
+            spearman_r = np.nan
             pearson_r, pearson_p = np.nan, 1.0
 
         res = {'stat_': np.absolute(spearman_r),
@@ -205,15 +207,18 @@ def correlate_metadata(metadata,
         summary[(column_a, column_b)] = res
         summary[(column_b, column_a)] = res
 
-    # if err:
-    #     err.write('correlations between categorial and ordinal/interval\n')
+    if err is not None:
+        err.write('correlations between categorial and ordinal/interval\n')
     for column_a in categorials:
         for column_b in list(ordinals.keys()) + intervals + list(dates.keys()):
-            if (len(meta[column_a].dropna().unique()) <= 1) or (len(meta[column_b].dropna().unique()) <= 1):
+            if (len(meta[column_a].dropna().unique()) <= 1) or \
+               (len(meta[column_b].dropna().unique()) <= 1):
                 # too few categories
                 continue
 
-            groups = [g.dropna().values for n, g in meta.groupby(column_a)[column_b]]
+            groups = [g.dropna().values
+                      for n, g
+                      in meta.groupby(column_a)[column_b]]
             f_, p_ = f_oneway(*groups)
 
             df_n = len(np.hstack(groups)) - len(groups)
@@ -227,7 +232,8 @@ def correlate_metadata(metadata,
 
     for field in all_columns:
         summary[(field, field)] = {'r_': 1.0}
-    correlations = pd.DataFrame.from_dict(summary, orient='index')['r_'].unstack().fillna(0.0)
+    correlations = pd.DataFrame.from_dict(
+        summary, orient='index')['r_'].unstack().fillna(0.0)
 
     # create heatmap visualization
     heatmap = sns.clustermap(correlations, cmap='viridis',
@@ -272,7 +278,7 @@ def redundancy_analysis_alpha(metadata, alpha,
     ax : plt.axes
         The axis to plot on.
     colors : dict(str -> str)
-    	A dictionary, defining the color for every metadata column.
+        A dictionary, defining the color for every metadata column.
     err : StringIO
         Default: sys.stderr
         Stream to print warnings to.
@@ -286,7 +292,7 @@ def redundancy_analysis_alpha(metadata, alpha,
     def pre_execute(workdir, args):
         COL_NAME_ALPHA = 'forRDA_alpha'
 
-        #samples = set(args['metadata'].index) & set(args['alpha'].index)
+        # samples = set(args['metadata'].index) & set(args['alpha'].index)
         meta, all_columns = _clear_metadata(
             args['metadata'], args['categorials'], args['ordinals'],
             args['intervals'], args['dates'], for_metadata_correlation=False)
@@ -357,7 +363,9 @@ def redundancy_analysis_alpha(metadata, alpha,
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
             if colors is not None:
-                palette = {row['label']: colors[row['covariate']] for idx, row in rda.iterrows()}
+                palette = {row['label']: colors[row['covariate']]
+                           for idx, row
+                           in rda.iterrows()}
             else:
                 palette = None
             sns.barplot(data=rda.reset_index(),
@@ -426,7 +434,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
     title : str
         Additional string that will be printed into figure's title
     colors : dict(str -> str)
-    	A dictionary, defining the color for every metadata column.
+        A dictionary, defining the color for every metadata column.
     ax : plt.axes
         The axis to plot on.
     err : StringIO
@@ -442,7 +450,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
     def pre_execute(workdir, args):
         COL_NAME_BETA = 'forRDA_beta'
 
-        #samples = set(args['metadata'].index) & set(args['alpha'].index)
+        # samples = set(args['metadata'].index) & set(args['alpha'].index)
         meta, all_columns = _clear_metadata(
             args['metadata'], args['categorials'], args['ordinals'],
             args['intervals'], args['dates'], for_metadata_correlation=False)
@@ -524,7 +532,9 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
             rda['label'] = rda['covariate'] + '\n' + rda['Pr(>F)'].apply(
                 lambda x: '(p: %.3f)' % x)
             if colors is not None:
-                palette = {row['label']: colors[row['covariate']] for idx, row in rda.iterrows()}
+                palette = {row['label']: colors[row['covariate']]
+                           for idx, row
+                           in rda.iterrows()}
             else:
                 palette = None
             sns.barplot(data=rda.reset_index(),
