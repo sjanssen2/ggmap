@@ -607,7 +607,7 @@ def plotTaxonomy(file_otutable,
                          for idx in metadata.index
                          if idx in rawcounts.columns], :]
     rank_counts = rawcounts.loc[:, meta.index]
-    if verbose:
+    if (out is not None) and verbose:
         out.write('%i samples left with metadata and counts.\n' %
                   meta.shape[0])
 
@@ -624,14 +624,14 @@ def plotTaxonomy(file_otutable,
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
         rank_counts = rank_counts.append(lowReadTaxa)
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after filtering low abundant.\n' %
                       (rank_counts.shape[0]-1))
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
         rank_counts = rank_counts.loc[plottaxa, :]
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after restricting to provided list.\n' %
                       (rank_counts.shape[0]))
 
@@ -639,7 +639,7 @@ def plotTaxonomy(file_otutable,
         rank_counts = rank_counts.loc[
             rank_counts.mean(axis=1).sort_values(ascending=False)
             .iloc[:plotTopXtaxa].index, :]
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after restricting to top %i.\n' %
                       (plotTopXtaxa, rank_counts.shape[0]))
     # all for plotting
@@ -916,7 +916,7 @@ def plotTaxonomy(file_otutable,
                 title = ('Aggregrated "%s"\n' % fct_aggregate.__name__) + title
             ax.get_legend().set_title(title=title, prop=font0)
 
-    if verbose:
+    if (out is not None) and verbose:
         out.write("raw counts: %i\n" % rawcounts.shape[1])
         out.write("raw meta: %i\n" % metadata.shape[0])
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
