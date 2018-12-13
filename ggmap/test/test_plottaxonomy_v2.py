@@ -57,8 +57,6 @@ class TaxPlotTests(TestCase):
                 file_image_diff=file_diff,
                 threshold=0)
             self.assertTrue(cmp[0])
-            #print(cmp)
-            #break
 
 
 if __name__ == '__main__':
