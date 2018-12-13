@@ -126,6 +126,11 @@ def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
                            'provided taxonomy:\n%s\n') % (
                           len(idx_missing_intable),
                           ", ".join(idx_missing_intable)))
+                missing = pd.Series(
+                    index=idx_missing_intable,
+                    name='taxonomy',
+                    data='k__missing_lineage_information')
+                taxonomy = taxonomy.append(missing)
             idx_missing_intaxonomy = set(taxonomy.index) - set(table.index)
             if (len(idx_missing_intaxonomy) > 0) and err:
                 err.write(('Warning: following %i taxa are not in the '
