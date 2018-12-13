@@ -17,3 +17,4 @@ basemap-data-hires
 yaml
 pyyaml
 scikit-learn
+h5py
