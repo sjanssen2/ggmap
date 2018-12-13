@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from itertools import combinations
-from skbio.stats.distance import permanova, anosim
+from skbio.stats.distance import permanova
 from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
@@ -126,6 +126,11 @@ def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
                            'provided taxonomy:\n%s\n') % (
                           len(idx_missing_intable),
                           ", ".join(idx_missing_intable)))
+                missing = pd.Series(
+                    index=idx_missing_intable,
+                    name='taxonomy',
+                    data='k__missing_lineage_information')
+                taxonomy = taxonomy.append(missing)
             idx_missing_intaxonomy = set(taxonomy.index) - set(table.index)
             if (len(idx_missing_intaxonomy) > 0) and err:
                 err.write(('Warning: following %i taxa are not in the '
@@ -389,7 +394,8 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
             out.write('%i taxa left after collapsing to %s.\n' %
                       (counts_taxonomy.shape[0], rank))
     else:
-        counts_taxonomy = counts_taxonomy.loc[:, set(counts_taxonomy.columns) - set(['taxonomy'])]
+        sample_cols = set(counts_taxonomy.columns) - set(['taxonomy'])
+        counts_taxonomy = counts_taxonomy.loc[:, sample_cols]
 
     return counts_taxonomy
 
@@ -419,9 +425,12 @@ def collapseCounts_objects(counts, rank, taxonomy, out=sys.stdout):
     tax = taxonomy.copy()
     tax.name = 'taxonomy'
     return _collapse_counts(
-        pd.merge(counts, tax.to_frame(), how='left', left_index=True, right_index=True),
+        pd.merge(
+            counts, tax.to_frame(),
+            how='left', left_index=True, right_index=True),
         rank,
         out=out)
+
 
 def collapseCounts(file_otutable, rank,
                    file_taxonomy=None,
@@ -459,7 +468,7 @@ def collapseCounts(file_otutable, rank,
     if not os.path.exists(file_otutable):
         raise IOError('OTU table file not found')
 
-    counts, taxonomy = None, None
+    counts, taxonomy, rank_counts = None, None, pd.DataFrame()
     if file_taxonomy is None:
         counts, taxonomy = biom2pandas(file_otutable, withTaxonomy=True,
                                        astype=astype)
@@ -471,7 +480,7 @@ def collapseCounts(file_otutable, rank,
         if (not os.path.exists(file_taxonomy)) and (rank != 'raw'):
             raise IOError('Taxonomy file not found!')
 
-        counts = biom2pandas(file_otutable, withTaxonomy=False, astype=astype)
+        rank_counts = biom2pandas(file_otutable, astype=astype)
         if rank != 'raw':
             taxonomy = pd.read_csv(file_taxonomy, sep="\t", header=None,
                                    names=['otuID', 'taxonomy'],
@@ -480,7 +489,7 @@ def collapseCounts(file_otutable, rank,
             taxonomy.set_index('otuID', inplace=True)
             # add taxonomic lineage information to the counts as
             # column "taxonomy"
-            rank_counts = pd.merge(counts, taxonomy, how='left',
+            rank_counts = pd.merge(rank_counts, taxonomy, how='left',
                                    left_index=True, right_index=True)
 
     return _collapse_counts(rank_counts, rank, out=out)
@@ -581,7 +590,8 @@ def plotTaxonomy(file_otutable,
             ('The following %i sample(s) occure several times in your '
              'metadata. Please de-replicate and try again:\n\t%s\n') % (
              sum(metadata.index.value_counts() > 1),
-             '\n\t'.join(set(metadata[metadata.index.value_counts() > 1].index))
+             '\n\t'.join(
+                set(metadata[metadata.index.value_counts() > 1].index))
              ))
 
     # Parameter checks: check that grouping fields are in metadata table
@@ -602,7 +612,7 @@ def plotTaxonomy(file_otutable,
                          for idx in metadata.index
                          if idx in rawcounts.columns], :]
     rank_counts = rawcounts.loc[:, meta.index]
-    if verbose:
+    if (out is not None) and verbose:
         out.write('%i samples left with metadata and counts.\n' %
                   meta.shape[0])
 
@@ -619,14 +629,14 @@ def plotTaxonomy(file_otutable,
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
         rank_counts = rank_counts.append(lowReadTaxa)
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after filtering low abundant.\n' %
                       (rank_counts.shape[0]-1))
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
         rank_counts = rank_counts.loc[plottaxa, :]
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after restricting to provided list.\n' %
                       (rank_counts.shape[0]))
 
@@ -634,7 +644,7 @@ def plotTaxonomy(file_otutable,
         rank_counts = rank_counts.loc[
             rank_counts.mean(axis=1).sort_values(ascending=False)
             .iloc[:plotTopXtaxa].index, :]
-        if verbose:
+        if (out is not None) and verbose:
             out.write('%i taxa left after restricting to top %i.\n' %
                       (plotTopXtaxa, rank_counts.shape[0]))
     # all for plotting
@@ -911,7 +921,7 @@ def plotTaxonomy(file_otutable,
                 title = ('Aggregrated "%s"\n' % fct_aggregate.__name__) + title
             ax.get_legend().set_title(title=title, prop=font0)
 
-    if verbose:
+    if (out is not None) and verbose:
         out.write("raw counts: %i\n" % rawcounts.shape[1])
         out.write("raw meta: %i\n" % metadata.shape[0])
         out.write("meta with counts: %i samples x %i fields\n" % meta.shape)
@@ -980,7 +990,8 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         elif cmd.startswith('if [ '):
-            ifcon, rest = re.findall('(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+            ifcon, rest = re.findall(
+                '(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
             timing_cmds.append(('%s '
                                 '%s '
                                 '-v '
@@ -1125,7 +1136,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             if call_x.wait() != 0:
                 msg = ("You don't seem to have access to a grid!")
                 if dry:
-                    err.write(msg)
+                    if err is not None:
+                        err.write(msg)
                 else:
                     raise ValueError(msg)
         if force_slurm:
@@ -1281,7 +1293,7 @@ def detect_distant_groups_alpha(alpha, groupings,
         num_permutations : None
         metric_name :      passes metric_name
         group_name :       passes the name of the grouping
-        testfunction :     string name of test function
+        fct_name :         string name of test function
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1317,7 +1329,7 @@ def detect_distant_groups_alpha(alpha, groupings,
              'num_permutations': None,
              'metric_name': alpha.name,
              'group_name': groupings.name,
-             'testfunction': fct_test.__name__})
+             'fct_name': fct_test.__name__})
 
 
 def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
@@ -1574,9 +1586,11 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
             text = ''
             if _type == 'beta':
                 text = 'p-wise %s\n%i perm., %s' % (fct_name, num_permutations,
-                                                           metric_name)
+                                                    metric_name)
             elif _type == 'alpha':
-                text = 'p-wise two-sided Mann-Whitney\n%s' % metric_name
+                text = 'p-wise two-sided %s\n%s' % (
+                    fct_name.replace('mannwhitneyu', 'Mann-Whitney'),
+                    metric_name)
             ax.text(0.5, 0.98, text, transform=ax.transAxes, ha='center',
                     va='top')
 
@@ -2290,14 +2304,16 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                         orient='h')
         if max_x_relabundance is None:
             if relabund_field.max() is not None:
-                max_x_relabundance = min(relabund_field['relative abundance'].max() * 1.1, 1.0)
+                max_x_relabundance = min(
+                    relabund_field['relative abundance'].max() * 1.1, 1.0)
             else:
                 max_x_relabundance = 1.0
         g.set_xlim((0, max_x_relabundance))
         curr_ax.legend(loc="upper right")
 
         # define colors for taxons
-        if (feature_color_map is not None) and (feature_color_map.shape[0] > 0):
+        if (feature_color_map is not None) and \
+           (feature_color_map.shape[0] > 0):
             availColors = \
                 sns.color_palette('Paired', 12) +\
                 sns.color_palette('Dark2', 12) +\
@@ -2306,7 +2322,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
             for i, state in enumerate(feature_color_map.unique()):
                 if state not in colors:
                     colors[state] = availColors[len(colors) % len(availColors)]
-            # color the labels of the Y-axis according to different categories given by feature_color_map
+            # color the labels of the Y-axis according to different categories
+            # given by feature_color_map
             for tick in curr_ax.get_yticklabels():
                 if tick.get_text() in feature_color_map.index:
                     tick.set_color(colors[feature_color_map[tick.get_text()]])
@@ -2326,14 +2343,21 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
             g.set(yticklabels=taxonomy.loc[taxa].apply(
                 lambda x: " ".join(list(
                     map(str.strip, x.split(';')))[-num_ranks:])))
-            # color the labels of the Y-axis according to different categories given by feature_color_map
+            # color the labels of the Y-axis according to different categories
+            # given by feature_color_map
             if feature_color_map is not None:
-                for tick_feature, tick_taxonomy in zip(ax[0].get_yticklabels(), g.yaxis.get_ticklabels()):
+                tickpairs = zip(
+                    ax[0].get_yticklabels(),
+                    g.yaxis.get_ticklabels())
+                for tick_feature, tick_taxonomy in tickpairs:
                     if tick_feature.get_text() in feature_color_map.index:
-                        tick_taxonomy.set_color(colors[feature_color_map[tick_feature.get_text()]])
+                        tick_taxonomy.set_color(
+                            colors[feature_color_map[tick_feature.get_text()]])
                 # adding a legend to the plot, explaining the font colors
                 g.legend(
-                    [Line2D([0], [0], color=colors[category], lw=8) for category in feature_color_map.unique()],
+                    [Line2D([0], [0], color=colors[category], lw=8)
+                     for category
+                     in feature_color_map.unique()],
                     [category for category in feature_color_map.unique()])
 
         g.set_xlabel('<-- more in %s     |      more in %s -->' %

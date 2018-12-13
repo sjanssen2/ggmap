@@ -117,6 +117,7 @@ def load_sequences_pynast(file_pynast_alignment, file_otumap,
     """
     # load the full pynast GreenGenes alignment with
     # sequences=1261500 and position=7682
+    # deprecation warning from skbio
     ali = TabularMSA.read(file_pynast_alignment,
                           format='fasta', constructor=DNA)
 

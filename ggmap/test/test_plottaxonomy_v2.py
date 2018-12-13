@@ -1,21 +1,12 @@
 from unittest import TestCase, main
-import warnings
 import matplotlib.pyplot as plt
-import tempfile
-import random
-import os
-import sys
 import numpy as np
-from io import StringIO
 from tempfile import mkstemp
-from os import remove
-from biom.table import Table
-from biom.util import biom_open
 
 from skbio.util import get_data_path
 import pandas as pd
 
-from ggmap.snippets import pandas2biom, biom2pandas, plotTaxonomy
+from ggmap.snippets import plotTaxonomy
 from ggmap.imgdiff import compare_images
 
 plt.switch_backend('Agg')
@@ -53,19 +44,20 @@ class TaxPlotTests(TestCase):
                 minreadnr=get_depth(bodysite),
                 grayscale=False,
                 no_sample_numbers=True,
-                min_abundance_grayscale=0.0005)
+                min_abundance_grayscale=0.0005,
+                out=None)
 
-            file_plot = mkstemp('__amina_%s_nogray.png' % bodysite)[1]
-            res[0].savefig(file_plot)
-            file_diff = mkstemp('_diff_amina_%s_nogray.png' % bodysite)[1]
+            file_plot = mkstemp('__amina_nogray_%s.png' % bodysite)[1]
+            res[0].set_size_inches(16, 11)
+            res[0].savefig(file_plot, dpi=80)
+            file_diff = mkstemp('_diff_amina_nogray_%s.png' % bodysite)[1]
             cmp = compare_images(
                 file_plot,
-                get_data_path('plot_baseline/amina_%s_nogray.png' % bodysite),
+                get_data_path('plot_baseline/amina_nogray_%s.png' % bodysite),
                 file_image_diff=file_diff,
                 threshold=0)
+            self.assertTrue(cmp[0])
 
-            print(cmp)
-            break
 
 if __name__ == '__main__':
     main()

@@ -207,7 +207,9 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
     for i, metric in enumerate(sorted(data['metrics'].keys())):
         for sample, g in data['metrics'][metric].groupby('sample_name'):
             gsorted = g.sort_values('rarefaction depth')
-            axes[i+2].errorbar(gsorted['rarefaction depth'], gsorted[gsorted.columns[-1]])
+            axes[i+2].errorbar(
+                gsorted['rarefaction depth'],
+                gsorted[gsorted.columns[-1]])
         axes[i+2].set_ylabel(gsorted.columns[-1])
         axes[i+2].set_xlabel('rarefaction depth')
         axes[i+2].set_xlim(0, lostHalf * 1.1)
@@ -2386,15 +2388,19 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
             samples &= set(args['beta_diversities'][metric].ids)
 
         if (args['metadata'].shape[0] != len(samples)):
-            sys.stderr.write('Info: reducing number of samples for Emperor plot to %i\n' % len(samples))
+            sys.stderr.write(
+                'Info: reducing number of samples for Emperor plot to %i\n' %
+                len(samples))
 
         # write metadata to tmp file
-        args['metadata'].loc[samples, :].to_csv(workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+        args['metadata'].loc[samples, :].to_csv(
+            workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
 
         # write distance metrices to tmp files
         for metric in args['beta_diversities'].keys():
             os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
-            args['beta_diversities'][metric].filter(samples).write('%s/%s/distance-matrix.tsv' % (workdir, metric))
+            args['beta_diversities'][metric].filter(samples).write(
+                '%s/%s/distance-matrix.tsv' % (workdir, metric))
 
     def commands(workdir, ppn, args):
         commands = []
@@ -2408,7 +2414,8 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
                  '--source-format DistanceMatrixDirectoryFormat '
                  '--output-path %s ') %
                 ('%s/%s' % (workdir, metric),
-                 #" % Properties([\"phylogenetic\"])" if 'unifrac' in metric else '',
+                 # " % Properties([\"phylogenetic\"])"
+                 # if 'unifrac' in metric else '',
                  '%s/beta_%s.qza' % (workdir, metric)))
             # compute PcoA
             commands.append(
@@ -2435,12 +2442,17 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
         results = dict()
         os.makedirs(fp_results, exist_ok=True)
         for metric in args['beta_diversities']:
-            results[metric] = os.path.join(fp_results, 'emperor%s_%s.qzv' % (infix, metric))
-            shutil.move("%s/emperor_%s.qzv" % (workdir, metric), results[metric])
+            results[metric] = os.path.join(
+                fp_results, 'emperor%s_%s.qzv' % (infix, metric))
+            shutil.move(
+                "%s/emperor_%s.qzv" % (workdir, metric),
+                results[metric])
         return results
 
     return _executor('emperor',
-                     {'metadata': metadata.loc[sorted(metadata.index), sorted(metadata.columns)],
+                     {'metadata': metadata.loc[
+                        sorted(metadata.index),
+                        sorted(metadata.columns)],
                       'beta_diversities': beta_diversities},
                      pre_execute,
                      commands,
