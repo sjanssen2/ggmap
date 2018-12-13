@@ -48,7 +48,8 @@ def compare_images(file_image_a, file_image_b, threshold=0,
 
     if not access('/'.join(file_image_diff.split('/')[:-1]), W_OK):
         if err is not None:
-            err.write("Cannot write to diff image file '%s'." % file_image_diff)
+            err.write("Cannot write to diff image file '%s'." %
+                      file_image_diff)
         return (False, numpy.infty)
 
     label = ""
