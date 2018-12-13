@@ -1131,7 +1131,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             if call_x.wait() != 0:
                 msg = ("You don't seem to have access to a grid!")
                 if dry:
-                    err.write(msg)
+                    if err is not None:
+                        err.write(msg)
                 else:
                     raise ValueError(msg)
         if force_slurm:
