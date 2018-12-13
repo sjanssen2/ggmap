@@ -25,7 +25,7 @@ class TaxPlotTests(TestCase):
 
         # verify that slightly different images are not exactly equal ...
         obs = compare_images(self.file_img_orig, self.file_img_similar,
-                             threshold=0)
+                             threshold=0, out=None, err=None)
         self.assertTrue(obs[0] is not True)
         self.assertEqual(obs[1], 8)
 
@@ -37,7 +37,7 @@ class TaxPlotTests(TestCase):
 
         # verify that major differences are recognized
         obs = compare_images(self.file_img_orig, self.file_img_changed,
-                             threshold=9)
+                             threshold=9, out=None)
         self.assertTrue(obs[0] is not True)
         self.assertTrue(obs[1] > 9)
 
@@ -76,7 +76,7 @@ class TaxPlotTests(TestCase):
         # verify that the file does not exist at the moment
         self.assertTrue(path.exists(file_dummy) is False)
         obs = compare_images(self.file_img_orig, self.file_img_changed,
-                             err=err, file_image_diff=file_dummy)
+                             err=err, file_image_diff=file_dummy, out=None)
         self.assertTrue(path.exists(file_dummy))
         self.assertTrue(obs[0] is not True)
         remove(file_dummy)
