@@ -44,7 +44,8 @@ class TaxPlotTests(TestCase):
                 minreadnr=get_depth(bodysite),
                 grayscale=False,
                 no_sample_numbers=True,
-                min_abundance_grayscale=0.0005)
+                min_abundance_grayscale=0.0005,
+                out=None)
 
             file_plot = mkstemp('__amina_nogray_%s.png' % bodysite)[1]
             res[0].set_size_inches(16, 11)
