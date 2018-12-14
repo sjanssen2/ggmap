@@ -6,6 +6,7 @@
 # The full license is in the file COPYING.txt, distributed with this software.
 # ----------------------------------------------------------------------------
 
+SHELL=/bin/bash
 .DEFAULT_GOAL := help
 
 ifeq ($(WITH_COVERAGE), TRUE)
@@ -31,3 +32,24 @@ check:
 	python ggmap/test/check_analyses_sepp.py
 
 all: test pep8
+
+# make targets to install ggmap in a fresh Linux machine
+
+install: conda_install
+	if [ -z "${CONDA_PREFIX}" ]; then \
+		conda create -n ggmap python=3.5 -y; \
+	  source activate ggmap; \
+	fi;
+	conda install -c conda-forge pyproj -y;
+	conda install --file ci/conda_requirements.txt -c conda-forge -y;
+	pip install -r ci/pip_requirements.txt;
+	python setup.py develop;
+
+conda_install:
+	if ! which conda > /dev/null; then \
+		if [ ! -f miniconda.sh ]; then \
+			wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh; \
+		fi; \
+		bash miniconda.sh -b -p ${HOME}/miniconda; \
+		export PATH="${HOME}/miniconda/bin:${PATH}"; \
+	fi
