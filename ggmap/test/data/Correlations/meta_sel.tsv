@@ -1,0 +1,244 @@
+sample_name	age	bird_family	bird_order	collection_timestamp	diet_brief	latitude	longitude	plate	q2	sample_substance	sex	smj_genus	smj_species	weight	collection_second
+10684.weampp02D12	AD	Scolopacidae	Charadriiformes	05/23/1999	arthropods	51.87	-176.65	2	Andreanof	P	F	Calidris	ptilocnemis	83.0	927442800.0
+10684.weampp02F05	AD	Anseridae	Anseriformes	04/12/2002	herbivore	52.72	174.1	2	Near	P	M	Anas	crecca	386.0	1018594800.0
+10684.weampp02F12	AD	Phasianidae	Galliformes	06/04/2002	herbivore	52.83	173.18	2	Near	G	M	Lagopus	muta	545.0	1023174000.0
+10684.weampp04A10	AD	Calcariidae	Passeriformes	06/04/2008	granivore	52.83	173.18	4	Near	P	M	Plectrophenax	nivalis	39.0	1212562800.0
+10684.weampp04B03	AD	Anseridae	Anseriformes	05/31/2005	herbivore	68.71	-149.01	4	mainland	P	M	Anas	crecca		1117522800.0
+10684.weampp04B11	AD	Anseridae	Anseriformes	05/08/2004	herbivore	52.83	173.18	4	Near	G	M	Anas	crecca	428.0	1083999600.0
+10684.weampp04D03	AD	Anseridae	Anseriformes	05/31/2005	herbivore	68.8	-148.82	4	mainland	G	M	Anas	crecca	310.0	1117522800.0
+10684.weampp04D11	AD	Anseridae	Anseriformes	05/31/2005	herbivore	68.2	-148.5	4	mainland	G	M	Anas	crecca	320.0	1117522800.0
+10684.weampp04E06	AD	Calcariidae	Passeriformes	06/02/2008	granivore	52.83	173.18	4	Near	G	F	Plectrophenax	nivalis	42.0	1212390000.0
+10684.weampp04F03	AD	Anseridae	Anseriformes	05/31/2005	herbivore	68.71	-149.01	4	mainland	P	F	Anas	crecca		1117522800.0
+10684.weampp04F05	AD	Troglodytidae	Passeriformes	06/06/2008	arthropods	52.83	173.18	4	Near	G	F	Troglodytes	pacificus	15.4	1212735600.0
+10684.weampp04F06	AD	Troglodytidae	Passeriformes	06/09/2008	arthropods	52.83	173.18	4	Near	P	M	Troglodytes	pacificus	15.3	1212994800.0
+10684.weampp04F09	AD	Corvidae	Passeriformes	05/03/2006	omnivore	52.72	174.1	4	Near	P	M	Corvus	corax	1960.0	1146639600.0
+10684.weampp04H03	U	Phasianidae	Galliformes	10/11/2007	herbivore	64.83	-147.74	4	mainland	G	M	Lagopus	muta	411.0	1192086000.0
+10684.weampp05A10	U	Anseridae	Anseriformes	05/25/2007	herbivore	52.83	173.18	5	Near	P	M	Anas	crecca	413.4	1180076400.0
+10684.weampp05A12	AD	Troglodytidae	Passeriformes	05/11/2006	arthropods	60.5	-145.5	5	mainland	G	M	Troglodytes	pacificus	9.3	1147330800.0
+10684.weampp05B05	AD	Corvidae	Passeriformes	05/23/2006	omnivore	52.72	174.1	5	Near	P	M	Corvus	corax	4400.0	1148367600.0
+10684.weampp05B09	AD	Anseridae	Anseriformes	05/24/2007	herbivore	52.83	173.18	5	Near	G	M	Anas	crecca	333.3	1179990000.0
+10684.weampp05B10	U	Corvidae	Passeriformes	10/01/2006	omnivore	52.72	174.1	5	Near	G	M	Corvus	corax	1450.0	1159686000.0
+10684.weampp05C09	AD	Troglodytidae	Passeriformes	06/22/2005	arthropods	60.5	-145.5	5	mainland	G	M	Troglodytes	pacificus	9.2	1119423600.0
+10684.weampp05C12	U	Anseridae	Anseriformes	04/20/2007	herbivore	52.72	174.1	5	Near	P	M	Anas	crecca	368.8	1177052400.0
+10684.weampp05D11	AD	Anseridae	Anseriformes	05/27/2007	herbivore	52.83	173.18	5	Near	P	M	Anas	crecca	479.4	1180249200.0
+10684.weampp05F02	U	Phasianidae	Galliformes	05/28/2004	herbivore	52.83	173.18	5	Near	P	M	Lagopus	muta	516.5	1085727600.0
+10684.weampp05F03	AD	Anseridae	Anseriformes	05/23/2007	herbivore	52.83	173.18	5	Near	G	M	Anas	crecca	342.0	1179903600.0
+10684.weampp05F05	U	Corvidae	Passeriformes	09/15/2006	omnivore	52.72	174.1	5	Near	G	F	Corvus	corax	1600.0	1158303600.0
+10684.weampp05G02	U	Corvidae	Passeriformes	08/26/2007	omnivore	52.72	174.1	5	Near	G	U	Corvus	corax	2000.0	1188111600.0
+10684.weampp05G10	AD	Troglodytidae	Passeriformes	05/09/2006	arthropods	60.5	-145.5	5	mainland	G	M	Troglodytes	pacificus	10.9	1147158000.0
+10684.weampp05G12	AD	Anseridae	Anseriformes	05/02/2007	herbivore	52.72	174.1	5	Near	P	M	Anas	crecca	365.1	1178089200.0
+10684.weampp06A05	AD	Anseridae	Anseriformes	09/11/2004	herbivore	52.83	173.18	6	Near	P	F	Anas	crecca	320.4	1094886000.0
+10684.weampp06A08	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	6	Andreanof	G	M	Calcarius	lapponicus	29.5	929430000.0
+10684.weampp06B12	HY	Calcariidae	Passeriformes	09/16/2004	granivore	55.2	-162.72	6	mainland	G	M	Plectrophenax	nivalis	36.5	1095318000.0
+10684.weampp06C07	AD	Anseridae	Anseriformes	05/07/2004	herbivore	64.83	-147.74	6	mainland	G	F	Anas	crecca	324.0	1083913200.0
+10684.weampp06C08	AD	Calcariidae	Passeriformes	05/24/1999	arthropods	51.87	-176.65	6	Andreanof	P	F	Calcarius	lapponicus	24.9	927529200.0
+10684.weampp06D05	AD	Anseridae	Anseriformes	08/21/2004	herbivore	55.2	-162.72	6	mainland	G	F	Anas	crecca	416.6	1093071600.0
+10684.weampp06D06	AD	Phasianidae	Galliformes	06/16/2004	herbivore	59.43	-161.17	6	mainland	P	M	Lagopus	muta	571.0	1087369200.0
+10684.weampp06E03	AD	Phasianidae	Galliformes	06/01/2002	herbivore	52.83	173.18	6	Near	P	M	Lagopus	muta	545.0	1022914800.0
+10684.weampp06E04	U	Phasianidae	Galliformes	09/12/2004	herbivore	55.2	-162.72	6	mainland	G	M	Lagopus	lagopus	625.0	1094972400.0
+10684.weampp06E07	AD	Corvidae	Passeriformes	06/02/2002	omnivore	52.72	174.1	6	Near	G	F	Corvus	corax	1740.0	1023001200.0
+10684.weampp06F02	HY	Melospizidae	Passeriformes	09/19/2004	omnivore	52.83	173.18	6	Near	G	M	Melospiza	melodia	39.4	1095577200.0
+10684.weampp06G03	HY	Troglodytidae	Passeriformes	08/30/1999	arthropods	52.83	173.18	6	Near	G	M	Troglodytes	pacificus	14.5	935996400.0
+10684.weampp06G05	HY	Troglodytidae	Passeriformes	08/19/1999	arthropods	52.83	173.18	6	Near	G	M	Troglodytes	pacificus	13.3	935046000.0
+10684.weampp06G12	AD	Calcariidae	Passeriformes	06/15/2004	granivore	59.19	-161.68	6	mainland	G	M	Plectrophenax	nivalis	39.5	1087282800.0
+10684.weampp06H02	AD	Phasianidae	Galliformes	06/06/2003	herbivore	68.2	-148.5	6	mainland	G	M	Lagopus	lagopus		1054882800.0
+10684.weampp06H03	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	6	Andreanof	P	M	Calcarius	lapponicus	26.0	929430000.0
+10684.weampp06H06	AD	Anseridae	Anseriformes	05/07/2004	herbivore	64.83	-147.74	6	mainland	G	M	Anas	crecca	357.5	1083913200.0
+10684.weampp07A09	AD	Melospizidae	Passeriformes	09/23/2003	omnivore	52.83	173.18	7	Near	P/G	F	Melospiza	melodia	37.1	1064300400.0
+10684.weampp07B03	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	7	Andreanof	G	M	Calcarius	lapponicus	29.8	929430000.0
+10684.weampp07B05	AD	Troglodytidae	Passeriformes	09/01/1999	arthropods	52.83	173.18	7	Near	G	M	Troglodytes	pacificus	14.5	936169200.0
+10684.weampp07B09	AD	Melospizidae	Passeriformes	05/16/2004	omnivore	52.83	173.18	7	Near	P	M	Melospiza	melodia	42.6	1084690800.0
+10684.weampp07B12	AD	Phasianidae	Galliformes	06/04/2002	herbivore	52.83	173.18	7	Near	P	M	Lagopus	muta	538.0	1023174000.0
+10684.weampp07C02	HY	Troglodytidae	Passeriformes	10/01/2000	arthropods	52.83	173.18	7	Near	G	M	Troglodytes	pacificus	11.5	970383600.0
+10684.weampp07C08	AD	Calcariidae	Passeriformes	06/06/1999	granivore	52.72	174.1	7	Near	P/G	F	Plectrophenax	nivalis	47.5	928652400.0
+10684.weampp07C09	AD	Scolopacidae	Charadriiformes	06/22/1999	arthropods	51.87	-176.65	7	Andreanof	P	F	Calidris	ptilocnemis	72.0	930034800.0
+10684.weampp07D02	HY	Troglodytidae	Passeriformes	09/10/2004	arthropods	52.83	173.18	7	Near	G	M	Troglodytes	pacificus	13.6	1094799600.0
+10684.weampp07D03	HY	Troglodytidae	Passeriformes	08/26/1999	arthropods	52.83	173.18	7	Near	G	M	Troglodytes	pacificus	15.5	935650800.0
+10684.weampp07D09	AD	Phasianidae	Galliformes	05/18/2002	herbivore	52.83	173.18	7	Near	P	M	Lagopus	muta	566.8	1021705200.0
+10684.weampp07D12	AD	Phasianidae	Galliformes	06/04/2002	herbivore	52.83	173.18	7	Near	P	M	Lagopus	muta	565.0	1023174000.0
+10684.weampp07E01	HY	Troglodytidae	Passeriformes	09/16/2004	arthropods	52.83	173.18	7	Near	G	F	Troglodytes	pacificus	11.9	1095318000.0
+10684.weampp07E05	AD	Phasianidae	Galliformes	06/02/2002	herbivore	52.83	173.18	7	Near	G	M	Lagopus	muta	540.0	1023001200.0
+10684.weampp07E12	AD	Corvidae	Passeriformes	10/06/2002	omnivore	52.72	174.1	7	Near	G	M	Corvus	corax	2000.0	1033887600.0
+10684.weampp07G06	AD	Corvidae	Passeriformes	08/27/2007	omnivore	52.72	174.1	7	Near	G	U	Corvus	corax	1100.0	1188198000.0
+10684.weampp07G08	AD	Melospizidae	Passeriformes	09/23/2003	omnivore	52.83	173.18	7	Near	G	U	Melospiza	melodia	40.0	1064300400.0
+10684.weampp07G12	AD	Phasianidae	Galliformes	05/27/2002	herbivore	52.83	173.18	7	Near	P	F	Lagopus	muta	625.0	1022482800.0
+10684.weampp07H01	AD	Melospizidae	Passeriformes	09/19/2004	omnivore	52.83	173.18	7	Near	G	M	Melospiza	melodia		1095577200.0
+10684.weampp07H08	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	7	Andreanof	P	F	Calcarius	lapponicus	30.0	929430000.0
+10684.weampp08A02	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	8	Andreanof	G	M	Calcarius	lapponicus	25.6	929430000.0
+10684.weampp08A11	AD	Calcariidae	Passeriformes	05/22/1998	arthropods	51.87	-176.65	8	Andreanof	G	F	Calcarius	lapponicus	28.0	895820400.0
+10684.weampp08B06	AD	Calcariidae	Passeriformes	05/22/1998	arthropods	51.87	-176.65	8	Andreanof	G	M	Calcarius	lapponicus	27.5	895820400.0
+10684.weampp08E07	U	Calcariidae	Passeriformes	07/27/2000	arthropods	64.47	-164.74	8	mainland	G	U	Calcarius	lapponicus		964681200.0
+10684.weampp08E10	AD	Phasianidae	Galliformes	06/02/2001	herbivore	52.83	173.18	8	Near	*MEAT RE-DO	M	Lagopus	muta	556.0	991465200.0
+10684.weampp08G01	AD	Melospizidae	Passeriformes	05/18/2004	omnivore	52.83	173.18	8	Near	G	F	Melospiza	melodia	41.7	1084863600.0
+10684.weampp08G11	AD	Calcariidae	Passeriformes	05/21/1992	arthropods	64.83	-147.74	8	mainland	G	M	Calcarius	lapponicus		706431600.0
+10684.weampp08H12	AD	Troglodytidae	Passeriformes	05/11/2006	arthropods	60.5	-145.5	8	mainland	G	F	Troglodytes	pacificus	11.6	1147330800.0
+10684.weampp09A07	AD	Scolopacidae	Charadriiformes	05/03/2001	arthropods	52.83	173.18	9	Near	G	M?	Calidris	ptilocnemis		988873200.0
+10684.weampp09A09	U	Calcariidae	Passeriformes	09/05/1997	granivore	52.83	173.18	9	Near	P/G	M	Plectrophenax	nivalis	44.5	873442800.0
+10684.weampp09A11	HY	Calcariidae	Passeriformes	07/09/2005	arthropods	64.33	-160.89	9	mainland	P	U	Calcarius	lapponicus	23.9	1120892400.0
+10684.weampp09B05	AD	Melospizidae	Passeriformes	05/20/1999	omnivore	51.87	-176.65	9	Andreanof	G	F	Melospiza	melodia	47.2	927183600.0
+10684.weampp09B06	HY	Calcariidae	Passeriformes	07/07/2005	arthropods	64.5	-159.5	9	mainland	P	F	Calcarius	lapponicus	28.6	1120719600.0
+10684.weampp09B11	AD	Phasianidae	Galliformes	06/02/2001	herbivore	52.83	173.18	9	Near	G	M	Lagopus	muta	575.0	991465200.0
+10684.weampp09B12	HY	Phasianidae	Galliformes	07/28/2000	herbivore	64.82	-166.4	9	mainland	G	U	Lagopus	muta	450.0	964767600.0
+10684.weampp09E06	HY	Scolopacidae	Charadriiformes	09/11/1999	arthropods	52.83	173.18	9	Near	G	M	Calidris	ptilocnemis	69.6	937033200.0
+10684.weampp09F05	IM	Melospizidae	Passeriformes	08/14/1998	omnivore	52.83	173.18	9	Near	G	M	Melospiza	melodia	45.6	903078000.0
+10684.weampp09F06	U	Calcariidae	Passeriformes	09/05/1997	arthropods	52.83	173.18	9	Near	G	U	Calcarius	lapponicus	30.7	873442800.0
+10684.weampp09F08	AD	Melospizidae	Passeriformes	05/23/1998	omnivore	51.87	-176.65	9	Andreanof	P/G	F	Melospiza	melodia	52.6	895906800.0
+10684.weampp09G08	AD	Phasianidae	Galliformes	07/24/1998	herbivore	64.6	-164.3	9	mainland	P	M	Lagopus	muta	437.0	901263600.0
+10684.weampp09G10	HY	Melospizidae	Passeriformes	06/18/1999	omnivore	51.87	-176.65	9	Andreanof	G	M	Melospiza	melodia	41.2	929689200.0
+10684.weampp09H08	HY	Phasianidae	Galliformes	07/28/2000	herbivore	64.82	-166.4	9	mainland	P	F	Lagopus	muta	425.0	964767600.0
+10684.weampp09H09	HY	Melospizidae	Passeriformes	09/04/1999	omnivore	52.83	173.18	9	Near	G	M	Melospiza	melodia	42.4	936428400.0
+10684.weampp10A11	AD	Melospizidae	Passeriformes	05/24/2000	omnivore	51.87	-176.65	10	Andreanof	P/G	M	Melospiza	melodia	51.0	959151600.0
+10684.weampp10B06	AD	Anseridae	Anseriformes	06/27/2001	herbivore	51.87	-176.65	10	Andreanof	G	M	Anas	crecca	428.0	993625200.0
+10684.weampp10B07	AD	Scolopacidae	Charadriiformes	07/05/2002	arthropods	55.6	-162.1	10	mainland	G	M	Calidris	ptilocnemis	63.0	1025852400.0
+10684.weampp10B11	AD	Melospizidae	Passeriformes	05/20/2000	omnivore	51.87	-176.65	10	Andreanof	G	F	Melospiza	melodia	43.3	958806000.0
+10684.weampp10C11	AD	Melospizidae	Passeriformes	05/22/2000	omnivore	51.87	-176.65	10	Andreanof	P/G	M	Melospiza	melodia	45.4	958978800.0
+10684.weampp10D11	AD	Melospizidae	Passeriformes	05/26/2000	omnivore	51.87	-176.65	10	Andreanof	P/G	F	Melospiza	melodia	46.1	959324400.0
+10684.weampp10E05	AD	Melospizidae	Passeriformes	05/21/2000	omnivore	51.87	-176.65	10	Andreanof	G	M	Melospiza	melodia	46.3	958892400.0
+10684.weampp10E06	AD	Anseridae	Anseriformes	06/27/2001	herbivore	51.87	-176.65	10	Andreanof	G	M	Anas	crecca	389.5	993625200.0
+10684.weampp10E11	AD	Melospizidae	Passeriformes	07/27/2002	omnivore	59.2	-135.5	10	mainland	P	M	Melospiza	melodia	25.5	1027753200.0
+10684.weampp10F03	AD	Phasianidae	Galliformes	07/08/2005	herbivore	63.5	-161.1	10	mainland	G	M	Lagopus	lagopus	567.0	1120806000.0
+10684.weampp10F05	HY	Melospizidae	Passeriformes	08/26/2000	omnivore	51.87	-176.65	10	Andreanof	G	F	Melospiza	melodia	40.4	967273200.0
+10684.weampp10F11	AD	Melospizidae	Passeriformes	05/19/2000	omnivore	51.87	-176.65	10	Andreanof	P/G	M	Melospiza	melodia	46.1	958719600.0
+10684.weampp10G03	AD	Scolopacidae	Charadriiformes	05/19/2000	arthropods	51.87	-176.65	10	Andreanof	G	F	Calidris	ptilocnemis		958719600.0
+10684.weampp10G06	AD	Troglodytidae	Passeriformes	06/28/2002	arthropods	59.38	-135.9	10	mainland	G	M	Troglodytes	pacificus	9.4	1025247600.0
+10684.weampp10G10	AD	Melospizidae	Passeriformes	06/25/2002	omnivore	59.2	-135.5	10	mainland	P	F	Melospiza	melodia	25.0	1024988400.0
+10684.weampp10H09	AD	Phasianidae	Galliformes	06/27/2002	herbivore	59.29	-135.97	10	mainland	G	M	Lagopus	muta	400.0	1025161200.0
+10684.weampp10H10	AD	Melospizidae	Passeriformes	06/27/2002	omnivore	59.38	-135.9	10	mainland	P/G	F	Melospiza	melodia		1025161200.0
+10684.weampp10H11	AD	Melospizidae	Passeriformes	10/07/2000	omnivore	52.83	173.18	10	Near	G	M	Melospiza	melodia	45.3	970902000.0
+10684.weampp11A03	AD	Phasianidae	Galliformes	04/27/2001	herbivore	51.87	-176.65	11	Andreanof	P	U	Lagopus	muta		988354800.0
+10684.weampp11A05	AD	Anseridae	Anseriformes	05/19/2002	herbivore	52.83	173.18	11	Near	G	M	Anas	crecca	420.4	1021791600.0
+10684.weampp11B02	U	Corvidae	Passeriformes	12/07/1996	omnivore	51.87	-176.65	11	Andreanof	P	M	Corvus	corax	1538.0	849945600.0
+10684.weampp11B03	AD	Phasianidae	Galliformes	07/25/2001	herbivore	65.05	-164.66	11	mainland	G	M	Lagopus	muta	450.0	996044400.0
+10684.weampp11C11	AD	Scolopacidae	Charadriiformes	06/04/2000	arthropods	55.2	-162.72	11	mainland	P	M	Calidris	ptilocnemis	82.2	960102000.0
+10684.weampp11E02	AD	Phasianidae	Galliformes	04/26/2001	herbivore	51.87	-176.65	11	Andreanof	G	M	Lagopus	muta	560.0	988268400.0
+10684.weampp11E04	HY	Anseridae	Anseriformes	08/23/2001	herbivore	55.2	-162.72	11	mainland	P	M	Anas	crecca	331.0	998550000.0
+10684.weampp11E05	U	Phasianidae	Galliformes	12/31/2000	herbivore	61.23	-149.58	11	mainland	P	F	Lagopus	muta	412.9	978249600.0
+10684.weampp11E08	IM	Calcariidae	Passeriformes	09/16/1997	arthropods	52.83	173.18	11	Near	P	M	Calcarius	lapponicus	29.7	874393200.0
+10684.weampp11E09	AD	Phasianidae	Galliformes	05/19/1999	herbivore	51.87	-176.65	11	Andreanof	G	M	Lagopus	muta	650.0	927097200.0
+10684.weampp11F03	AD	Phasianidae	Galliformes	07/26/2001	herbivore	65.5	-164.1	11	mainland	G	M	Lagopus	muta	497.0	996130800.0
+10684.weampp11F07	AD	Anseridae	Anseriformes	05/21/1999	herbivore	51.87	-176.65	11	Andreanof	G	M	Anas	crecca	356.4	927270000.0
+10684.weampp11G02	HY	Corvidae	Passeriformes	07/24/2001	omnivore	64.73	-165.26	11	mainland	G	M	Corvus	corax	1160.0	995958000.0
+10684.weampp11G04	AD	Anseridae	Anseriformes	06/18/2001	herbivore	54.21	-164.82	11	mainland	G	F	Anas	crecca	265.0	992847600.0
+10684.weampp11H11	AD	Corvidae	Passeriformes	05/15/2002	omnivore	52.83	173.18	11	Near	P	M	Corvus	corax	1850.0	1021446000.0
+10684.weampp11H12	AD	Phasianidae	Galliformes	07/26/2001	herbivore	65.5	-164.1	11	mainland	P/G	F	Lagopus	muta	450.0	996130800.0
+10684.weampp12A05	HY ?	Troglodytidae	Passeriformes	08/04/1992	arthropods	58.37	-134.66	12	mainland	G	U	Troglodytes	pacificus	8.5	712911600.0
+10684.weampp12A09	AD	Calcariidae	Passeriformes	06/29/1999	granivore	55.2	-162.72	12	mainland	G	F	Plectrophenax	nivalis	38.8	930639600.0
+10684.weampp12A10	AD	Troglodytidae	Passeriformes	05/22/2000	arthropods	51.87	-176.65	12	Andreanof	P/G	M	Troglodytes	pacificus	14.0	958978800.0
+10684.weampp12A12	AD	Anseridae	Anseriformes	06/08/2001	herbivore	52.72	174.1	12	Near	P	M	Anas	crecca	336.0	991983600.0
+10684.weampp12B05	AD	Phasianidae	Galliformes	05/19/1999	herbivore	51.87	-176.65	12	Andreanof	P	M	Lagopus	muta	630.0	927097200.0
+10684.weampp12B09	U	Calcariidae	Passeriformes	12/13/1999	granivore	51.87	-176.65	12	Andreanof	G	M	Plectrophenax	nivalis	51.3	945072000.0
+10684.weampp12B11	AD	Scolopacidae	Charadriiformes	06/29/1999	arthropods	55.2	-162.72	12	mainland	G	F	Calidris	ptilocnemis	77.8	930639600.0
+10684.weampp12B12	HY	Troglodytidae	Passeriformes	08/12/1996	arthropods	58.44	-135.49	12	mainland	P	M	Troglodytes	pacificus	8.6	839833200.0
+10684.weampp12C02	AD	Melospizidae	Passeriformes	04/20/2000	omnivore	55.9	-130.0	12	mainland	G	M	Melospiza	melodia	25.1	956214000.0
+10684.weampp12C05	HY	Scolopacidae	Charadriiformes	10/04/2000	arthropods	52.83	173.18	12	Near	G	F	Calidris	ptilocnemis	67.2	970642800.0
+10684.weampp12C09	HY	Calcariidae	Passeriformes	06/19/1999	granivore	51.87	-176.65	12	Andreanof	G	M	Plectrophenax	nivalis	37.3	929775600.0
+10684.weampp12C10	AD	Calcariidae	Passeriformes	07/02/1999	arthropods	55.2	-162.72	12	mainland	P	F	Calcarius	lapponicus	30.8	930898800.0
+10684.weampp12C11	AD	Scolopacidae	Charadriiformes	05/03/2001	arthropods	52.83	173.18	12	Near	G	F	Calidris	ptilocnemis	81.0	988873200.0
+10684.weampp12D03	HY	Troglodytidae	Passeriformes	08/12/1996	arthropods	58.44	-135.49	12	mainland	G	U	Troglodytes	pacificus	8.7	839833200.0
+10684.weampp12D04	AD	Scolopacidae	Charadriiformes	06/04/2000	arthropods	55.2	-162.72	12	mainland	G	M	Calidris	ptilocnemis	77.1	960102000.0
+10684.weampp12D07	HY	Troglodytidae	Passeriformes	07/17/1993	arthropods	58.37	-134.66	12	mainland	P	U	Troglodytes	pacificus	7.2	742892400.0
+10684.weampp12D10	AD	Phasianidae	Galliformes	04/25/2001	herbivore	51.87	-176.65	12	Andreanof	P	M	Lagopus	muta		988182000.0
+10684.weampp12E02	AD	Scolopacidae	Charadriiformes	06/04/2000	arthropods	55.2	-162.72	12	mainland	G	M	Calidris	ptilocnemis	78.4	960102000.0
+10684.weampp12E05	AD	Calcariidae	Passeriformes	07/02/1999	arthropods	55.2	-162.72	12	mainland	P/G	M	Calcarius	lapponicus	29.7	930898800.0
+10684.weampp12E07	AD	Troglodytidae	Passeriformes	07/10/1993	arthropods	58.37	-134.66	12	mainland	G	M	Troglodytes	pacificus	8.0	742287600.0
+10684.weampp12E08	AD	Scolopacidae	Charadriiformes	05/07/2001	arthropods	52.83	173.18	12	Near	G	M	Calidris	ptilocnemis	66.3	989218800.0
+10684.weampp12E09	AD	Calcariidae	Passeriformes	06/15/1999	arthropods	51.87	-176.65	12	Andreanof	P	M	Calcarius	lapponicus	25.8	929430000.0
+10684.weampp12E10	AD	Phasianidae	Galliformes	04/25/2001	herbivore	51.87	-176.65	12	Andreanof	G	U	Lagopus	muta		988182000.0
+10684.weampp12E12	AD	Calcariidae	Passeriformes	07/01/1999	arthropods	55.2	-162.72	12	mainland	P/G	F	Calcarius	lapponicus	26.0	930812400.0
+10684.weampp12F03	AD	Anseridae	Anseriformes	05/23/2000	herbivore	51.87	-176.65	12	Andreanof	G	M	Anas	crecca	398.0	959065200.0
+10684.weampp12F04	AD	Calcariidae	Passeriformes	06/28/1999	arthropods	55.2	-162.72	12	mainland	G	M	Calcarius	lapponicus	28.6	930553200.0
+10684.weampp12F06	AD	Scolopacidae	Charadriiformes	05/03/2000	arthropods	52.83	173.18	12	Near	G	F	Calidris	ptilocnemis		957337200.0
+10684.weampp12F07	AD	Calcariidae	Passeriformes	05/24/2001	granivore	52.83	173.18	12	Near	P	F	Plectrophenax	nivalis	47.5	990687600.0
+10684.weampp12F08	AD	Calcariidae	Passeriformes	07/03/1999	granivore	55.2	-162.72	12	mainland	G	M	Plectrophenax	nivalis	37.5	930985200.0
+10684.weampp12F12	AD	Corvidae	Passeriformes	05/28/2000	omnivore	51.87	-176.65	12	Andreanof	P/G	F	Corvus	corax	1375.0	959497200.0
+10684.weampp12G06	AD	Corvidae	Passeriformes	05/21/2000	omnivore	51.87	-176.65	12	Andreanof	P	F	Corvus	corax	1450.0	958892400.0
+10684.weampp12G10	AD	Corvidae	Passeriformes	05/20/2000	omnivore	51.87	-176.65	12	Andreanof	P	F	Corvus	corax	1550.0	958806000.0
+10684.weampp12G11	U	Phasianidae	Galliformes	06/15/1999	herbivore	51.87	-176.65	12	Andreanof	G	M	Lagopus	muta		929430000.0
+10684.weampp12H02	AD	Calcariidae	Passeriformes	05/26/1999	arthropods	51.87	-176.65	12	Andreanof	P	F	Calcarius	lapponicus	27.6	927702000.0
+10684.weampp12H03	AD	Scolopacidae	Charadriiformes	05/23/1999	arthropods	51.87	-176.65	12	Andreanof	G	M	Calidris	ptilocnemis	65.9	927442800.0
+10684.weampp12H04	AD	Scolopacidae	Charadriiformes	05/19/2000	arthropods	52.09	-173.6	12	Andreanof		M	Calidris	ptilocnemis	64.6	958719600.0
+10684.weampp12H05	AD	Phasianidae	Galliformes	06/16/1999	herbivore	51.87	-176.65	12	Andreanof		M	Lagopus	muta	568.2	929516400.0
+10684.weampp12H06	AD	Calcariidae	Passeriformes	01/28/2000	granivore	52.72	174.1	12	Near	G	F	Plectrophenax	nivalis	39.5	949046400.0
+10684.weampp12H07	AD	Phasianidae	Galliformes	06/16/1999	herbivore	51.87	-176.65	12	Andreanof	P	M	Lagopus	muta	552.7	929516400.0
+10684.weampp12H09	AD	Scolopacidae	Charadriiformes	05/20/2000	arthropods	51.87	-176.65	12	Andreanof	P/G	F	Calidris	ptilocnemis	77.8	958806000.0
+10684.weampp12H10	HY	Calcariidae	Passeriformes	09/05/1997	granivore	52.83	173.18	12	Near	P/G	F	Plectrophenax	nivalis	39.8	873442800.0
+10684.weampp12H11	AD	Calcariidae	Passeriformes	07/01/1999	arthropods	55.2	-162.72	12	mainland	G	F	Calcarius	lapponicus	28.3	930812400.0
+10684.weampp12H12	U	Anseridae	Anseriformes	09/01/2001	herbivore	64.83	-147.74	12	mainland	G	F	Anas	crecca	300.0	999327600.0
+10684.weampp13A02	AD	Scolopacidae	Charadriiformes	05/23/2000	arthropods	51.87	-176.65	13	Andreanof	P	F	Calidris	ptilocnemis	88.4	959065200.0
+10684.weampp13A03	HY	Calcariidae	Passeriformes	08/16/1998	granivore	52.83	173.18	13	Near	G	M	Plectrophenax	nivalis	42.3	903250800.0
+10684.weampp13A06	AD	Troglodytidae	Passeriformes	06/02/2009	arthropods	51.982	-176.616	13	Andreanof	G	M	Troglodytes	pacificus	12.5	1243926000.0
+10684.weampp13A08	AD	Scolopacidae	Charadriiformes	05/18/1999	arthropods	51.87	-176.65	13	Andreanof	P	M	Calidris	ptilocnemis	64.5	927010800.0
+10684.weampp13A09	HY	Anseridae	Anseriformes	08/28/1996	herbivore	64.67	-147.09	13	mainland	G/P	M	Anas	crecca	317.0	841215600.0
+10684.weampp13B02	AD	Calcariidae	Passeriformes	07/03/1999	granivore	55.2	-162.72	13	mainland	G	F	Plectrophenax	nivalis	31.6	930985200.0
+10684.weampp13B04	HY	Calcariidae	Passeriformes	09/11/1997	arthropods	52.83	173.18	13	Near	P	M	Calcarius	lapponicus	29.1	873961200.0
+10684.weampp13B09	AD	Calcariidae	Passeriformes	08/20/1999	granivore	52.83	173.18	13	Near	P	M	Plectrophenax	nivalis		935132400.0
+10684.weampp13B11	HY	Scolopacidae	Charadriiformes	09/16/1997	arthropods	52.83	173.18	13	Near	G	F	Calidris	ptilocnemis	72.9	874393200.0
+10684.weampp13B12	AD	Troglodytidae	Passeriformes	06/03/2009	arthropods	51.982	-176.616	13	Andreanof	G	F	Troglodytes	pacificus	13.5	1244012400.0
+10684.weampp13C02	AD	Troglodytidae	Passeriformes	06/21/1999	arthropods	51.87	-176.65	13	Andreanof	G	M	Troglodytes	pacificus	13.3	929948400.0
+10684.weampp13C03	HY	Calcariidae	Passeriformes	09/05/1997	arthropods	52.83	173.18	13	Near	G	M	Calcarius	lapponicus	33.6	873442800.0
+10684.weampp13C07	U	Calcariidae	Passeriformes	09/22/1998	granivore	55.2	-162.72	13	mainland	G	M	Plectrophenax	nivalis	45.0	906447600.0
+10684.weampp13C09	AD	Melospizidae	Passeriformes	06/09/1997	omnivore	55.9	-130.0	13	mainland	G	M	Melospiza	melodia	24.9	865839600.0
+10684.weampp13D01	AD	Calcariidae	Passeriformes	06/22/1999	granivore	51.87	-176.65	13	Andreanof	G	F	Plectrophenax	nivalis	45.0	930034800.0
+10684.weampp13D02	AD	Calcariidae	Passeriformes	06/24/1999	granivore	51.87	-176.65	13	Andreanof	G	M	Plectrophenax	nivalis	44.1	930207600.0
+10684.weampp13D04	U	Calcariidae	Passeriformes	09/11/1997	arthropods	52.83	173.18	13	Near	G	F	Calcarius	lapponicus	33.1	873961200.0
+10684.weampp13D05	AD	Troglodytidae	Passeriformes	06/03/2009	arthropods	51.982	-176.616	13	Andreanof	G	M	Troglodytes	pacificus	13.0	1244012400.0
+10684.weampp13D07	AD	Anseridae	Anseriformes	05/26/1999	herbivore	52.72	174.1	13	Near	G	M	Anas	crecca	421.3	927702000.0
+10684.weampp13D10	AD	Anseridae	Anseriformes	05/12/1999	herbivore	52.72	174.1	13	Near	P/G	M	Anas	crecca	350.4	926492400.0
+10684.weampp13D11	AD	Anseridae	Anseriformes	05/18/1999	herbivore	51.87	-176.65	13	Andreanof	G	M	Anas	crecca	428.5	927010800.0
+10684.weampp13D12	AD	Troglodytidae	Passeriformes	06/02/2009	arthropods	51.982	-176.616	13	Andreanof	G	M	Troglodytes	pacificus	13.5	1243926000.0
+10684.weampp13E01	AD	Scolopacidae	Charadriiformes	06/04/2000	arthropods	55.2	-162.72	13	mainland	G	M	Calidris	ptilocnemis	78.0	960102000.0
+10684.weampp13E06	IM	Calcariidae	Passeriformes	09/16/1997	arthropods	52.83	173.18	13	Near	G	F	Calcarius	lapponicus	29.2	874393200.0
+10684.weampp13E07	HY	Scolopacidae	Charadriiformes	09/06/1997	arthropods	52.83	173.18	13	Near	G	M	Calidris	ptilocnemis	56.2	873529200.0
+10684.weampp13E08	AD	Scolopacidae	Charadriiformes	06/29/1999	arthropods	55.2	-162.72	13	mainland	G	M	Calidris	ptilocnemis	70.2	930639600.0
+10684.weampp13E12	AD	Troglodytidae	Passeriformes	06/02/2009	arthropods	51.982	-176.616	13	Andreanof	G	M	Troglodytes	pacificus	14.5	1243926000.0
+10684.weampp13F02	U	Calcariidae	Passeriformes	09/11/1997	arthropods	52.83	173.18	13	Near	G	F?	Calcarius	lapponicus	36.0	873961200.0
+10684.weampp13F04	AD	Calcariidae	Passeriformes	06/19/1998	granivore	51.87	-176.65	13	Andreanof	G	F	Plectrophenax	nivalis	36.9	898239600.0
+10684.weampp13F07	AD	Scolopacidae	Charadriiformes	08/10/1998	arthropods	52.83	173.18	13	Near	G	F	Calidris	ptilocnemis	83.9	902732400.0
+10684.weampp13F08	AD	Anseridae	Anseriformes	05/22/1999	herbivore	64.83	-147.74	13	mainland	G	F	Anas	crecca		927356400.0
+10684.weampp13F09	AD	Scolopacidae	Charadriiformes	06/17/1999	arthropods	51.87	-176.65	13	Andreanof	P/G	M	Calidris	ptilocnemis	72.2	929602800.0
+10684.weampp13G01	AD	Scolopacidae	Charadriiformes	05/20/2000	arthropods	51.87	-176.65	13	Andreanof	G	F	Calidris	ptilocnemis	76.1	958806000.0
+10684.weampp13G12	AD	Troglodytidae	Passeriformes	06/02/2009	arthropods	51.982	-176.616	13	Andreanof	G	F	Troglodytes	pacificus	13.5	1243926000.0
+10684.weampp13H01	AD	Calcariidae	Passeriformes	07/03/1999	granivore	55.2	-162.72	13	mainland	G	F	Plectrophenax	nivalis	31.8	930985200.0
+10684.weampp13H03	AD	Anseridae	Anseriformes	06/08/2001	herbivore	52.72	174.1	13	Near	P	F	Anas	crecca	316.4	991983600.0
+10684.weampp13H06	AD	Scolopacidae	Charadriiformes	08/18/1999	arthropods	52.83	173.18	13	Near	U	M	Calidris	ptilocnemis	66.0	934959600.0
+10684.weampp13H08	U	Calcariidae	Passeriformes	09/14/1997	arthropods	52.83	173.18	13	Near	G/P	M	Calcarius	lapponicus	33.9	874220400.0
+10684.weampp13H11	AD	Troglodytidae	Passeriformes	06/02/2009	arthropods	51.982	-176.616	13	Andreanof	G	M	Troglodytes	pacificus	15.5	1243926000.0
+10684.weampp14A01	AD	Scolopacidae	Charadriiformes	06/28/1999	arthropods	55.2	-162.72	14	mainland	G	F	Calidris	ptilocnemis	69.6	930553200.0
+10684.weampp14B02	AD	Anseridae	Anseriformes	05/23/1999	herbivore	51.87	-176.65	14	Andreanof	G	M	Anas	crecca	352.5	927442800.0
+10684.weampp14B03	AD	Scolopacidae	Charadriiformes	07/02/1999	arthropods	55.2	-162.72	14	mainland	G	M	Calidris	ptilocnemis	65.5	930898800.0
+10684.weampp14C02	AD	Anseridae	Anseriformes	05/23/1999	herbivore	51.87	-176.65	14	Andreanof	G	M	Anas	crecca	412.5	927442800.0
+10684.weampp14D01	AD	Calcariidae	Passeriformes	08/26/1999	granivore	52.83	173.18	14	Near	G	M	Plectrophenax	nivalis		935650800.0
+10684.weampp14E01	HY	Melospizidae	Passeriformes	07/01/1999	omnivore	55.06	-162.31	14	mainland	G	M	Melospiza	melodia	43.5	930812400.0
+10684.weampp14F01	AD	Scolopacidae	Charadriiformes	06/29/1999	arthropods	55.2	-162.72	14	mainland	G	M	Calidris	ptilocnemis	67.0	930639600.0
+10684.weampp14G10	AD	Melospizidae	Passeriformes	06/08/1997	omnivore	55.9	-130.0	14	mainland	P	M	Melospiza	melodia	23.4	865753200.0
+10684.weampp14G12	HY	Corvidae	Passeriformes	09/17/1998	omnivore	55.2	-162.72	14	mainland	G	F	Corvus	corax		906015600.0
+10684.weampp14H12	IM	Calcariidae	Passeriformes	09/22/1998	granivore	55.2	-162.72	14	mainland	P	F	Plectrophenax	nivalis	36.0	906447600.0
+10684.weampp15A09	AD	Anseridae	Anseriformes	05/29/2008	herbivore	52.83	173.18	15	Near	G/P	M	Anas	crecca	402.0	1212044400.0
+10684.weampp15B12	AD	Corvidae	Passeriformes	02/17/2011	omnivore	61.26	-149.72	15	mainland	G	F	Corvus	corax	1410.0	1297929600.0
+10684.weampp15C05	AD	Calcariidae	Passeriformes	06/05/2009	granivore	51.98	-177.53	15	Andreanof	P	M	Plectrophenax	nivalis	45.0	1244185200.0
+10684.weampp15D03	AD	Corvidae	Passeriformes	04/04/2011	omnivore	61.17	-149.99	15	mainland	G	M	Corvus	corax	1300.0	1301900400.0
+10684.weampp15D06	AD	Calcariidae	Passeriformes	06/01/2009	granivore	51.87	-176.65	15	Andreanof	P	M	Plectrophenax	nivalis	42.0	1243839600.0
+10684.weampp15E03	HY	Corvidae	Passeriformes	06/22/2009	omnivore	58.37	-134.66	15	mainland	G	M	Corvus	corax	1200.0	1245654000.0
+10684.weampp15E05	AD	Calcariidae	Passeriformes	07/04/2002	arthropods	55.7666666666667	-162.083333333333	15	mainland	G	M	Calcarius	lapponicus	28.2	1025766000.0
+10684.weampp15E09	AD	Melospizidae	Passeriformes	06/09/1997	omnivore	55.9	-130.0	15	mainland	P/G	F	Melospiza	melodia	24.5	865839600.0
+10684.weampp15E12	AD	Corvidae	Passeriformes	03/04/2011	omnivore	61.26	-149.72	15	mainland	G	F	Corvus	corax	1240.0	1299225600.0
+10684.weampp15F05	AD	Corvidae	Passeriformes	06/02/2009	omnivore	51.87	-176.65	15	Andreanof	G	M	Corvus	corax	1900.0	1243926000.0
+10684.weampp15F06	AD	Calcariidae	Passeriformes	06/01/2009	granivore	51.87	-176.65	15	Andreanof	P	F	Plectrophenax	nivalis	47.0	1243839600.0
+10684.weampp15G05	AD	Troglodytidae	Passeriformes	06/13/2009	arthropods	51.982	-176.616	15	Andreanof	G	F	Troglodytes	pacificus	13.5	1244876400.0
+10684.weampp15G08	AD	Corvidae	Passeriformes	06/13/2009	omnivore	51.87	-176.65	15	Andreanof	P	M	Corvus	corax		1244876400.0
+10684.weampp15G11	AD	Corvidae	Passeriformes	05/18/2012	omnivore	64.51	-165.47	15	mainland	G	M	Corvus	corax	1675.0	1337324400.0
+10684.weampp15H05	AD	Corvidae	Passeriformes	06/13/2009	omnivore	51.87	-176.65	15	Andreanof	G	F	Corvus	corax		1244876400.0
+10684.weampp15H06	AD	Corvidae	Passeriformes	05/05/2006	omnivore	51.87	-176.65	15	Andreanof	G	F	Corvus	corax	1375.0	1146812400.0
+10684.weampp15H08	AD	Corvidae	Passeriformes	06/03/2009	omnivore	51.87	-176.65	15	Andreanof	P/G	F	Corvus	corax	1725.0	1244012400.0
+10684.weampp16B02	U	Calcariidae	Passeriformes	12/17/2011	granivore	57.579	-152.39	16	mainland	P	F	Plectrophenax	nivalis	42.0	1324108800.0
+10684.weampp16C01	U	Calcariidae	Passeriformes	12/29/2011	granivore	57.579	-152.39	16	mainland	S	F	Plectrophenax	nivalis	36.0	1325145600.0
+10684.weampp16C05	HY	Melospizidae	Passeriformes	08/19/1999	omnivore	52.83	173.18	16	Near	P	F	Melospiza	melodia	44.0	935046000.0
+10684.weampp16C10	AD	Phasianidae	Galliformes	05/16/2002	herbivore	52.83	173.18	16	Near	P/G	M	Lagopus	muta	511.6	1021532400.0
+10684.weampp16D11	HY	Troglodytidae	Passeriformes	08/19/1999	arthropods	52.83	173.18	16	Near	G/P	M	Troglodytes	pacificus	15.0	935046000.0
+10684.weampp16E01	AD	Corvidae	Passeriformes	05/18/2012	omnivore	64.51	-165.47	16	mainland	P	F	Corvus	corax	1300.0	1337324400.0
+10684.weampp16F05	AD	Calcariidae	Passeriformes	07/16/1997	arthropods	57.19	-170.26	16	Andreanof	P	F	Calcarius	lapponicus	30.0	869036400.0
+10684.weampp16F09	AD	Corvidae	Passeriformes	02/25/2000	omnivore	52.72	174.1	16	Near	P/G	M	Corvus	corax	2050.0	951465600.0
+10684.weampp16F10	AD	Corvidae	Passeriformes	07/08/2005	omnivore	68.4	-161.12	16	mainland	P	U	Corvus	corax	1280.0	1120806000.0
+10684.weampp16G01	AD	Calcariidae	Passeriformes	12/18/2011	granivore	57.579	-152.39	16	mainland	P	M	Plectrophenax	nivalis	40.0	1324195200.0
+10684.weampp16G10	AD	Corvidae	Passeriformes	10/24/2004	omnivore	55.2	-162.72	16	mainland	G/P?	F	Corvus	corax	1472.0	1098601200.0
+10684.weampp16H12	HY	Melospizidae	Passeriformes	08/31/2012	omnivore	59.46	-146.31	16	mainland	G/P	M?	Melospiza	melodia	36.0	1346396400.0

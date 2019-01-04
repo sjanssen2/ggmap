@@ -7,7 +7,8 @@ from PIL import Image
 
 
 def compare_images(file_image_a, file_image_b, threshold=0,
-                   file_image_diff=None, name=None, err=sys.stderr):
+                   file_image_diff=None, name=None, err=sys.stderr,
+                   out=sys.stdout):
     """Compares content of two images by means of pixel identity.
 
     Parameters
@@ -38,14 +39,17 @@ def compare_images(file_image_a, file_image_b, threshold=0,
 
     for file in [file_image_a, file_image_b]:
         if not path.exists(file):
-            err.write('Image file "%s" cannot be read.\n' % file)
+            if err is not None:
+                err.write('Image file "%s" cannot be read.\n' % file)
             return (False, numpy.infty)
 
     if file_image_diff is None:
         file_image_diff = mkstemp(suffix='.'+file_image_a.split('.')[-1])[1]
 
     if not access('/'.join(file_image_diff.split('/')[:-1]), W_OK):
-        err.write("Cannot write to diff image file '%s'." % file_image_diff)
+        if err is not None:
+            err.write("Cannot write to diff image file '%s'." %
+                      file_image_diff)
         return (False, numpy.infty)
 
     label = ""
@@ -55,21 +59,27 @@ def compare_images(file_image_a, file_image_b, threshold=0,
     size_a = Image.open(file_image_a).size
     size_b = Image.open(file_image_b).size
     if size_a != size_b:
-        err.write('Images %sdiffer in dimensions: %s and %s.\n' %
-                  (label, size_a, size_b))
+        if err is not None:
+            err.write('Images %sdiffer in dimensions: %s and %s.\n' %
+                      (label, size_a, size_b))
         return (False, -1 * numpy.infty)
 
-    res = subprocess.check_output(["compare", "-metric", "AE",
-                                   "-dissimilarity-threshold", "1",
-                                   file_image_a,
-                                   file_image_b,
-                                   file_image_diff],
-                                  stderr=subprocess.STDOUT)
-    res = int(res.decode().split('\n')[0])
-    if res > threshold:
-        sys.stdout.write(("Images differ %s by %i pixels. "
-                          "Check differences in %s.\n") %
-                         (label, res, file_image_diff))
+    image_difference = 0
+    try:
+        res = subprocess.check_output(["compare", "-metric", "AE",
+                                       file_image_a,
+                                       file_image_b,
+                                       file_image_diff],
+                                      stderr=subprocess.STDOUT)
+        image_difference = int(res.decode().split('\n')[0])
+    except subprocess.CalledProcessError as e:
+        image_difference = int(e.output.decode().split('\n')[0])
+
+    if image_difference > threshold:
+        if out is not None:
+            out.write(("Images differ %s by %i pixels. "
+                       "Check differences in %s.\n") %
+                      (label, image_difference, file_image_diff))
         cmd = ('echo "==== start file contents (%s)"; '
                'cat %s | base64; '
                'echo "=== end file contents ===";'
@@ -78,9 +88,10 @@ def compare_images(file_image_a, file_image_b, threshold=0,
             file_image_diff,
             file_image_diff)
         rescmd = subprocess.check_output(cmd, shell=True).decode().split('\n')
-        for line in rescmd:
-            print(line)
-        return (file_image_diff, res)
+        if out is not None:
+            for line in rescmd:
+                out.write('%s\n' % line)
+        return (file_image_diff, image_difference)
     else:
         remove(file_image_diff)
-        return (True, res)
+        return (True, image_difference)

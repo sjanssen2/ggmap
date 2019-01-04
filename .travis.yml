@@ -15,8 +15,8 @@ before_install:
   - hash -r
   - conda config --set always_yes yes --set changeps1 no
   - conda config --add channels conda-forge
-  - conda config --add channels biocore
-  - conda config --add channels https://conda.anaconda.org/bioconda
+  #- conda config --add channels biocore
+  #- conda config --add channels https://conda.anaconda.org/bioconda
   #- conda config --add channels https://conda.anaconda.org/zechxu
   # Update conda itself
   - conda update -q conda
@@ -24,8 +24,10 @@ before_install:
   - conda info -a
 install:
   #- conda create -n qiime_env python=2.7 qiime matplotlib=1.4.3 mock nose -c bioconda
-  - conda create -n test_env python=$PYVERSION --file ci/conda_requirements.txt
+  - conda create -n test_env python=$PYVERSION
   - source activate test_env
+  - conda install -c conda-forge pyproj
+  - conda install --file ci/conda_requirements.txt
   - pip install -r ci/pip_requirements.txt
   - pip install . --no-deps
 script:

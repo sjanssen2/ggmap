@@ -3,7 +3,6 @@ import tempfile
 import glob
 import sys
 import threading
-import time
 
 
 LOGFILE_PREFIX = 'log_taxid_'

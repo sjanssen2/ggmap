@@ -76,19 +76,19 @@ sbatch /tmp/tmp7purx0c8.slurm.sh
 
         out = StringIO()
         cluster_run("find /tmp/ -name *.png", "jobname",
-                    "/tmp/teststxxx", force_slurm=True, out=out)
+                    "/tmp/teststxxx", force_slurm=True, out=out, err=None)
         self.assertEqual(_cleanHome(out.getvalue()), _cleanHome(exp))
 
     def test_cluster_run_highmem(self):
         out = StringIO()
         cluster_run("find /tmp/ -name *.png", "jobname",
-                    "/tmp/teststxxx", out=out, pmem='1000GB')
+                    "/tmp/teststxxx", out=out, pmem='1000GB', err=None)
         self.assertIn(':highmem:', out.getvalue())
 
     def test_cluster_timing(self):
         out = StringIO()
         cluster_run("find /tmp/ -name *.png", "jobname",
-                    "/tmp/teststxxx", out=out, timing=True)
+                    "/tmp/teststxxx", out=out, timing=True, err=None)
         self.assertIn('uname -a', out.getvalue())
         self.assertIn('time -v -o', out.getvalue())
 

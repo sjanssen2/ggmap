@@ -1,4 +1,3 @@
-import pandas as pd
 from ggmap.snippets import biom2pandas
 
 c = biom2pandas('ggmap/test/data/25x25.biom')

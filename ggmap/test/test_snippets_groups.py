@@ -7,7 +7,8 @@ from os.path import join
 
 import matplotlib.pyplot as plt
 from skbio.util import get_data_path
-from skbio.stats.distance import DistanceMatrix
+from skbio.stats.distance import DistanceMatrix, permanova
+from scipy.stats import mannwhitneyu
 
 from ggmap.snippets import (detect_distant_groups_alpha,
                             detect_distant_groups,
@@ -43,7 +44,8 @@ class SnippetTests(TestCase):
                                'HY': {'p-value': 0.39396076805143765}},
                         'AHY': {'HY': {'p-value': 0.17018258749773929}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['coll_year'] = {
             'min_group_size': 21,
@@ -54,7 +56,8 @@ class SnippetTests(TestCase):
             'group_name': 'coll_year',
             'network': {'1999': {'2000': {'p-value': 0.082736338951025959}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['diet_brief'] = {
             'min_group_size': 21,
@@ -69,7 +72,8 @@ class SnippetTests(TestCase):
                 'herbivore': {'p-value': 0.32478261637443484}},
              'herbivore': {'omnivore': {'p-value': 0.050714833224854913}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['norm_genpop'] = {
             'min_group_size': 21,
@@ -81,7 +85,8 @@ class SnippetTests(TestCase):
             'network': {},
             'metric_name':
             'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['norm_q2_genpop'] = {
             'min_group_size': 21,
@@ -92,7 +97,8 @@ class SnippetTests(TestCase):
             'group_name': 'norm_q2_genpop',
             'network': {},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['Q2'] = {
             'min_group_size': 21,
@@ -106,7 +112,8 @@ class SnippetTests(TestCase):
              'Near': {'mainland': {'p-value': 0.75324563183982074},
                       'Andreanof': {'p-value': 0.22449658255463945}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['sample_substance'] = {
             'min_group_size': 21,
@@ -117,7 +124,8 @@ class SnippetTests(TestCase):
             'group_name': 'sample_substance',
             'network': {'G': {'P': {'p-value': 0.39602006721574157}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['seasons'] = {
             'min_group_size': 21,
@@ -131,7 +139,8 @@ class SnippetTests(TestCase):
              'spring': {'p-value': 0.13364106719123708}},
              'spring': {'fall': {'p-value': 0.34134279625829611}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['sex'] = {
             'min_group_size': 21,
@@ -142,7 +151,8 @@ class SnippetTests(TestCase):
             'group_name': 'sex',
             'network': {'M': {'F': {'p-value': 0.50285430241897211}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['smj_genusspecies'] = {
             'min_group_size': 21,
@@ -170,7 +180,8 @@ class SnippetTests(TestCase):
                  'Troglodytes pacificus': {'p-value':
                                            0.00021806456438494139}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_alpha['weight_log'] = {
             'min_group_size': 21,
@@ -184,7 +195,8 @@ class SnippetTests(TestCase):
                      '3.0': {'p-value': 0.0078136142778079693}},
              '2.0': {'3.0': {'p-value': 0.0017829155222652295}}},
             'metric_name': 'PD_whole_tree',
-            'num_permutations': None}
+            'num_permutations': None,
+            'fct_name': mannwhitneyu.__name__}
 
         self.exp_beta = dict()
 
@@ -209,7 +221,8 @@ class SnippetTests(TestCase):
                      'U': {'avgdist': 0.83127508285072371,
                            'p-value': 0.80869999999999997}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['coll_year'] = {
             'min_group_size': 10,
@@ -250,7 +263,8 @@ class SnippetTests(TestCase):
                       '2002': {'avgdist': 0.82842597848702515,
                                'p-value': 0.00050000000000000001}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['diet_brief'] = {
             'min_group_size': 5,
@@ -274,7 +288,8 @@ class SnippetTests(TestCase):
                            'omnivore': {'avgdist': 0.85445401485936756,
                                         'p-value': 0.0001}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['norm_genpop'] = {
             'min_group_size': 5,
@@ -288,7 +303,8 @@ class SnippetTests(TestCase):
             {'Aleutian': {'Old World': {'avgdist': 0.81772526690298331,
                                         'p-value': 0.314}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['norm_q2_genpop'] = {
             'min_group_size': 5,
@@ -308,7 +324,8 @@ class SnippetTests(TestCase):
                 {'Near: Aleutian': {'avgdist': 0.83360898661304017,
                                     'p-value': 0.13159999999999999}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['Q2'] = {
             'min_group_size': 5,
@@ -325,7 +342,8 @@ class SnippetTests(TestCase):
              'mainland': {'Andreanof': {'avgdist': 0.84382955854433805,
                                         'p-value': 0.091300000000000006}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['sample_substance'] = {
             'min_group_size': 5,
@@ -342,7 +360,8 @@ class SnippetTests(TestCase):
              'P': {'P/G': {'avgdist': 0.84009551170351826,
                            'p-value': 0.71179999999999999}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['seasons'] = {
             'min_group_size': 5,
@@ -359,7 +378,8 @@ class SnippetTests(TestCase):
              'spring': {'fall': {'avgdist': 0.84045022044782058,
                                  'p-value': 0.032099999999999997}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['sex'] = {
             'min_group_size': 5,
@@ -376,7 +396,8 @@ class SnippetTests(TestCase):
                    'F': {'avgdist': 0.83532630343035663,
                          'p-value': 0.28739999999999999}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['smj_genusspecies'] = {
             'min_group_size': 5,
@@ -453,7 +474,8 @@ class SnippetTests(TestCase):
                  'Plectrophenax nivalis': {'avgdist': 0.81934446973836206,
                                            'p-value': 0.0067999999999999996}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
         self.exp_beta['weight_log'] = {
             'min_group_size': 5,
@@ -476,7 +498,8 @@ class SnippetTests(TestCase):
              '3.0': {'0.0': {'avgdist': 0.83326796627222222,
                              'p-value': 0.051499999999999997}}},
             'metric_name': 'unweighted_unifrac',
-            'num_permutations': 99}
+            'num_permutations': 99,
+            'fct_name': permanova.__name__}
 
     def tearDown(self):
         self.assertFalse(self.mode_generate_baseline)
