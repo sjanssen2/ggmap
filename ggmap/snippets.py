@@ -26,6 +26,7 @@ import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from matplotlib.lines import Line2D
+import math
 
 
 settings.init()
@@ -212,6 +213,40 @@ def parse_splitlibrarieslog(filename):
                                    reverse=True), dtype=int)
     except IOError:
         raise IOError('Cannot read file "%s"' % filename)
+
+
+def get_great_circle_distance(p1, p2):
+    """Compute great circle distance for two points.
+
+    Parameters
+    ----------
+    pX : (float, float)
+        Latitude, Longitude of coordinate
+
+    Returns
+    -------
+    float: great circle distance in km
+    """
+    x1 = math.radians(p1[0])
+    y1 = math.radians(p1[1])
+    x2 = math.radians(p2[0])
+    y2 = math.radians(p2[1])
+
+    # Compute using the Haversine formula.
+
+    a = math.sin((x2-x1)/2.0) ** 2.0 \
+        + (math.cos(x1) * math.cos(x2) * (math.sin((y2-y1)/2.0) ** 2.0))
+
+    # Great circle distance in radians
+    angle2 = 2.0 * math.asin(min(1.0, math.sqrt(a)))
+
+    # Convert back to degrees.
+    angle2 = math.degrees(angle2)
+
+    # Each degree on a great circle of Earth is 60 nautical miles.
+    distance = 60.0 * angle2
+
+    return distance * 1.852
 
 
 def drawMap(points, basemap=None, ax=None, no_legend=False):
