@@ -2365,7 +2365,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                 else:
                     max_x_relabundance = 1.0
             g.set_xlim((0, max_x_relabundance))
-            #curr_ax.legend(loc="upper right")
+            # curr_ax.legend(loc="upper right")
             curr_ax.legend(bbox_to_anchor=(-0.1, 1.15))
 
         # define colors for taxons
@@ -2402,8 +2402,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                 g.set(yticklabels=taxonomy.reindex(taxa).fillna('k__').apply(
                     lambda x: " ".join(list(
                         map(str.strip, x.split(';')))[-num_ranks:])))
-                # color the labels of the Y-axis according to different categories
-                # given by feature_color_map
+                # color the labels of the Y-axis according to different
+                # categories given by feature_color_map
                 if feature_color_map is not None:
                     tickpairs = zip(
                         ax[0].get_yticklabels(),
