@@ -219,10 +219,47 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
     return fig
 
 
+def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False, verbose=sys.stderr):
+    """Pre-process skbio tree to ensure every branch has a length info.
+
+    Notes
+    -----
+    This is very costly and should only be done when really necessary!
+
+    Paramaters
+    ----------
+    fp_reftree : str
+        Filepath to reference phylogenetic tree for alpha- or beta- diversity
+        computation.
+    workdir : str
+        Filepath to working directory of executore.
+    fix_zero_len_branches : bool
+        Default: False
+        If True, add 0 length to branches without length information,
+        otherwise just use the tree as is.
+    """
+    if fix_zero_len_branches:
+        tree_ref = TreeNode.read(
+            _get_ref_phylogeny(fp_reftree))
+        for node in tree_ref.preorder():
+            if node.length is None:
+                node.length = 0
+        tree_ref.write(workdir+'/reference.tree')
+    else:
+        if verbose is not None:
+             verbose.write(
+                 ('beta_diversity: skipping check for branches without '
+                  'length information. Reactivate via fix_zero_le'
+                  'n_branches=True.\n'))
+        shutil.copyfile(
+            _get_ref_phylogeny(fp_reftree),
+            workdir+'/reference.tree')
+
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
                        num_iterations=10, control_sample_names=[],
+                       fix_zero_len_branches=False,
                        **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
@@ -262,12 +299,11 @@ def rarefaction_curves(counts,
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
                set(['PD_whole_tree'])) > 0:
-            tree_ref = TreeNode.read(
-                _get_ref_phylogeny(args['reference_tree']))
-            for node in tree_ref.preorder():
-                if node.length is None:
-                    node.length = 0
-            tree_ref.write(workdir+'/reference.tree')
+            if 'verbose' not in executor_args:
+                verbose = sys.stderr
+            else:
+                verbose = executor_args['verbose']
+            writeReferenceTree(args['reference_tree'], workdir, fix_zero_len_branches, verbose=verbose)
 
         # prepare execution list
         max_rare_depth = args['counts'].sum().describe()['75%']
@@ -287,7 +323,7 @@ def rarefaction_curves(counts,
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             '--source-format BIOMV210Format '
+             #'--source-format BIOMV210Format '
              '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
         commands.append(
@@ -339,8 +375,8 @@ def rarefaction_curves(counts,
                  treeinput, workdir, metric))
             commands.append(
                 ('qiime tools export '
-                 '%s/alpha_${var_depth}_${var_iteration}_%s.qza '
-                 '--output-dir %s/alpharaw_${var_depth}_${var_iteration}_%s') %
+                 '--input-path %s/alpha_${var_depth}_${var_iteration}_%s.qza '
+                 '--output-path %s/alpharaw_${var_depth}_${var_iteration}_%s') %
                 (workdir, metric,
                  workdir, metric))
 
@@ -417,8 +453,8 @@ def rarefy(counts, rarefaction_depth,
             workdir, args['rarefaction_depth'], workdir))
         commands.append(
             ('qiime tools export '
-             '%s/rare.qza '
-             '--output-dir %s') %
+             '--input-path %s/rare.qza '
+             '--output-path %s') %
             (workdir, workdir))
 
         return commands
@@ -446,6 +482,7 @@ def _update_metric_alpha(metric):
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_otus"],
                     num_iterations=10, reference_tree=None,
+                    fix_zero_len_branches=False,
                     **executor_args):
     """Computes alpha diversity values for given BIOM table.
 
@@ -478,12 +515,11 @@ def alpha_diversity(counts, rarefaction_depth,
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
                set(['PD_whole_tree'])) > 0:
-            tree_ref = TreeNode.read(
-                _get_ref_phylogeny(args['reference_tree']))
-            for node in tree_ref.preorder():
-                if node.length is None:
-                    node.length = 0
-            tree_ref.write(workdir+'/reference.tree')
+            if 'verbose' not in executor_args:
+                verbose = sys.stderr
+            else:
+                verbose = executor_args['verbose']
+            writeReferenceTree(args['reference_tree'], workdir, fix_zero_len_branches, verbose=verbose)
 
     def commands(workdir, ppn, args):
         commands = []
@@ -492,7 +528,7 @@ def alpha_diversity(counts, rarefaction_depth,
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             '--source-format BIOMV210Format '
+             #'--source-format BIOMV210Format '
              '--output-path %s ') %
             (workdir+'/input.biom', workdir+'/input'))
         if 'PD_whole_tree' in args['metrics']:
@@ -545,8 +581,8 @@ def alpha_diversity(counts, rarefaction_depth,
                      file_alpha))
                 commands.append(
                     ('qiime tools export '
-                     '%s/alpha/alpha_%s_%i_%s.qza '
-                     '--output-dir %s/alpha_plain/%s/%i/%s') %
+                     '--input-path %s/alpha/alpha_%s_%i_%s.qza '
+                     '--output-path %s/alpha_plain/%s/%i/%s') %
                     (workdir, args['rarefaction_depth'], iteration, metric,
                      workdir, args['rarefaction_depth'], iteration, metric))
 
@@ -601,6 +637,7 @@ def beta_diversity(counts,
                             "weighted_unifrac",
                             "bray_curtis"],
                    reference_tree=None,
+                   fix_zero_len_branches=False,
                    **executor_args):
     """Computes beta diversity values for given BIOM table.
 
@@ -626,12 +663,11 @@ def beta_diversity(counts,
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
                set(['unweighted_unifrac', 'weighted_unifrac'])) > 0:
-            tree_ref = TreeNode.read(
-                _get_ref_phylogeny(args['reference_tree']))
-            for node in tree_ref.preorder():
-                if node.length is None:
-                    node.length = 0
-            tree_ref.write(workdir+'/reference.tree')
+            if 'verbose' not in executor_args:
+                verbose = sys.stderr
+            else:
+                verbose = executor_args['verbose']
+            writeReferenceTree(args['reference_tree'], workdir, fix_zero_len_branches, verbose=verbose)
 
     def commands(workdir, ppn, args):
         metrics_phylo = []
@@ -649,7 +685,6 @@ def beta_diversity(counts,
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             '--source-format BIOMV210Format '
              '--output-path %s ') %
             (workdir+'/input.biom', workdir+'/input'))
         for metric in metrics_nonphylo:
@@ -671,7 +706,7 @@ def beta_diversity(counts,
                     (workdir+'/reference.tree',
                      workdir+'/reference_tree.qza'))
             commands.append(
-                ('qiime diversity beta-phylogenetic-alt '
+                ('qiime diversity beta-phylogenetic '
                  '--i-table %s '
                  '--i-phylogeny %s '
                  '--p-metric %s '
@@ -687,8 +722,8 @@ def beta_diversity(counts,
         for metric in metrics_nonphylo + metrics_phylo:
             commands.append(
                 ('qiime tools export '
-                 '%s/beta_qza/%s.qza '
-                 '--output-dir %s/beta/%s/') %
+                 '--input-path %s/beta_qza/%s.qza '
+                 '--output-path %s/beta/%s/') %
                 (workdir, metric, workdir, metric))
         return commands
 
@@ -827,15 +862,15 @@ def sepp(counts, chunksize=10000,
         # export the placements
         commands.append(
             ('qiime tools export '
-             '%s/res_${PBS_ARRAYID}/placements.qza '
-             '--output-dir %s/res_${PBS_ARRAYID}/') %
+             '--input-path %s/res_${PBS_ARRAYID}/placements.qza '
+             '--output-path %s/res_${PBS_ARRAYID}/') %
             (workdir, workdir))
 
         # export the tree
         commands.append(
             ('qiime tools export '
-             '%s/res_${PBS_ARRAYID}/tree.qza '
-             '--output-dir %s/res_${PBS_ARRAYID}/') %
+             '--input-path %s/res_${PBS_ARRAYID}/tree.qza '
+             '--output-path %s/res_${PBS_ARRAYID}/') %
             (workdir, workdir))
 
         # compute taxonomy from resulting tree and placements
@@ -854,8 +889,8 @@ def sepp(counts, chunksize=10000,
         # export taxonomy to tsv file
         commands.append(
             ('qiime tools export '
-             '%s/res_taxonomy_${PBS_ARRAYID}.qza '
-             '--output-dir %s/res_taxonomy_${PBS_ARRAYID}/') %
+             '--input-path %s/res_taxonomy_${PBS_ARRAYID}.qza '
+             '--output-path %s/res_taxonomy_${PBS_ARRAYID}/') %
             (workdir, workdir))
 
         # move taxonomy tsv to basedir
@@ -1671,8 +1706,8 @@ def denovo_tree_qiime2(counts, **executor_args):
         # export the phylogeny
         commands.append(
             ('qiime tools export '
-             '%s/rooted-tree.qza '
-             '--output-dir %s') %
+             '--input-path %s/rooted-tree.qza '
+             '--output-path %s') %
             (workdir, workdir))
 
         return commands
@@ -2156,8 +2191,8 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
             commands.append(
                 ('if [ $PBS_ARRAYID -eq 1 ]; then '
                  'qiime tools export '
-                 '%s/alpha-group-significance_%s/visualization.qzv '
-                 '--output-dir %s/alpha-group-significance_%s/raw/; fi') % (
+                 '--input-path %s/alpha-group-significance_%s/visualization.qzv '
+                 '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
                     workdir, metric, workdir, metric))
             for method in METHODS_ALPHA:
                 commands.append(
@@ -2172,8 +2207,8 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                 commands.append(
                     ('if [ $PBS_ARRAYID -eq 1 ]; then '
                      'qiime tools export '
-                     '%s/alpha-correlation_%s_%s/visualization.qzv '
-                     '--output-dir %s/alpha-correlation_%s_%s/raw/; fi') % (
+                     '--input-path %s/alpha-correlation_%s_%s/visualization.qzv '
+                     '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
                         workdir, metric, method, workdir, metric, method))
 
         commands.append(('var_METRIC=`head -n $PBS_ARRAYID %s/fields.txt | '
@@ -2192,9 +2227,9 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
              '--output-dir %s/beta-group-significance_'
              '${var_METRIC}_${var_COLUMN}_${var_METHOD}/; '
              'qiime tools export '
-             '%s/beta-group-significance_'
+             '--input-path %s/beta-group-significance_'
              '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
-             '--output-dir %s/beta-group-significance_'
+             '--output-path %s/beta-group-significance_'
              '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
              'fi') % (workdir, workdir, workdir, workdir, workdir))
 
@@ -2411,7 +2446,7 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
                 ('qiime tools import '
                  '--input-path %s '
                  '--type "DistanceMatrix" '
-                 '--source-format DistanceMatrixDirectoryFormat '
+                 #'--source-format DistanceMatrixDirectoryFormat '
                  '--output-path %s ') %
                 ('%s/%s' % (workdir, metric),
                  # " % Properties([\"phylogenetic\"])"
@@ -2458,6 +2493,74 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
+                     **executor_args)
+
+
+def taxonomy_RDP(counts, fp_classifier, **executor_args):
+    """Uses q2-feature-classifier to obtain taxonomic lineages for features
+       in counts table.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        OTU counts
+    fp_classifier : str
+        Filepath to Qiime2 pre-trained sklearn based classifier.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    Pandas.DataFrame with lineage strings and confidence for each feature."""
+
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        with open(workdir+'/features.fasta', 'w') as f:
+            for feature in args['features']:
+                f.write('>%s\n%s\n' % (feature, feature))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureData[Sequence]" '
+             #'--source-format BIOMV210Format '
+             '--output-path %s ') %
+            (workdir+'/features.fasta', workdir+'/input.qza'))
+        commands.append(
+            ('qiime feature-classifier classify-sklearn '
+             '--i-reads %s '
+             '--i-classifier %s '
+             '--o-classification %s '
+             '--p-n-jobs %i') %
+            (workdir+'/input.qza',
+             args['fp_classifier'],
+             workdir+'/taxonomyRDP.qza',
+             ppn))
+        commands.append(
+            ('qiime tools export '
+             '--input-path %s/taxonomyRDP.qza '
+             '--output-path %s') %
+            (workdir, workdir))
+        return commands
+
+    def post_execute(workdir, args):
+        taxonomy = pd.read_csv('%s/taxonomy.tsv' % workdir, sep="\t", index_col=0)
+        return taxonomy
+
+    if fp_classifier is not None:
+        fp_classifier = os.path.abspath(fp_classifier)
+    return _executor('taxRDP',
+                     {'features': sorted(list(counts.index)),
+                      'fp_classifier': fp_classifier,
+                     },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.QIIME2_ENV,
+                     ppn=20,
                      **executor_args)
 
 
