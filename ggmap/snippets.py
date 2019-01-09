@@ -1359,12 +1359,20 @@ def detect_distant_groups_alpha(alpha, groupings,
             args['alternative'] = 'two-sided'
             args['x'] = args.pop('a')
             args['y'] = args.pop('b')
-        res = fct_test(**args)
 
         if a not in network:
             network[a] = dict()
-        network[a][b] = {'p-value': res.pvalue,
-                         'test-statistic': res.statistic}
+
+        try:
+            res = fct_test(**args)
+            network[a][b] = {'p-value': res.pvalue,
+                             'test-statistic': res.statistic}
+        except ValueError as e:
+            if str(e) == 'All numbers are identical in mannwhitneyu':
+                network[a][b] = {'p-value': 1,
+                                 'test-statistic': 'all numbers are identical'}
+            else:
+                raise e
 
     ns = groupings.value_counts()
     return ({'network': network,
@@ -2252,7 +2260,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
 
 def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=None,
-                   num_ranks=2, title=None, scale_height=5.0,
+                   num_ranks=2, title=None, scale_height=0.7,
                    feature_color_map=None):
     """Plots relative abundance and fold change for taxa.
 
@@ -2285,7 +2293,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         Default: None
         Something to print as the suptitle
     scale_height : float
-        Default: 5.0
+        Default: 0.7
         Scaling factor for height of figure.
     feature_color_map : pd.Series
         Colores for tick label plotting of features.
@@ -2296,7 +2304,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     Matplotlib Figure.
     """
     fig, ax = plt.subplots(len(diffTaxa), 2,
-                           figsize=(10, scale_height*len(diffTaxa)))
+                           figsize=(10, 5*len(diffTaxa)))
 
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
@@ -2325,6 +2333,9 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                  if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
+        else:
+            fig.set_size_inches(
+                fig.get_size_inches()[0], scale_height*len(taxa))
 
         relabund_field = []
         for (samples, grpname) in [(samples_a, meta_value_a),
@@ -2339,21 +2350,23 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         curr_ax = ax[0]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
-        g = sns.boxplot(data=relabund_field,
-                        x='relative abundance',
-                        y='feature',
-                        order=taxa,
-                        hue='group',
-                        ax=curr_ax,
-                        orient='h')
-        if max_x_relabundance is None:
-            if relabund_field.max() is not None:
-                max_x_relabundance = min(
-                    relabund_field['relative abundance'].max() * 1.1, 1.0)
-            else:
-                max_x_relabundance = 1.0
-        g.set_xlim((0, max_x_relabundance))
-        curr_ax.legend(loc="upper right")
+        if len(taxa) > 0:
+            g = sns.boxplot(data=relabund_field,
+                            x='relative abundance',
+                            y='feature',
+                            order=taxa,
+                            hue='group',
+                            ax=curr_ax,
+                            orient='h')
+            if max_x_relabundance is None:
+                if relabund_field.max() is not None:
+                    max_x_relabundance = min(
+                        relabund_field['relative abundance'].max() * 1.1, 1.0)
+                else:
+                    max_x_relabundance = 1.0
+            g.set_xlim((0, max_x_relabundance))
+            #curr_ax.legend(loc="upper right")
+            curr_ax.legend(bbox_to_anchor=(-0.1, 1.15))
 
         # define colors for taxons
         if (feature_color_map is not None) and \
@@ -2375,39 +2388,45 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
-        g = sns.barplot(data=foldchange.loc[taxa].to_frame().reset_index(),
-                        orient='h',
-                        y='feature',
-                        x=0,
-                        ax=curr_ax,
-                        color=sns.xkcd_rgb["denim blue"])
-        g.set_ylabel('')
-        if taxonomy is not None:
-            g.yaxis.tick_right()
-            g.set(yticklabels=taxonomy.loc[taxa].apply(
-                lambda x: " ".join(list(
-                    map(str.strip, x.split(';')))[-num_ranks:])))
-            # color the labels of the Y-axis according to different categories
-            # given by feature_color_map
-            if feature_color_map is not None:
-                tickpairs = zip(
-                    ax[0].get_yticklabels(),
-                    g.yaxis.get_ticklabels())
-                for tick_feature, tick_taxonomy in tickpairs:
-                    if tick_feature.get_text() in feature_color_map.index:
-                        tick_taxonomy.set_color(
-                            colors[feature_color_map[tick_feature.get_text()]])
-                # adding a legend to the plot, explaining the font colors
-                g.legend(
-                    [Line2D([0], [0], color=colors[category], lw=8)
-                     for category
-                     in feature_color_map.unique()],
-                    [category for category in feature_color_map.unique()])
+        if len(taxa) > 0:
+            g = sns.barplot(data=foldchange.loc[taxa].to_frame().reset_index(),
+                            orient='h',
+                            y='feature',
+                            x=0,
+                            ax=curr_ax,
+                            color=sns.xkcd_rgb["denim blue"])
+            g.set_ylabel('')
 
-        g.set_xlabel('<-- more in %s     |      more in %s -->' %
-                     (meta_value_b, meta_value_a))
-        g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
-                   +1*foldchange.loc[taxa].abs().max())
+            if taxonomy is not None:
+                g.yaxis.tick_right()
+                g.set(yticklabels=taxonomy.reindex(taxa).fillna('k__').apply(
+                    lambda x: " ".join(list(
+                        map(str.strip, x.split(';')))[-num_ranks:])))
+                # color the labels of the Y-axis according to different categories
+                # given by feature_color_map
+                if feature_color_map is not None:
+                    tickpairs = zip(
+                        ax[0].get_yticklabels(),
+                        g.yaxis.get_ticklabels())
+                    for tick_feature, tick_taxonomy in tickpairs:
+                        if tick_feature.get_text() in feature_color_map.index:
+                            tick_taxonomy.set_color(
+                                colors[
+                                    feature_color_map[
+                                        tick_feature.get_text()]])
+                    # adding a legend to the plot, explaining the font colors
+                    g.legend(
+                        [Line2D([0], [0], color=colors[category], lw=8)
+                         for category
+                         in feature_color_map.unique()],
+                        [category for category in feature_color_map.unique()])
+            else:
+                g.yaxis.set_ticklabels([])
+
+            g.set_xlabel('<-- more in %s     |      more in %s -->' %
+                         (meta_value_b, meta_value_a))
+            g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
+                       +1*foldchange.loc[taxa].abs().max())
         titletext = "%s\nminimal relative abundance: %f" % (
             metadata_field.name, min_mean_abundance)
         if title is not None:
