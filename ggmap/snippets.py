@@ -249,7 +249,7 @@ def get_great_circle_distance(p1, p2):
     return distance * 1.852
 
 
-def drawMap(points, basemap=None, ax=None, no_legend=False):
+def drawMap(points, basemap=None, ax=None, no_legend=False, color_fill_land='lightgreen', color_border_land='gray', color_water='lightblue'):
     """ Plots coordinates of metadata to a worldmap.
 
     Parameters
@@ -300,10 +300,10 @@ def drawMap(points, basemap=None, ax=None, no_legend=False):
         map = basemap
 
     # Fill the globe with a blue color
-    map.drawmapboundary(fill_color='lightblue', color='white')
+    map.drawmapboundary(fill_color=color_water, color='white')
     # Fill the continents with the land color
-    map.fillcontinents(color='lightgreen', lake_color='lightblue', zorder=1)
-    map.drawcoastlines(color='gray', zorder=1)
+    map.fillcontinents(color=color_fill_land, lake_color=color_water, zorder=1)
+    map.drawcoastlines(color=color_border_land, zorder=1)
 
     l_patches = []
     for z, set_of_points in enumerate(points):
@@ -560,10 +560,12 @@ def plotTaxonomy(file_otutable,
     ----------
     file_otutable : file
         Path to a biom OTU table
+        Alternatively, a pd.DataFrame holding counts.
     metadata : pandas.DataFrame
         metadata
     file_taxonomy : file
         Path to a GreenGenes taxonomy file.
+        Alternatively, a pd.Series holding lineage strings.
     reorder_samples : Bool
         True = sort samples in each group according to abundance of most
         abundant taxon
@@ -639,8 +641,12 @@ def plotTaxonomy(file_otutable,
     ft = file_taxonomy
     if taxonomy_from_biom:
         ft = None
-    rawcounts = collapseCounts(file_otutable, rank, file_taxonomy=ft,
-                               verbose=verbose, out=out)
+    if isinstance(file_otutable, pd.DataFrame) and isinstance(file_taxonomy, pd.Series):
+        rawcounts = collapseCounts_objects(file_otutable, rank, file_taxonomy,
+                                           out=out)
+    else:
+        rawcounts = collapseCounts(file_otutable, rank, file_taxonomy=ft,
+                                   verbose=verbose, out=out)
 
     # restrict to those samples for which we have metadata AND counts
     meta = metadata.loc[[idx
