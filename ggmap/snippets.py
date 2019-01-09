@@ -249,7 +249,9 @@ def get_great_circle_distance(p1, p2):
     return distance * 1.852
 
 
-def drawMap(points, basemap=None, ax=None, no_legend=False, color_fill_land='lightgreen', color_border_land='gray', color_water='lightblue'):
+def drawMap(points, basemap=None, ax=None, no_legend=False,
+            color_fill_land='lightgreen', color_border_land='gray',
+            color_water='lightblue'):
     """ Plots coordinates of metadata to a worldmap.
 
     Parameters
@@ -641,7 +643,8 @@ def plotTaxonomy(file_otutable,
     ft = file_taxonomy
     if taxonomy_from_biom:
         ft = None
-    if isinstance(file_otutable, pd.DataFrame) and isinstance(file_taxonomy, pd.Series):
+    if isinstance(file_otutable, pd.DataFrame) and \
+       isinstance(file_taxonomy, pd.Series):
         rawcounts = collapseCounts_objects(file_otutable, rank, file_taxonomy,
                                            out=out)
     else:
