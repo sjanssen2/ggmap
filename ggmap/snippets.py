@@ -2762,7 +2762,7 @@ def ganttChart(metadata: pd.DataFrame,
             handles=legend_entries, loc='upper left',
             bbox_to_anchor=(legends_left_pos, 1.05), title=col_events_title)
     if len(legend_entities_entries) > 0:
-        legend_entities = plt.legend(
+        plt.legend(
             handles=legend_entities_entries, loc='lower left',
             bbox_to_anchor=(legends_left_pos, 0.05))
         if len(legend_entries) > 0:

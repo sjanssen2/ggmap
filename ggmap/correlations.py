@@ -109,8 +109,9 @@ def _clear_metadata(metadata,
             raise ValueError(('Not all values in column "%s" can be '
                               'interpreted as floats!') % column)
 
-    # convert all date fiels into seconds from epoch to make them interval data
-    # format string reference at https://docs.python.org/3/library/datetime.html
+    # convert all date fiels into seconds from epoch to make them interval
+    # data. Format string reference at:
+    # https://docs.python.org/3/library/datetime.html
     for column in dates.keys():
         meta[column] = meta[column].apply(
             lambda x: time.mktime(datetime.strptime(
