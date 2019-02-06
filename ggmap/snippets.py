@@ -2667,7 +2667,7 @@ def ganttChart(metadata: pd.DataFrame,
                 (meta[col_events_title] == align_to_event_title)][col_events]\
                     .iloc[0]
             idxs_entity = meta[meta[col_entities] == entity].index
-            for col in cols_dates:
+            for col in cols_dates + [COL_DEATH]:
                 meta.loc[idxs_entity, col] -= offset
 
     # group entities according to specific column, if given
