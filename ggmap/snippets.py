@@ -2537,3 +2537,235 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
     p = plt.legend(loc=4)
 
     return res, p
+
+
+def ganttChart(metadata: pd.DataFrame,
+               col_birth: str,
+               col_entities: str,
+               col_events: str,
+               col_death: str = None,
+               col_events_title: str = None,
+               col_entity_groups: str = None,
+               col_entity_colors: str = None,
+               col_phase_start: str = None,
+               height_ratio: float = 0.3,
+               colors_events: dict = None,
+               colors_entities: dict = None,
+               align_to_event_title: str = None,
+               ):
+    """Generates Gantt chart of chronologic experiment design.
+
+    Parameters
+    ----------
+    metadata : pd.DataFrame
+        Full metadata, one row per sample.
+    col_birth : str
+        Column name, holding birth date of entities / individuals.
+    col_entities : str
+        Column name, holding entity names. We will plot one bar per entity.
+        Entities may have several events.
+    col_events : str
+        Column name, holding event dates.
+    col_death : str
+        Default: None.
+        Column name, holding death date of entities.
+    col_events_title : str
+        Default: None.
+        Column name, holding titles for events.
+    col_entity_groups : str
+        Default: None.
+        Column name, holding grouping information for entities,
+        e.g. cage number.
+    col_entity_colors : str
+        Default: None.
+        Column name, holding coloring information for entities,
+        e.g. sick / healthy.
+    col_phase_start : str
+        Default: None.
+        Column name, holding start date for phase,
+        e.g. "exposure to infections"
+    height_ratio : float
+        Default: 0.3
+        Height for figure per entity.
+    colors_events : dict(str: str)
+        Default: None
+        Provide a predefined color dictionary to use same colors for several
+        plots. Default is an empty dictionary.
+        Format: key = event title,
+        Value: a triple of RGB float values.
+    colors_entities : dict(str: str)
+        Default: None
+        Colors for entity bars.
+    align_to_event_title : str
+        Default: None
+        Align all dates according to a baseline event, instead of using real
+        chronologic distances.
+
+    Returns
+    -------
+    """
+    COL_DEATH = '_death'
+    COL_GROUP = '_group'
+    COL_YPOS = '_ypos'
+    COL_ENTITY_COLOR = '_entity_color'
+    AVAILCOLORS = \
+        sns.color_palette('Paired', 12) +\
+        sns.color_palette('Dark2', 12) +\
+        sns.color_palette('Pastel1', 12)
+
+    for col in [COL_DEATH, COL_GROUP]:
+        assert(col not in metadata.columns)
+    cols_dates = [
+        col
+        for col
+        in [col_birth, col_events, col_death, col_phase_start]
+        if col in metadata.columns]
+
+    meta = metadata.copy()
+    if col_entities is not None:
+        meta = meta.dropna(subset=[col_birth])
+    for col in cols_dates:
+        if col is not None:
+            meta[col] = pd.to_datetime(metadata[col])
+    # convert dates into internal coordinate system
+    date_baseline = meta[cols_dates].stack().min()
+    for col in cols_dates:
+        meta[col] = meta[col].apply(lambda x: (x - date_baseline).days)
+    # try to find end date for entities
+    if col_death is not None:
+        meta[COL_DEATH] = meta[col_death]
+    else:
+        meta[COL_DEATH] = meta[cols_dates].stack().max()
+
+    if align_to_event_title is not None:
+        for entity in meta[col_entities].unique():
+            offset = meta[
+                (meta[col_entities] == entity) &
+                (meta[col_events_title] == align_to_event_title)][col_events]\
+                    .iloc[0]
+            idxs_entity = meta[meta[col_entities] == entity].index
+            for col in cols_dates:
+                meta.loc[idxs_entity, col] -= offset
+
+    # group entities according to specific column, if given
+    if col_entity_groups is not None:
+        meta[COL_GROUP] = meta[col_entity_groups]
+    else:
+        meta[COL_GROUP] = 1
+
+    # color entities according to specific column, if given
+    # define colors for entities
+    if colors_entities is None:
+        colors_entities = dict()
+        if col_entity_colors is not None:
+            for entity_category in meta[col_entity_colors].unique():
+                colors_entities[entity_category] = AVAILCOLORS[
+                    len(colors_entities) % len(AVAILCOLORS)]
+        else:
+            colors_entities[1] = '#eeeeee'
+    legend_entities_entries = []
+    if col_entity_colors is not None:
+        meta[COL_ENTITY_COLOR] = meta[col_entity_colors]
+        for entity_category in meta[col_entity_colors].unique():
+            legend_entities_entries.append(
+                mpatches.Patch(
+                    color=colors_entities[entity_category],
+                    label='%s: %s' % (col_entity_colors, entity_category)))
+    else:
+        meta[COL_ENTITY_COLOR] = 1
+
+    # a DataFrame holding information about entities
+    cols = [col_entities, col_birth, COL_DEATH, COL_GROUP, COL_ENTITY_COLOR]
+    if col_phase_start is not None:
+        cols.append(col_phase_start)
+    plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
+    plot_entities = plot_entities.reset_index().set_index(col_entities)
+    # delete old sample_name based index
+    del plot_entities[plot_entities.columns[0]]
+    plot_entities[COL_YPOS] = range(plot_entities.shape[0])
+    groups = list(plot_entities[COL_GROUP].unique())
+    if len(groups) > 1:
+        for idx in plot_entities.index:
+            plot_entities.loc[idx, COL_YPOS] += groups.index(
+                plot_entities.loc[idx, COL_GROUP])
+
+    fig, axes = plt.subplots(figsize=(15, plot_entities.shape[0]*height_ratio))
+
+    # plot phases, i.e. time intervals during something happend to the entities
+    if col_phase_start is not None:
+        color_phase = '#dddddd'
+        plt.barh(
+            plot_entities[COL_YPOS],
+            width=plot_entities[COL_DEATH] - plot_entities[col_phase_start],
+            height=1,
+            left=plot_entities[col_phase_start],
+            color=color_phase,
+        )
+        legend_entities_entries.append(mpatches.Patch(color=color_phase,
+                                                      label=col_phase_start))
+
+    plt.barh(
+        plot_entities[COL_YPOS],
+        width=plot_entities[COL_DEATH] - plot_entities[col_birth],
+        height=0.6,
+        left=plot_entities[col_birth],
+        tick_label=plot_entities.index,
+        color=plot_entities[COL_ENTITY_COLOR].apply(
+            lambda x: colors_entities.get(x, 'black')),
+    )
+    plt.xlabel('days')
+    plt.ylabel(col_entities)
+    # improve tick frequency, which is not easy!
+    # plt.xticks(np.arange(axes.get_xlim()[0], axes.get_xlim()[1], 27))
+
+    # define colors for events
+    if colors_events is None:
+        colors_events = dict()
+    legend_entries = []
+    if col_events_title is not None:
+        titles = meta.sort_values(col_events)[col_events_title].unique()
+        for i, title in enumerate(titles):
+            if title not in colors_events:
+                colors_events[title] = AVAILCOLORS[
+                    len(colors_events) % len(AVAILCOLORS)]
+                legend_entries.append(
+                    mpatches.Patch(color=colors_events[title], label=title))
+
+    def _get_event_color(colors_events, data, col_events_title):
+        if col_events_title is None:
+            return 'black'
+        return colors_events.get(data[col_events_title], 'black')
+
+    for entity in plot_entities.index:
+        pos_y = plot_entities.loc[entity, COL_YPOS]
+        for idx, row in meta[meta[col_entities] == entity].iterrows():
+            plt.vlines(x=row[col_events],
+                       color=_get_event_color(colors_events,
+                                              row, col_events_title),
+                       linestyle='-',
+                       ymin=pos_y-1/2, ymax=pos_y+1/2)
+
+    legends_left_pos = 1.01
+    if len(groups) > 1:
+        ax2 = axes.twinx()
+        ax2.yaxis.set_ticks_position("right")
+        ax2.set_yticks(
+            plot_entities.groupby(COL_GROUP)[COL_YPOS].min() +
+            (plot_entities.groupby(COL_GROUP).size()-1)/2)
+        ax2.set_yticklabels(groups)
+        ax2.set_ylabel(col_entity_groups)
+        ax2.set_ylim(axes.get_ylim())
+        legends_left_pos += 0.05
+
+    if len(legend_entries) > 0:
+        legend_events = plt.legend(
+            handles=legend_entries, loc='upper left',
+            bbox_to_anchor=(legends_left_pos, 1.05), title=col_events_title)
+    if len(legend_entities_entries) > 0:
+        plt.legend(
+            handles=legend_entities_entries, loc='lower left',
+            bbox_to_anchor=(legends_left_pos, 0.05))
+        if len(legend_entries) > 0:
+            plt.gca().add_artist(legend_events)
+
+    return fig
