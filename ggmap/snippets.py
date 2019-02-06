@@ -2547,10 +2547,12 @@ def ganttChart(metadata: pd.DataFrame,
                col_events_title: str = None,
                col_entity_groups: str = None,
                col_entity_colors: str = None,
-               col_phase_start: str = None,
+               col_phases_start: str = None,
+               col_phases_end: str = None,
                height_ratio: float = 0.3,
                colors_events: dict = None,
                colors_entities: dict = None,
+               colors_phases: dict = None,
                align_to_event_title: str = None,
                ):
     """Generates Gantt chart of chronologic experiment design.
@@ -2580,10 +2582,14 @@ def ganttChart(metadata: pd.DataFrame,
         Default: None.
         Column name, holding coloring information for entities,
         e.g. sick / healthy.
-    col_phase_start : str
+    col_phases_start : str or [str]
         Default: None.
-        Column name, holding start date for phase,
+        Column name(s), holding start date for phase,
         e.g. "exposure to infections"
+    col_phases_end : str or [str]
+        Default: None.
+        Column name(s), holding end date for phase,
+        e.g. "antibiotics_treatment_end_timestamp"
     height_ratio : float
         Default: 0.3
         Height for figure per entity.
@@ -2596,6 +2602,9 @@ def ganttChart(metadata: pd.DataFrame,
     colors_entities : dict(str: str)
         Default: None
         Colors for entity bars.
+    colors_phases : dict(str: str)
+        Default: None
+        Colors for entity phases.
     align_to_event_title : str
         Default: None
         Align all dates according to a baseline event, instead of using real
@@ -2613,12 +2622,26 @@ def ganttChart(metadata: pd.DataFrame,
         sns.color_palette('Dark2', 12) +\
         sns.color_palette('Pastel1', 12)
 
+    def _listify(variable):
+        if variable is None:
+            return [None]
+        if not isinstance(variable, list):
+            return [variable]
+        return variable
+    # convert multi colname arguments into lists, if not already list
+    col_phases_start = _listify(col_phases_start)
+    col_phases_end = _listify(col_phases_end)
+
     for col in [COL_DEATH, COL_GROUP]:
         assert(col not in metadata.columns)
     cols_dates = [
         col
         for col
-        in [col_birth, col_events, col_death, col_phase_start]
+        in [col_birth, col_events, col_death] +
+           [col
+            for col
+            in (col_phases_start + col_phases_end)
+            if col is not None]
         if col in metadata.columns]
 
     meta = metadata.copy()
@@ -2676,8 +2699,9 @@ def ganttChart(metadata: pd.DataFrame,
 
     # a DataFrame holding information about entities
     cols = [col_entities, col_birth, COL_DEATH, COL_GROUP, COL_ENTITY_COLOR]
-    if col_phase_start is not None:
-        cols.append(col_phase_start)
+    for col in col_phases_start + col_phases_end:
+        if col is not None:
+            cols.append(col)
     plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
     plot_entities = plot_entities.reset_index().set_index(col_entities)
     # delete old sample_name based index
@@ -2691,18 +2715,25 @@ def ganttChart(metadata: pd.DataFrame,
 
     fig, axes = plt.subplots(figsize=(15, plot_entities.shape[0]*height_ratio))
 
+    if colors_phases is None:
+        colors_phases = dict()
     # plot phases, i.e. time intervals during something happend to the entities
-    if col_phase_start is not None:
-        color_phase = '#dddddd'
-        plt.barh(
-            plot_entities[COL_YPOS],
-            width=plot_entities[COL_DEATH] - plot_entities[col_phase_start],
-            height=1,
-            left=plot_entities[col_phase_start],
-            color=color_phase,
-        )
-        legend_entities_entries.append(mpatches.Patch(color=color_phase,
-                                                      label=col_phase_start))
+    for (start, end) in zip(col_phases_start, col_phases_end):
+        if start is not None:
+            if start not in colors_phases:
+                colors_phases[start] = AVAILCOLORS[
+                    len(AVAILCOLORS) - 1 - (
+                        len(colors_phases) % len(AVAILCOLORS))]
+            plt.barh(
+                plot_entities[COL_YPOS],
+                width=plot_entities[COL_DEATH if end is None else end] -
+                plot_entities[start],
+                height=1,
+                left=plot_entities[start],
+                color=colors_phases[start],
+            )
+            legend_entities_entries.append(
+                mpatches.Patch(color=colors_phases[start], label=start))
 
     plt.barh(
         plot_entities[COL_YPOS],
