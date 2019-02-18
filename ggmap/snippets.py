@@ -2554,6 +2554,7 @@ def ganttChart(metadata: pd.DataFrame,
                colors_entities: dict = None,
                colors_phases: dict = None,
                align_to_event_title: str = None,
+               counts: pd.DataFrame = None,
                ):
     """Generates Gantt chart of chronologic experiment design.
 
@@ -2609,6 +2610,11 @@ def ganttChart(metadata: pd.DataFrame,
         Default: None
         Align all dates according to a baseline event, instead of using real
         chronologic distances.
+    counts : pd.DataFrame
+        Default: None
+        Samples might be missue due to rarefaction or other QC procedures.
+        If provided, events of missing samples will be drawn dotted,
+        instead of with a solid line.
 
     Returns
     -------
@@ -2621,6 +2627,10 @@ def ganttChart(metadata: pd.DataFrame,
         sns.color_palette('Paired', 12) +\
         sns.color_palette('Dark2', 12) +\
         sns.color_palette('Pastel1', 12)
+
+    if counts is not None:
+        if len(set(counts.columns) & set(metadata.index)) <= 0:
+            print('Warning: there is no overlap between sample_names in metadata and counts!', file=sys.stderr)
 
     def _listify(variable):
         if variable is None:
@@ -2770,10 +2780,13 @@ def ganttChart(metadata: pd.DataFrame,
     for entity in plot_entities.index:
         pos_y = plot_entities.loc[entity, COL_YPOS]
         for idx, row in meta[meta[col_entities] == entity].iterrows():
+            linestyle = 'solid'
+            if (counts is not None) and (idx not in counts.columns):
+                linestyle = 'dotted'
             plt.vlines(x=row[col_events],
                        color=_get_event_color(colors_events,
                                               row, col_events_title),
-                       linestyle='-',
+                       linestyle=linestyle,
                        ymin=pos_y-1/2, ymax=pos_y+1/2)
 
     legends_left_pos = 1.01
@@ -2799,4 +2812,4 @@ def ganttChart(metadata: pd.DataFrame,
         if len(legend_entries) > 0:
             plt.gca().add_artist(legend_events)
 
-    return fig
+    return fig, colors_events
