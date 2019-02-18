@@ -2570,6 +2570,61 @@ def taxonomy_RDP(counts, fp_classifier, **executor_args):
                      **executor_args)
 
 
+def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
+               col_entity:str, col_group:str, col_event:str,
+               col_alpha_metric:str='shannon', **executor_args):
+    """"""
+    def pre_execute(workdir, args):
+        # store alpha diversity as tsv file
+        alpha_diversity.to_csv(workdir+'/diversity.tsv', sep="\t", index_label='sample_name')
+        # store metadata as tsv file
+        metadata.to_csv(workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append(
+            ('qiime longitudinal volatility '
+             '--m-metadata-file %s '
+             '--m-metadata-file %s '
+             '--p-default-metric %s '
+             '--p-default-group-column %s '
+             '--p-state-column %s '
+             '--p-individual-id-column %s '
+             '--o-visualization %s/volatility.qzv ') %
+            (workdir+'/metadata.tsv',
+             workdir+'/diversity.tsv',
+             col_alpha_metric,
+             col_group,
+             col_event,
+             col_entity,
+             workdir))
+        # commands.append(
+        #     ('qiime tools export '
+        #      '--input-path %s/taxonomyRDP.qza '
+        #      '--output-path %s') %
+        #     (workdir, workdir))
+        return commands
+
+    def post_execute(workdir, args):
+        # taxonomy = pd.read_csv('%s/taxonomy.tsv' % workdir, sep="\t",
+        #                        index_col=0)
+        # return taxonomy
+        return None
+
+    # if fp_classifier is not None:
+    #     fp_classifier = os.path.abspath(fp_classifier)
+    return _executor('volatility',
+                     {'metadata': metadata.loc[sorted(metadata.index), sorted(metadata.columns)],
+                      'alpha_diversity': alpha_diversity.loc[sorted(alpha_diversity.index), sorted(alpha_diversity.columns)]},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.QIIME2_ENV,
+                     ppn=1,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
