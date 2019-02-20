@@ -2769,8 +2769,8 @@ def ganttChart(metadata: pd.DataFrame,
             if title not in colors_events:
                 colors_events[title] = AVAILCOLORS[
                     len(colors_events) % len(AVAILCOLORS)]
-                legend_entries.append(
-                    mpatches.Patch(color=colors_events[title], label=title))
+            legend_entries.append(
+                mpatches.Patch(color=colors_events[title], label=title))
 
     def _get_event_color(colors_events, data, col_events_title):
         if col_events_title is None:
