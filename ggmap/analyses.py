@@ -2571,14 +2571,16 @@ def taxonomy_RDP(counts, fp_classifier, **executor_args):
 
 
 def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
-               col_entity:str, col_group:str, col_event:str,
-               col_alpha_metric:str='shannon', **executor_args):
+               col_entity: str, col_group: str, col_event: str,
+               col_alpha_metric: str='shannon', **executor_args):
     """"""
     def pre_execute(workdir, args):
         # store alpha diversity as tsv file
-        alpha_diversity.to_csv(workdir+'/diversity.tsv', sep="\t", index_label='sample_name')
+        alpha_diversity.to_csv(
+            workdir+'/diversity.tsv', sep="\t", index_label='sample_name')
         # store metadata as tsv file
-        metadata.to_csv(workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+        metadata.to_csv(
+            workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
 
     def commands(workdir, ppn, args):
         commands = []
@@ -2615,8 +2617,11 @@ def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
     # if fp_classifier is not None:
     #     fp_classifier = os.path.abspath(fp_classifier)
     return _executor('volatility',
-                     {'metadata': metadata.loc[sorted(metadata.index), sorted(metadata.columns)],
-                      'alpha_diversity': alpha_diversity.loc[sorted(alpha_diversity.index), sorted(alpha_diversity.columns)]},
+                     {'metadata': metadata.loc[
+                        sorted(metadata.index), sorted(metadata.columns)],
+                      'alpha_diversity': alpha_diversity.loc[
+                        sorted(alpha_diversity.index),
+                        sorted(alpha_diversity.columns)]},
                      pre_execute,
                      commands,
                      post_execute,
