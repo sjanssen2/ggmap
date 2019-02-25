@@ -2630,7 +2630,9 @@ def ganttChart(metadata: pd.DataFrame,
 
     if counts is not None:
         if len(set(counts.columns) & set(metadata.index)) <= 0:
-            print('Warning: there is no overlap between sample_names in metadata and counts!', file=sys.stderr)
+            print((
+                'Warning: there is no overlap between sample_names in'
+                ' metadata and counts!'), file=sys.stderr)
 
     def _listify(variable):
         if variable is None:
