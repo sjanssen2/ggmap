@@ -2557,6 +2557,7 @@ def ganttChart(metadata: pd.DataFrame,
                colors_phases: dict = None,
                align_to_event_title: str = None,
                counts: pd.DataFrame = None,
+               order_entities: list = None,
                ):
     """Generates Gantt chart of chronologic experiment design.
 
@@ -2620,6 +2621,8 @@ def ganttChart(metadata: pd.DataFrame,
         Samples might be missue due to rarefaction or other QC procedures.
         If provided, events of missing samples will be drawn dotted,
         instead of with a solid line.
+    order_entities : [str]
+	List of entity names to order their plotting vertically.
 
     Returns
     -------
@@ -2721,6 +2724,12 @@ def ganttChart(metadata: pd.DataFrame,
             cols.append(col)
     plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
     plot_entities = plot_entities.reset_index().set_index(col_entities)
+    if order_entities is not None:
+        if set(order_entities) & set(plot_entities.index) == set(plot_entities.index):
+            plot_entities = plot_entities.loc[reversed(order_entities),:].sort_values(COL_GROUP)
+        else:
+            raise ValueError("Given order of entities does not match entities in data!")
+   
     # delete old sample_name based index
     del plot_entities[plot_entities.columns[0]]
     plot_entities[COL_YPOS] = range(plot_entities.shape[0])
@@ -2820,4 +2829,4 @@ def ganttChart(metadata: pd.DataFrame,
         if len(legend_entries) > 0:
             plt.gca().add_artist(legend_events)
 
-    return fig, colors_events
+    return fig, colors_events, plot_entities
