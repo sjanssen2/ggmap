@@ -2526,6 +2526,7 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
     res = pd.DataFrame(res)
 
     # create plot
+    fig, axes = plt.subplots(1,1)
     p = plt.scatter(res['number features'], res['sum of feature importance'],
                     s=4, color="blue", label="sum of feature importance")
     p = plt.scatter(res['number features'], res['R^2 score'],
@@ -2536,7 +2537,7 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
 
     p = plt.legend(loc=4)
 
-    return res, p
+    return res, fig
 
 
 def ganttChart(metadata: pd.DataFrame,
@@ -2550,6 +2551,7 @@ def ganttChart(metadata: pd.DataFrame,
                col_phases_start: str = None,
                col_phases_end: str = None,
                height_ratio: float = 0.3,
+               event_line_width: int = 1,
                colors_events: dict = None,
                colors_entities: dict = None,
                colors_phases: dict = None,
@@ -2594,6 +2596,9 @@ def ganttChart(metadata: pd.DataFrame,
     height_ratio : float
         Default: 0.3
         Height for figure per entity.
+    event_line_width : int
+	Default: 1.
+	Line width of vertical lines indicating date of event.
     colors_events : dict(str: str)
         Default: None
         Provide a predefined color dictionary to use same colors for several
@@ -2789,6 +2794,7 @@ def ganttChart(metadata: pd.DataFrame,
                        color=_get_event_color(colors_events,
                                               row, col_events_title),
                        linestyle=linestyle,
+                       lw=event_line_width,
                        ymin=pos_y-1/2, ymax=pos_y+1/2)
 
     legends_left_pos = 1.01
