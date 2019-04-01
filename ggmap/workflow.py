@@ -8,12 +8,13 @@ from ggmap.snippets import biom2pandas
 from ggmap.analyses import *
 
 
+# TODO: find a way to define PPN, but use default if None, e.g. to limit ppn for beta div computation, due to known error if ppn > sample number
 def process_study(metadata: pd.DataFrame,
                   control_samples: {str},
-				  fp_deblur_biom: str,
-				  fp_insertiontree: str,
-				  fp_closedref_biom: str,
-				  rarefaction_depth: None,
+                  fp_deblur_biom: str,
+                  fp_insertiontree: str,
+                  fp_closedref_biom: str,
+                  rarefaction_depth: None,
                   fp_taxonomy_trained_classifier: str='/home/sjanssen/GreenGenes/gg-13-8-99-515-806-nb-classifier.qza',
                   tree_insert: TreeNode=None,
                   verbose=sys.stderr,
@@ -64,19 +65,49 @@ def process_study(metadata: pd.DataFrame,
     # collect tips actually inserted into tree
     features_inserted = {node.name for node in tree_insert.tips()}
 
-	# remove features assigned taxonomy to chloroplasts / mitochondria,
-	# report min, max removal
+    # remove features assigned taxonomy to chloroplasts / mitochondria,
+    # report min, max removal
     # remove features not inserted into tree
-    counts = counts.loc[(sorted(set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
+    counts = counts.loc[sorted((set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
 
     results = dict()
-    if rarefaction_depth == None:
-        res_rarecurve = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=True, use_grid=use_grid)
-        results['rarefaction_curves'] = res_rarecurve
-    else:
-        results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
-        results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid)
-        results['beta_diversity'] = beta_diversity(res_rare['results'], reference_tree=fp_insertiontree, dry=dry, wait=True, use_grid=use_grid)
-        results['emperor'] = emperor(meta, res_beta['results'], './', dry=dry, wait=True, use_grid=use_grid)
 
+    # run: rarefaction curves
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid)
+    if rarefaction_depth is None:
+        return results
+
+    # run: rarefy counts 1x
+    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
+
+    # run: alpha diversity
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid)
+
+    # run: beta diversity
+    if results['rarefaction']['results'] is not None:
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2)
+    else:
+        raise ValueError("Be patient and wait/poll for rarefaction results!")
+
+    # run: emperor plot
+    if results['beta_diversity']['results'] is not None:
+        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './', dry=dry, wait=False, use_grid=use_grid)
+    else:
+        raise ValueError("Be patient and wait/poll for beta diversity results!")
+
+    # run: picrust
+    results['picrust'] = dict()
+    results['picrust']['counts'] = picrust(biom2pandas(fp_closedref_biom), dry=dry, wait=False, use_grid=use_grid)
+    if results['picrust']['counts']['results'] is not None:
+        results['picrust']['diversity'] = dict()
+        for db in results['picrust']['counts']['results'].keys():
+            results['picrust']['diversity'][db] = dict()
+            for level in results['picrust']['counts']['results'][db].keys():
+                results['picrust']['diversity'][db][level] = dict()
+                results['picrust']['diversity'][db][level]['alpha'] = alpha_diversity(results['picrust']['counts']['results'][db][level], rarefaction_depth=None, metrics=['shannon', 'observed_otus'], dry=dry, wait=False, use_grid=use_grid)
+                results['picrust']['diversity'][db][level]['beta'] = beta_diversity(results['picrust']['counts']['results'][db][level], metrics=['bray_curtis'], dry=dry, wait=False, use_grid=use_grid)
+    else:
+        raise ValueError("Be patient and wait/poll for picrust results!")
+
+    #res_bugbase = bugbase(biom2pandas('FromQiita/67822.otu_table.biom'), dry=False, wait=True, use_grid=False)
     return results
