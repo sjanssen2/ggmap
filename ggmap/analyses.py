@@ -2114,7 +2114,6 @@ def bugbase(counts, **executor_args):
 
 def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                                       beta_diversities,
-                                      environment='qiime2-2018.2',
                                       **executor_args):
     """
     Parameters

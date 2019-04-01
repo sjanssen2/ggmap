@@ -2526,6 +2526,7 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
     res = pd.DataFrame(res)
 
     # create plot
+    fig, axes = plt.subplots(1,1)
     p = plt.scatter(res['number features'], res['sum of feature importance'],
                     s=4, color="blue", label="sum of feature importance")
     p = plt.scatter(res['number features'], res['R^2 score'],
@@ -2536,7 +2537,7 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
 
     p = plt.legend(loc=4)
 
-    return res, p
+    return res, fig
 
 
 def ganttChart(metadata: pd.DataFrame,
@@ -2550,11 +2551,13 @@ def ganttChart(metadata: pd.DataFrame,
                col_phases_start: str = None,
                col_phases_end: str = None,
                height_ratio: float = 0.3,
+               event_line_width: int = 1,
                colors_events: dict = None,
                colors_entities: dict = None,
                colors_phases: dict = None,
                align_to_event_title: str = None,
                counts: pd.DataFrame = None,
+               order_entities: list = None,
                ):
     """Generates Gantt chart of chronologic experiment design.
 
@@ -2594,6 +2597,9 @@ def ganttChart(metadata: pd.DataFrame,
     height_ratio : float
         Default: 0.3
         Height for figure per entity.
+    event_line_width : int
+	Default: 1.
+	Line width of vertical lines indicating date of event.
     colors_events : dict(str: str)
         Default: None
         Provide a predefined color dictionary to use same colors for several
@@ -2615,6 +2621,8 @@ def ganttChart(metadata: pd.DataFrame,
         Samples might be missue due to rarefaction or other QC procedures.
         If provided, events of missing samples will be drawn dotted,
         instead of with a solid line.
+    order_entities : [str]
+	List of entity names to order their plotting vertically.
 
     Returns
     -------
@@ -2630,7 +2638,9 @@ def ganttChart(metadata: pd.DataFrame,
 
     if counts is not None:
         if len(set(counts.columns) & set(metadata.index)) <= 0:
-            print('Warning: there is no overlap between sample_names in metadata and counts!', file=sys.stderr)
+            print((
+                'Warning: there is no overlap between sample_names in'
+                ' metadata and counts!'), file=sys.stderr)
 
     def _listify(variable):
         if variable is None:
@@ -2714,6 +2724,12 @@ def ganttChart(metadata: pd.DataFrame,
             cols.append(col)
     plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
     plot_entities = plot_entities.reset_index().set_index(col_entities)
+    if order_entities is not None:
+        if set(order_entities) & set(plot_entities.index) == set(plot_entities.index):
+            plot_entities = plot_entities.loc[reversed(order_entities),:].sort_values(COL_GROUP)
+        else:
+            raise ValueError("Given order of entities does not match entities in data!")
+   
     # delete old sample_name based index
     del plot_entities[plot_entities.columns[0]]
     plot_entities[COL_YPOS] = range(plot_entities.shape[0])
@@ -2787,6 +2803,7 @@ def ganttChart(metadata: pd.DataFrame,
                        color=_get_event_color(colors_events,
                                               row, col_events_title),
                        linestyle=linestyle,
+                       lw=event_line_width,
                        ymin=pos_y-1/2, ymax=pos_y+1/2)
 
     legends_left_pos = 1.01
@@ -2812,4 +2829,4 @@ def ganttChart(metadata: pd.DataFrame,
         if len(legend_entries) > 0:
             plt.gca().add_artist(legend_events)
 
-    return fig, colors_events
+    return fig, colors_events, plot_entities
