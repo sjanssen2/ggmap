@@ -2156,10 +2156,10 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                 ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
                  ' %s/beta_%s.qza --type "DistanceMatrix"') % (
                     workdir, metric, workdir, metric)],
-                environment=environment,
                 jobname='import_dm',
                 result="%s/beta_%s.qza" % (workdir, metric),
                 ppn=1, pmem='8GB', walltime='1:00:00',
+                environment=settings.QIIME2_ENV,
                 dry=dry,
                 wait=True, use_grid=False)
 
@@ -2393,12 +2393,12 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=environment,
                      ppn=1,
                      array=len(beta_diversities.keys()) * len(
                          set(categorial) - set(cols_alldiff) -
                          set(cols_onevalue)) *
                      len(METHODS_BETA) + 1,
+                     environment='qiime2-2018.11',
                      **executor_args)
 
 
@@ -2600,11 +2600,11 @@ def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
              col_event,
              col_entity,
              workdir))
-        # commands.append(
-        #     ('qiime tools export '
-        #      '--input-path %s/taxonomyRDP.qza '
-        #      '--output-path %s') %
-        #     (workdir, workdir))
+        commands.append(
+             ('qiime tools export '
+              '--input-path %s/volatility.qza '
+              '--output-path %s') %
+             (workdir, workdir))
         return commands
 
     def post_execute(workdir, args):
