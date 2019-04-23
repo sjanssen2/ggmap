@@ -1055,7 +1055,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
                 file_qid=None, out=sys.stdout, err=sys.stderr,
-                timing=False, file_timing=None, array=1, use_grid=True,
+                timing=False, file_timing=None, array=1,
+                use_grid=settings.USE_GRID,
                 force_slurm=False):
     """ Submits a job to the cluster.
 
@@ -1160,7 +1161,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        cmd_list += "source activate %s; " % environment
+        cmd_list += "source %s/etc/profile.d/conda.sh; conda activate %s; " % (
+            settings.DIR_CONDA, environment)
 
     slurm = False
     if use_grid is False:
@@ -2729,7 +2731,7 @@ def ganttChart(metadata: pd.DataFrame,
             plot_entities = plot_entities.loc[reversed(order_entities),:].sort_values(COL_GROUP)
         else:
             raise ValueError("Given order of entities does not match entities in data!")
-   
+
     # delete old sample_name based index
     del plot_entities[plot_entities.columns[0]]
     plot_entities[COL_YPOS] = range(plot_entities.shape[0])
