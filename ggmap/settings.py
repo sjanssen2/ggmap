@@ -6,10 +6,21 @@ FP_SETTINGS = os.path.join(os.environ['HOME'], '.ggmaprc')
 
 DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                 'variable_name': 'QIIME_ENV'},
-            'condaenv_qiime2': {'default': 'qiime2-2017.10',
+            'condaenv_qiime2': {'default': 'qiime2-2019.1',
                                 'variable_name': 'QIIME2_ENV'},
             'condaenv_picrust': {'default': 'picrust',
                                  'variable_name': 'PICRUST_ENV'},
+            # since condas init magic, activating an environment failes if
+            # .bashrc is not read, which is the case when executing a
+            # subprocess from python :-(
+            'dir_conda': {'default': '%s/miniconda3/' % os.environ['HOME'],
+                          'variable_name': 'DIR_CONDA'},
+            # set a default for using a grid when submitting a job.
+            # this is useful for people working on local hardware without a
+            # grid infrastructure. Thus, typing fct(..., use_grid=False, ...)
+            # is no longer necessary.
+            'use_grid': {'default': True,
+                         'variable_name': 'USE_GRID'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
             'fp_reference_taxonomy': {
@@ -33,7 +44,7 @@ def init(err=sys.stderr):
                   'download at https://github.com/sjanssen2/ggmap\n')
         err.write("Reading settings file '%s'\n" % FP_SETTINGS)
         with open(FP_SETTINGS, 'r') as f:
-            config = yaml.load(f)
+            config = yaml.load(f, Loader=yaml.SafeLoader)
     else:
         config = dict()
 
@@ -57,6 +68,10 @@ def init(err=sys.stderr):
     EXEC_TIME = config['fp_binary_time']
     global RANKS
     RANKS = config['list_ranks']
+    global DIR_CONDA
+    DIR_CONDA = config['dir_conda']
+    global USE_GRID
+    USE_GRID = config['use_grid']
 
     # if settings file does not exist, create one with current values as a
     # primer for user edits
