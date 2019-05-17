@@ -1,6 +1,8 @@
 import yaml
 import os
 import sys
+import socket
+
 
 FP_SETTINGS = os.path.join(os.environ['HOME'], '.ggmaprc')
 
@@ -21,6 +23,10 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             # is no longer necessary.
             'use_grid': {'default': True,
                          'variable_name': 'USE_GRID'},
+            # some grids, like HPC@HHU "bill" compute time to projects
+            # we have to specify with -A for qsub which project should be used.
+            'grid_account': {'default': '',
+                             'variable_name': 'GRID_ACCOUNT'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
             'fp_reference_taxonomy': {
@@ -32,6 +38,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             'list_ranks': {'default': ['Kingdom', 'Phylum', 'Class', 'Order',
                                        'Family', 'Genus', 'Species'],
                            'variable_name': 'RANKS'},
+            'R_module': {'default': 'R/3.3.2',
+                         'variable_name': 'R_MODULE'}
             }
 
 
@@ -72,6 +80,28 @@ def init(err=sys.stderr):
     DIR_CONDA = config['dir_conda']
     global USE_GRID
     USE_GRID = config['use_grid']
+    global R_MODULE
+    R_MODULE = config['R_module']
+    global GRID_ACCOUNT
+    GRID_ACCOUNT = config['grid_account']
+
+
+    global GRIDNAME
+    global VARNAME_PBSARRAY
+    global GRIDENGINE_BINDIR
+    hostname = socket.getfqdn()
+    if '.ucsd.edu' in hostname:
+        GRIDNAME = 'barnacle'
+        VARNAME_PBSARRAY = 'PBS_ARRAYID'
+        GRIDENGINE_BINDIR = '/opt/torque-4.2.8/bin'
+    elif '.rc.usf.edu' in hostname:
+        GRIDNAME = 'USF'
+        VARNAME_PBSARRAY = 'PBS_ARRAYID'
+        GRIDENGINE_BINDIR = ''
+    elif '.hilbert.hpc.uni-duesseldorf.de' in hostname:
+        GRIDNAME = 'HPCHHU'
+        VARNAME_PBSARRAY = 'PBS_ARRAY_INDEX'
+        GRIDENGINE_BINDIR = '/opt/pbs/bin'
 
     # if settings file does not exist, create one with current values as a
     # primer for user edits
