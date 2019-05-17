@@ -330,7 +330,7 @@ def redundancy_analysis_alpha(metadata, alpha,
     def commands(workdir, ppn, args):
         commands = []
 
-        commands.append('module load R_3.3.0')
+        commands.append('module load %s' % settings.R_MODULE)
         commands.append('R --vanilla < %s/rscript.R' % workdir)
 
         return commands
@@ -498,7 +498,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
     def commands(workdir, ppn, args):
         commands = []
 
-        commands.append('module load R_3.3.0')
+        commands.append('module load %s' % settings.R_MODULE)
         commands.append('R --vanilla < %s/rscript.R' % workdir)
 
         return commands

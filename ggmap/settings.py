@@ -32,6 +32,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             'list_ranks': {'default': ['Kingdom', 'Phylum', 'Class', 'Order',
                                        'Family', 'Genus', 'Species'],
                            'variable_name': 'RANKS'},
+            'R_module': {'default': 'R/3.3.2',
+                         'variable_name': 'R_MODULE'}
             }
 
 
@@ -72,6 +74,8 @@ def init(err=sys.stderr):
     DIR_CONDA = config['dir_conda']
     global USE_GRID
     USE_GRID = config['use_grid']
+    global R_MODULE
+    R_MODULE = config['R_module']
 
     # if settings file does not exist, create one with current values as a
     # primer for user edits
