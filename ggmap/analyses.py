@@ -1063,12 +1063,15 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
         sdcomp = ''
         if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
-        commands.append('/home/jansses/miniconda3/envs/sepp/bin/run-sepp.sh "%s" res${%s} -x %i %s %s -r /home/jansses/miniconda3/envs/sepp/share/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
+        fp_sepp = '/home/jansses/miniconda3/envs/sepp/'
+        commands.append('%sbin/run-sepp.sh "%s" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
+            fp_sepp,
             workdir+'/sequences${%s}.mfa',
             settings.VARNAME_PBSARRAY,
             ppn,
             ref,
-            sdcomp, settings.VARNAME_PBSARRAY))
+            sdcomp, settings.VARNAME_PBSARRAY,
+            fp_sepp))
         return commands
 
     def post_execute(workdir, args):
@@ -2752,9 +2755,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if (type(cache_arguments[arg]) == pd.Series):
             cache_args_original[arg] = cache_arguments[arg]
             cache_arguments[arg] = cache_arguments[arg].sort_index()
-            #print('%s normalizing pd.Series' % arg)
         if (type(cache_arguments[arg]) == pd.DataFrame):
-            #print('%s normalizing pd.DataFrame' % arg, cache_arguments[arg].isnull().sum(axis = 0).sum())
             cache_args_original[arg] = cache_arguments[arg]
             cache_arguments[arg] = cache_arguments[arg].loc[
                 sorted(cache_arguments[arg].index),
@@ -2763,8 +2764,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
-    #print("STEFAN", results['file_cache'], file=sys.stderr)
-    #sys.exit(99)
 
     # convert back cache arguments if necessary
     for arg in cache_args_original.keys():
@@ -2784,7 +2783,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     # ready or are waited for
     dir_tmp = tempfile.gettempdir()
     if use_grid:
-        dir_tmp = '/gpfs/project/jansses/TMP'
+        dir_tmp = os.environ['HOME'] + '/TMP/'
         if not os.path.exists(dir_tmp):
             raise ValueError('Temporary directory "%s" does not exist. '
                              'Please create it and restart.' % dir_tmp)
