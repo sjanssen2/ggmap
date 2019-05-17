@@ -25,6 +25,8 @@ from ggmap import settings
 import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.utils.multiclass import unique_labels
+from sklearn.metrics import confusion_matrix
 from matplotlib.lines import Line2D
 import math
 
@@ -541,6 +543,7 @@ def plotTaxonomy(file_otutable,
                  file_taxonomy=settings.FILE_REFERENCE_TAXONOMY,
                  verbose=True,
                  reorder_samples=False,
+                 reorder_taxa=True,
                  print_sample_labels=False,
                  sample_label_column=None,
                  print_meanrelabunances=False,
@@ -571,6 +574,9 @@ def plotTaxonomy(file_otutable,
     reorder_samples : Bool
         True = sort samples in each group according to abundance of most
         abundant taxon
+    reorder_taxa : Bool
+        Default = True.
+        Orders taxa by mean abundance across all samples.
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
@@ -693,7 +699,9 @@ def plotTaxonomy(file_otutable,
                       (plotTopXtaxa, rank_counts.shape[0]))
     # all for plotting
     # sort taxa according to sum of abundance
-    taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
+    taxaidx = rank_counts.index
+    if reorder_taxa:
+        taxaidx = list(rank_counts.mean(axis=1).sort_values(ascending=False).index)
     if (grayscale is False) & (len(lowAbundandTaxa) > 0):
         taxaidx = [taxon
                    for taxon in taxaidx
@@ -1053,7 +1061,7 @@ def _add_timing_cmds(commands, file_timing):
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                gebin='/opt/torque-4.2.8/bin', dry=True, wait=False,
+                gebin=settings.GRIDENGINE_BINDIR, dry=True, wait=False,
                 file_qid=None, out=sys.stdout, err=sys.stderr,
                 timing=False, file_timing=None, array=1,
                 use_grid=settings.USE_GRID,
@@ -1107,7 +1115,7 @@ def cluster_run(cmds, jobname, result, environment=None,
     array : int
         Default: 1
         If > 1 than an array job is submitted. Make sure in- and outputs can
-        deal with ${PBS_ARRAYID}!
+        deal with ${PBS_ARRAY_INDEX}!
         Only available for Torque.
     use_grid : bool
         Defaul: True.
@@ -1152,6 +1160,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         cmds = _add_timing_cmds(cmds, file_timing)
 
     cmd_list = ""
+    cmd_conda = ""
     env_present = None
     if environment is not None:
         # check if environment exists
@@ -1161,21 +1170,20 @@ def cluster_run(cmds, jobname, result, environment=None,
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        cmd_list += "source %s/etc/profile.d/conda.sh; conda activate %s; " % (
+        cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (
             settings.DIR_CONDA, environment)
 
     slurm = False
     if use_grid is False:
-        cmd_list += 'for PBS_ARRAYID in `seq 1 %i`; do %s; done' % (
-            array, " && ".join(cmds))
+        cmd_list += '%s for %s in `seq 1 %i`; do %s; done' % (
+            cmd_conda, settings.VARNAME_PBSARRAY, array, " && ".join(cmds))
     else:
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
-        res = subprocess.check_output(["uname", "-n"]).decode('ascii').rstrip()
-        if 'barnacle.ucsd.edu' in res:
-            slurm = False
-        elif '.rc.usf.edu' in res:
+        if settings.GRIDNAME == 'USF':
             slurm = True
+        else:
+            slurm = False
         with subprocess.Popen("which srun" if slurm else "which qsub",
                               shell=True, stdout=subprocess.PIPE,
                               executable="bash") as call_x:
@@ -1191,19 +1199,30 @@ def cluster_run(cmds, jobname, result, environment=None,
 
         if slurm is False:
             highmem = ''
-            if ppn * int(pmem[:-2]) > 250:
-                highmem = ':highmem'
+            if settings.GRIDNAME == 'barnacle':
+                if ppn * int(pmem[:-2]) > 250:
+                    highmem = ':highmem'
             files_loc = ''
             if file_qid is not None:
                 files_loc = ' -o %s/ -e %s/ ' % tuple(
                     ["/".join(file_qid.split('/')[:-1])] * 2)
 
+            flag_array = ''
+            if array > 1:
+                if settings.GRIDNAME == 'barnacle':
+                    flag_array = '-t 1-%i' % array
+                elif settings.GRIDNAME == 'HPCHHU':
+                    flag_array = '-J 1-%i' % array
+
             ge_cmd = (
-                ("%s/qsub -d '%s' -V -l "
-                 "walltime=%s,nodes=%i%s:ppn=%i,pmem=%s -N cr_%s -t 1-%i %s") %
-                (gebin, pwd, walltime, nodes, highmem, ppn, pmem, jobname,
-                 array, files_loc))
-            cmd_list += "echo '%s' | %s" % (" && ".join(cmds), ge_cmd)
+                ("%s/qsub %s %s -V -l "
+                 "walltime=%s,nodes=%i%s:ppn=%i,mem=%s -N cr_%s %s %s -r y") %
+                (gebin,
+                 '-A %s' % settings.GRID_ACCOUNT if settings.GRID_ACCOUNT != "" else "",
+                 "-d '%s'" % pwd if settings.GRIDNAME == 'barnqacle' else '',
+                 walltime, nodes, highmem, ppn, pmem, jobname,
+                 flag_array, files_loc))
+            cmd_list += "echo '%s%s' | %s" % (cmd_conda, " && ".join(cmds), ge_cmd)
         else:
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
@@ -1220,7 +1239,7 @@ def cluster_run(cmds, jobname, result, environment=None,
             slurm_script += 'srun uname -a\n'
             for cmd in cmds:
                 slurm_script += 'srun %s\n' % cmd.replace(
-                    '${PBS_ARRAYID}', '${SLURM_ARRAY_TASK_ID}')
+                    '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}')
             _, file_script = mkstemp(suffix='.slurm.sh')
             f = open(file_script, 'w')
             f.write(slurm_script)
@@ -1815,7 +1834,7 @@ def plotGroup_permanovas(beta, groupings,
 # definition of network plots
 def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                  permutations=999, name=None, minnumalpha=21,
-                 fct_beta_test=permanova):
+                 fct_beta_test=permanova, summarize=False):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
 
     Parameters
@@ -1852,7 +1871,7 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
 
     Returns
     -------
-    plt.Figure
+    plt.Figure or pd.DataFrame
     """
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
@@ -1861,20 +1880,42 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
             num_rows += len(beta.keys())
         if alpha is not None:
             num_rows += alpha.shape[1]
-        f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
+        if summarize is False:
+            f, axarr = plt.subplots(num_rows, 2, figsize=(10, num_rows*5))
 
         row = 0
+        summary = []
+        networks = {'alpha': dict(), 'beta': dict()}
         if alpha is not None:
             for a_metric in alpha.columns:
                 a = detect_distant_groups_alpha(
                     alpha[a_metric], metadata[field],
                     min_group_size=minnumalpha)
-                plotDistant_groups(
-                    **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                    ax=axarr[row][0])
-                plotGroup_histograms(
-                    alpha[a_metric], metadata[field], ax=axarr[row][1],
-                    min_group_size=minnumalpha)
+                if summarize:
+                    networks['alpha'][a_metric] = a
+                    for i in a['network'].keys():
+                        for j in a['network'][i]:
+                            x, y = tuple(sorted([i, j]))
+                            summary.append({
+                                'group x': x,
+                                'group y': y,
+                                'p-value': a['network'][i][j]['p-value'],
+                                'test-statistic': a['network'][i][j]['test-statistic'],
+                                'num samples x': a['n_per_group'].loc[x],
+                                'num samples y': a['n_per_group'].loc[y],
+                                'metric': a['metric_name'],
+                                'group name': a['group_name'],
+                                'num_permutations': a['num_permutations'],
+                                'test name': a['fct_name'],
+                                'min_group_size': a['min_group_size'],
+                                'diversity': 'alpha'})
+                else:
+                    plotDistant_groups(
+                        **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
+                        ax=axarr[row][0])
+                    plotGroup_histograms(
+                        alpha[a_metric], metadata[field], ax=axarr[row][1],
+                        min_group_size=minnumalpha)
                 # axarr[row][1].set_xlim((0, 20))
                 row += 1
 
@@ -1884,17 +1925,48 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                     beta[b_metric], b_metric, metadata[field],
                     min_group_size=b_min_num, num_permutations=permutations,
                     fct_test=fct_beta_test)
-                plotDistant_groups(
-                    **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                    ax=axarr[row][0])
-                plotGroup_permanovas(
-                    beta[b_metric], metadata[field], **b, ax=axarr[row][1],
-                    horizontal=True)
+                if summarize:
+                    networks['beta'][b_metric] = b
+                    for i in b['network'].keys():
+                        for j in b['network'][i]:
+                            x, y = tuple(sorted([i, j]))
+                            summary.append({
+                                'group x': x,
+                                'group y': y,
+                                'p-value': b['network'][i][j]['p-value'],
+                                'avgdist': b['network'][i][j]['avgdist'],
+                                'test-statistic': b['network'][i][j]['test-statistic'],
+                                'num samples x': b['n_per_group'].loc[x],
+                                'num samples y': b['n_per_group'].loc[y],
+                                'metric': b['metric_name'],
+                                'group name': b['group_name'],
+                                'num_permutations': b['num_permutations'],
+                                'test name': b['fct_name'],
+                                'min_group_size': b['min_group_size'],
+                                'diversity': 'beta'})
+                else:
+                    plotDistant_groups(
+                        **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
+                        ax=axarr[row][0])
+                    plotGroup_permanovas(
+                        beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                        horizontal=True)
                 row += 1
 
-        if name is not None:
+        if (summarize is False) and (name is not None):
             plt.suptitle(name)
-        return f
+            return f
+        else:
+            res = pd.DataFrame(summary)
+            ordered_cols = [
+                'group name', 'diversity', 'metric', 'group x', 'group y',
+                'p-value', 'test-statistic', 'num samples x', 'num samples y',
+                'avgdist', 'test name', 'min_group_size', 'num_permutations']
+            if res.shape[0] > 0:
+                res = res[ordered_cols].sort_values(by=['diversity', 'metric'])
+            else:
+                res = pd.DataFrame(["too few samples"])
+            return res, networks
 
 
 def mutate_sequence(sequence, num_mutations=1,
@@ -2305,8 +2377,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     -------
     Matplotlib Figure.
     """
-    fig, ax = plt.subplots(len(diffTaxa), 2,
-                           figsize=(10, 5*len(diffTaxa)))
+    fig, ax = plt.subplots(len(diffTaxa), 3,
+                           figsize=(3*5, 5*len(diffTaxa)))
 
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
@@ -2322,17 +2394,23 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 
         # only consider current list of taxa, but now also filter out those
         # with too low relative abundance.
-        taxa = sorted(list(
-            set([idx
-                 for idx, meanabund
-                 in relabund.reindex(
-                     index=taxa, columns=samples_a).mean(axis=1).iteritems()
-                 if meanabund >= min_mean_abundance]) |
-            set([idx
-                 for idx, meanabund
-                 in relabund.reindex(
-                     index=taxa, columns=samples_b).mean(axis=1).iteritems()
-                 if meanabund >= min_mean_abundance])))
+        #return relabund, samples_a, taxa
+        meanrealabund = pd.concat([
+            relabund.reindex(index=taxa, columns=samples_a).mean(axis=1),
+            relabund.reindex(index=taxa, columns=samples_b).mean(axis=1)], axis=1, sort=False).rename(columns={0: meta_value_a, 1: meta_value_b})
+        meanrealabund = meanrealabund[(meanrealabund >= min_mean_abundance).any(axis=1)]
+        taxa = meanrealabund.max(axis=1).sort_values(ascending=False).index
+        # taxa = sorted(list(
+        #     set([idx
+        #          for idx, meanabund
+        #          in relabund.reindex(
+        #              index=taxa, columns=samples_a).mean(axis=1).iteritems()
+        #          if meanabund >= min_mean_abundance]) |
+        #     set([idx
+        #          for idx, meanabund
+        #          in relabund.reindex(
+        #              index=taxa, columns=samples_b).mean(axis=1).iteritems()
+        #          if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
         else:
@@ -2369,6 +2447,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
             g.set_xlim((0, max_x_relabundance))
             # curr_ax.legend(loc="upper right")
             curr_ax.legend(bbox_to_anchor=(-0.1, 1.15))
+            g.set_title("sample rel. abundance")
 
         # define colors for taxons
         if (feature_color_map is not None) and \
@@ -2387,9 +2466,31 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                 if tick.get_text() in feature_color_map.index:
                     tick.set_color(colors[feature_color_map[tick.get_text()]])
 
+        # MOVED ABUNDANCE
         curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
+        if len(taxa) > 0:
+            #return (meanrealabund[meta_value_a]- meanrealabund[meta_value_b]).to_frame().reset_index()
+            relabundshift = (meanrealabund[meta_value_a]- meanrealabund[meta_value_b]).loc[taxa].to_frame().reset_index()
+            g = sns.barplot(data=relabundshift,
+                            orient='h',
+                            y='feature',
+                            x=0,
+                            ax=curr_ax,
+                            color=sns.xkcd_rgb["denim blue"])
+            g.yaxis.set_ticklabels([])
+            g.set_ylabel('')
+            g.set_xlabel('<-- more in %s     |      more in %s -->' %
+                         (meta_value_b, meta_value_a))
+            g.set_title("mean abundance shift")
+            g.set_xlim(-1.05*relabundshift[0].abs().max(),
+                       +1.05*relabundshift[0].abs().max())
+
+        # FOLD CHANGE
+        curr_ax = ax[2]
+        if len(diffTaxa) > 1:
+            curr_ax = ax[i][2]
         if len(taxa) > 0:
             g = sns.barplot(data=foldchange.loc[taxa].to_frame().reset_index(),
                             orient='h',
@@ -2398,6 +2499,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
                             ax=curr_ax,
                             color=sns.xkcd_rgb["denim blue"])
             g.set_ylabel('')
+            g.set_title("mean fold change")
 
             if taxonomy is not None:
                 g.yaxis.tick_right()
@@ -2427,17 +2529,18 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 
             g.set_xlabel('<-- more in %s     |      more in %s -->' %
                          (meta_value_b, meta_value_a))
-            g.set_xlim(-1*foldchange.loc[taxa].abs().max(),
-                       +1*foldchange.loc[taxa].abs().max())
+            g.set_xlim(-1.05*foldchange.loc[taxa].abs().max(),
+                       +1.05*foldchange.loc[taxa].abs().max())
         titletext = "%s\nminimal relative abundance: %f" % (
             metadata_field.name, min_mean_abundance)
         if title is not None:
             titletext = title + "\n" + titletext
         fig.suptitle(titletext)
 
-    return fig
+    return fig, meanrealabund, relabund
 
 
+@cache
 def identify_important_features(metadata_group, counts, num_trees=1000,
                                 stdout=sys.stdout, test_size=0.25,
                                 num_repeats=5, max_features=100, n_jobs=1):
@@ -2527,6 +2630,10 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
             break
     res = pd.DataFrame(res)
 
+    return res
+
+
+def plot_identify_important_features(res):
     # create plot
     fig, axes = plt.subplots(1,1)
     p = plt.scatter(res['number features'], res['sum of feature importance'],
@@ -2539,7 +2646,69 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
 
     p = plt.legend(loc=4)
 
-    return res, fig
+    return fig
+
+
+# copy and paste from https://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html#sphx-glr-auto-examples-model-selection-plot-confusion-matrix-py
+def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
+                          normalize=False,
+                          title=None,
+                          cmap=plt.cm.Blues,
+                          verbose=sys.stdout,
+                          ax=None,
+                          xtickrotation=45):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if not title:
+        if normalize:
+            title = 'Normalized confusion matrix'
+        else:
+            title = 'Confusion matrix, without normalization'
+
+    # Compute confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    # Only use the labels that appear in the data
+    classes = set(y_true.unique()) & set(y_pred.unique()) & set(classes)
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        if verbose is not None:
+            verbose.write("Normalized confusion matrix\n")
+    else:
+        if verbose is not None:
+            verbose.write('Confusion matrix, without normalization\n')
+
+    if verbose is not None:
+        verbose.write(cm)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+        fig.tight_layout()
+    im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+    #ax.figure.colorbar(im, ax=ax)
+    # We want to show all ticks...
+    ax.set(xticks=np.arange(cm.shape[1]),
+           yticks=np.arange(cm.shape[0]),
+           # ... and label them with the respective list entries
+           xticklabels=classes, yticklabels=classes,
+           title=title,
+           ylabel='True label',
+           xlabel='Predicted label')
+
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=xtickrotation, ha="center",
+             rotation_mode="anchor")
+
+    # Loop over data dimensions and create text annotations.
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, format(cm[i, j], fmt),
+                    ha="center", va="center",
+                    color="white" if cm[i, j] > thresh else "black")
+    return ax
 
 
 def ganttChart(metadata: pd.DataFrame,
@@ -2679,6 +2848,9 @@ def ganttChart(metadata: pd.DataFrame,
     # try to find end date for entities
     if col_death is not None:
         meta[COL_DEATH] = meta[col_death]
+    # for those entities that don't have a date of death information,
+    # use the latest time point available as death
+        meta.loc[meta[pd.isnull(meta[COL_DEATH])].index, COL_DEATH] = meta[cols_dates].stack().max()
     else:
         meta[COL_DEATH] = meta[cols_dates].stack().max()
 
@@ -2728,7 +2900,7 @@ def ganttChart(metadata: pd.DataFrame,
     plot_entities = plot_entities.reset_index().set_index(col_entities)
     if order_entities is not None:
         if set(order_entities) & set(plot_entities.index) == set(plot_entities.index):
-            plot_entities = plot_entities.loc[reversed(order_entities),:].sort_values(COL_GROUP)
+            plot_entities = plot_entities.loc[reversed(order_entities),:]#.sort_values(COL_GROUP)
         else:
             raise ValueError("Given order of entities does not match entities in data!")
 
@@ -2812,10 +2984,10 @@ def ganttChart(metadata: pd.DataFrame,
     if len(groups) > 1:
         ax2 = axes.twinx()
         ax2.yaxis.set_ticks_position("right")
-        ax2.set_yticks(
-            plot_entities.groupby(COL_GROUP)[COL_YPOS].min() +
-            (plot_entities.groupby(COL_GROUP).size()-1)/2)
-        ax2.set_yticklabels(groups)
+        group_labels = (plot_entities.groupby(COL_GROUP)[COL_YPOS].min() + \
+            (plot_entities.groupby(COL_GROUP).size()-1)/2).sort_values()
+        ax2.set_yticks(group_labels)
+        ax2.set_yticklabels(group_labels.index)
         ax2.set_ylabel(col_entity_groups)
         ax2.set_ylim(axes.get_ylim())
         legends_left_pos += 0.05

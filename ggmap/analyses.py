@@ -349,10 +349,10 @@ def rarefaction_curves(counts,
 
     def commands(workdir, ppn, args):
         commands = [
-            ('var_depth=`head -n ${PBS_ARRAYID} %s/commands.txt | '
-             'tail -n 1 | cut -f 1`') % workdir,
-            ('var_iteration=`head -n ${PBS_ARRAYID} %s/commands.txt | '
-             'tail -n 1 | cut -f 2`') % workdir]
+            ('var_depth=`head -n ${%s} %s/commands.txt | '
+             'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir),
+            ('var_iteration=`head -n ${%s} %s/commands.txt | '
+             'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir)]
         commands.append((
             'qiime feature-table rarefy '
             '--i-table %s/input.qza '
@@ -398,10 +398,11 @@ def rarefaction_curves(counts,
                                      control_sample_names=control_sample_names)
         return cache_results
 
+
     if reference_tree is not None:
         reference_tree = os.path.abspath(reference_tree)
     return _executor('rare',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'metrics': metrics,
                       'num_steps': num_steps,
                       'max_depth': max_depth,
@@ -465,7 +466,7 @@ def rarefy(counts, rarefaction_depth,
         return biom2pandas(workdir+'/feature-table.biom')
 
     return _executor('rarefy',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'rarefaction_depth': rarefaction_depth},
                      pre_execute,
                      commands,
@@ -614,7 +615,7 @@ def alpha_diversity(counts, rarefaction_depth,
     if reference_tree is not None:
         reference_tree = os.path.abspath(reference_tree)
     return _executor('adiv',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'metrics': metrics,
                       'rarefaction_depth': rarefaction_depth,
                       'num_iterations': num_iterations,
@@ -743,7 +744,7 @@ def beta_diversity(counts,
     if reference_tree is not None:
         reference_tree = os.path.abspath(reference_tree)
     return _executor('bdiv',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'metrics': metrics,
                       'reference_tree': reference_tree},
                      pre_execute,
@@ -829,9 +830,9 @@ def sepp(counts, chunksize=10000,
         commands.append(
             ('qiime tools import '
              '--input-path %s '
-             '--output-path %s/rep-seqs${PBS_ARRAYID} '
+             '--output-path %s/rep-seqs${%s} '
              '--type "FeatureData[Sequence]"') %
-            (workdir + '/sequences${PBS_ARRAYID}.mfa', workdir))
+            (workdir + ('/sequences${%s}.mfa' % settings.VARNAME_PBSARRAY), workdir, settings.VARNAME_PBSARRAY))
 
         ref_phylogeny = ""
         if reference_phylogeny is not None:
@@ -856,26 +857,26 @@ def sepp(counts, chunksize=10000,
 
         commands.append(
             ('qiime fragment-insertion sepp '
-             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
+             '--i-representative-sequences %s/rep-seqs${%s}.qza '
              '--p-threads %i '
              '%s%s%s%s%s'
-             '--output-dir %s/res_${PBS_ARRAYID}') %
-            (workdir, ppn, ref_phylogeny, ref_alignment, ref_info,
-             ss_alignment, ss_placement, workdir))
+             '--output-dir %s/res_${%s}') %
+            (workdir, settings.VARNAME_PBSARRAY, ppn, ref_phylogeny, ref_alignment, ref_info,
+             ss_alignment, ss_placement, workdir, settings.VARNAME_PBSARRAY))
 
         # export the placements
         commands.append(
             ('qiime tools export '
-             '--input-path %s/res_${PBS_ARRAYID}/placements.qza '
-             '--output-path %s/res_${PBS_ARRAYID}/') %
-            (workdir, workdir))
+             '--input-path %s/res_${%s}/placements.qza '
+             '--output-path %s/res_${%s}/') %
+            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
         # export the tree
         commands.append(
             ('qiime tools export '
-             '--input-path %s/res_${PBS_ARRAYID}/tree.qza '
-             '--output-path %s/res_${PBS_ARRAYID}/') %
-            (workdir, workdir))
+             '--input-path %s/res_${%s}/tree.qza '
+             '--output-path %s/res_${%s}/') %
+            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
         # compute taxonomy from resulting tree and placements
         ref_taxonomy = ""
@@ -884,25 +885,25 @@ def sepp(counts, chunksize=10000,
                 " --i-reference-taxonomy %s " % args['reference_taxonomy']
         commands.append(
             ('qiime fragment-insertion classify-otus-experimental '
-             '--i-representative-sequences %s/rep-seqs${PBS_ARRAYID}.qza '
-             '--i-tree %s/res_${PBS_ARRAYID}/tree.qza '
+             '--i-representative-sequences %s/rep-seqs${%s}.qza '
+             '--i-tree %s/res_${%s}/tree.qza '
              '%s'
-             '--o-classification %s/res_taxonomy_${PBS_ARRAYID}') %
-            (workdir, workdir, ref_taxonomy, workdir))
+             '--o-classification %s/res_taxonomy_${%s}') %
+            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY, ref_taxonomy, workdir, settings.VARNAME_PBSARRAY))
 
         # export taxonomy to tsv file
         commands.append(
             ('qiime tools export '
-             '--input-path %s/res_taxonomy_${PBS_ARRAYID}.qza '
-             '--output-path %s/res_taxonomy_${PBS_ARRAYID}/') %
-            (workdir, workdir))
+             '--input-path %s/res_taxonomy_${%s}.qza '
+             '--output-path %s/res_taxonomy_${%s}/') %
+            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
         # move taxonomy tsv to basedir
         commands.append(
             ('mv '
-             '%s/res_taxonomy_${PBS_ARRAYID}/taxonomy.tsv '
-             '%s/taxonomy_${PBS_ARRAYID}.tsv') %
-            (workdir, workdir))
+             '%s/res_taxonomy_${%s}/taxonomy.tsv '
+             '%s/taxonomy_${%s}.tsv') %
+            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
         return commands
 
@@ -1019,7 +1020,7 @@ def sepp(counts, chunksize=10000,
 
 
 def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
-             ppn=20, pmem='8GB', walltime='12:00:00',
+             ppn=20, pmem='50GB', walltime='12:00:00',
              **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
@@ -1062,12 +1063,12 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
         sdcomp = ''
         if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
-        commands.append('%srun-sepp.sh "%s" res${PBS_ARRAYID} -x %i %s %s' % (
-            '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/',
-            workdir+'/sequences${PBS_ARRAYID}.mfa',
+        commands.append('/home/jansses/miniconda3/envs/sepp/bin/run-sepp.sh "%s" res${%s} -x %i %s %s -r /home/jansses/miniconda3/envs/sepp/share/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
+            workdir+'/sequences${%s}.mfa',
+            settings.VARNAME_PBSARRAY,
             ppn,
             ref,
-            sdcomp))
+            sdcomp, settings.VARNAME_PBSARRAY))
         return commands
 
     def post_execute(workdir, args):
@@ -1110,15 +1111,14 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
                 '.tog.relabelled.tre'
             cluster_run([
                 'cd %s' % workdir,
-                '/home/sjanssen/miniconda3/envs/seppGG_py3/src/sepp-package/'
-                'sepp/.sepp/bundled-v4.3.0/guppy tog %s' %
+                '/home/jansses/miniconda3/envs/sepp/bin/guppy tog %s' %
                 file_mergedplacements,
                 'cat %s | python %s > %s' % (
                     file_mergedplacements.replace('.json', '.tog.tre'),
                     files_placement[0].replace('placement.json',
                                                'rename-json.py'),
                     file_merged_tree)],
-                environment='seppGG_py3',
+                environment='sepp',
                 jobname='guppy_rename',
                 result=file_merged_tree,
                 ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
@@ -1183,6 +1183,8 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
     seqs = inp
     if type(inp) != pd.Series:
         seqs = pd.Series(inp, index=inp).sort_index()
+    if reference is not None:
+        reference = os.path.abspath(reference)
     args = {'seqs': seqs,
             'reference': reference,
             'chunksize': chunksize}
@@ -1877,19 +1879,19 @@ def compare_categories(beta_dm, metadata,
     def commands(workdir, ppn, args):
         commands = []
 
-        commands.append('module load R_3.3.0')
+        commands.append('module load %s' % settings.R_MODULE)
         commands.append('cd %s' % workdir)
         for method in args['methods']:
             commands.append(
                 ('compare_categories.py --method %s '
                  '-i %s/beta_distances.txt '
                  '-m %s/meta.tsv '
-                 '-c `cat fields.txt | head -n ${PBS_ARRAYID} '
+                 '-c `cat fields.txt | head -n ${%s} '
                  '| tail -n 1` '
-                 '-o %s/res%s_`cat fields.txt | head -n ${PBS_ARRAYID} '
+                 '-o %s/res%s_`cat fields.txt | head -n ${%s} '
                  '| tail -n 1`/ '
                  '-n %i') %
-                (method, workdir, workdir, workdir, method, num_permutations))
+                (method, workdir, workdir, settings.VARNAME_PBSARRAY, workdir, method, settings.VARNAME_PBSARRAY, num_permutations))
 
         return commands
 
@@ -2022,7 +2024,7 @@ def picrust(counts, **executor_args):
         return results
 
     return _executor('picrust',
-                     {'counts': counts},
+                     {'counts': counts.fillna(0.0)},
                      pre_execute,
                      commands,
                      post_execute,
@@ -2103,7 +2105,7 @@ def bugbase(counts, **executor_args):
         return results
 
     return _executor('bugbase',
-                     {'counts': counts},
+                     {'counts': counts.fillna(0.0)},
                      pre_execute,
                      commands,
                      post_execute,
@@ -2178,52 +2180,52 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         # store alpha diversities as Qiime2 artifacts
         for metric in args['alpha'].keys():
             commands.append(
-                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                ('if [ $%s -eq 1 ]; then '
                  'qiime tools import '
                  '--input-path %s/alpha_%s.tsv '
                  '--output-path %s/alpha_%s.qza '
                  '--type "SampleData[AlphaDiversity]"; fi') % (
-                    workdir, metric, workdir, metric))
+                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
             commands.append(
-                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                ('if [ $%s -eq 1 ]; then '
                  'qiime diversity alpha-group-significance '
                  '--i-alpha-diversity %s/alpha_%s.qza '
                  '--m-metadata-file %s/meta.tsv '
                  '--output-dir %s/alpha-group-significance_%s/; fi') % (
-                    workdir, metric, workdir, workdir, metric))
+                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, workdir, metric))
             commands.append(
-                ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                ('if [ $%s -eq 1 ]; then '
                  'qiime tools export '
                  '--input-path %s/alpha-group-significance_%s/'
                  'visualization.qzv '
                  '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
-                    workdir, metric, workdir, metric))
+                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
             for method in METHODS_ALPHA:
                 commands.append(
-                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                    ('if [ $%s -eq 1 ]; then '
                      'qiime diversity alpha-correlation '
                      '--i-alpha-diversity %s/alpha_%s.qza '
                      '--m-metadata-file %s/meta.tsv '
                      '--p-method %s '
                      '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
-                        workdir, metric, workdir, method,
+                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, method,
                         workdir, metric, method))
                 commands.append(
-                    ('if [ $PBS_ARRAYID -eq 1 ]; then '
+                    ('if [ $%s -eq 1 ]; then '
                      'qiime tools export '
                      '--input-path %s/alpha-correlation_%s_%s/'
                      'visualization.qzv '
                      '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
-                        workdir, metric, method, workdir, metric, method))
+                        settings.VARNAME_PBSARRAY, workdir, metric, method, workdir, metric, method))
 
-        commands.append(('var_METRIC=`head -n $PBS_ARRAYID %s/fields.txt | '
-                         'tail -n 1 | cut -f 1`') % workdir)
-        commands.append(('var_COLUMN=`head -n $PBS_ARRAYID %s/fields.txt | '
-                         'tail -n 1 | cut -f 2`') % workdir)
-        commands.append(('var_METHOD=`head -n $PBS_ARRAYID %s/fields.txt | '
-                         'tail -n 1 | cut -f 3`') % workdir)
+        commands.append(('var_METRIC=`head -n $%s %s/fields.txt | '
+                         'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir))
+        commands.append(('var_COLUMN=`head -n $%s %s/fields.txt | '
+                         'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir))
+        commands.append(('var_METHOD=`head -n $%s %s/fields.txt | '
+                         'tail -n 1 | cut -f 3`') % (settings.VARNAME_PBSARRAY, workdir))
         commands.append(
-            ('if [ $PBS_ARRAYID -ne 1 ]; then '
+            ('if [ $%s -ne 1 ]; then '
              'qiime diversity beta-group-significance '
              '--i-distance-matrix %s/beta_${var_METRIC}.qza '
              '--m-metadata-file %s/meta.tsv '
@@ -2236,7 +2238,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
              '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
              '--output-path %s/beta-group-significance_'
              '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
-             'fi') % (workdir, workdir, workdir, workdir, workdir))
+             'fi') % (settings.VARNAME_PBSARRAY, workdir, workdir, workdir, workdir, workdir))
 
         return commands
 
@@ -2398,7 +2400,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                          set(categorial) - set(cols_alldiff) -
                          set(cols_onevalue)) *
                      len(METHODS_BETA) + 1,
-                     environment='qiime2-2018.11',
+                     environment=settings.QIIME2_ENV,
                      **executor_args)
 
 
@@ -2490,9 +2492,7 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
         return results
 
     return _executor('emperor',
-                     {'metadata': metadata.loc[
-                        sorted(metadata.index),
-                        sorted(metadata.columns)],
+                     {'metadata': metadata,
                       'beta_diversities': beta_diversities},
                      pre_execute,
                      commands,
@@ -2616,11 +2616,8 @@ def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
     # if fp_classifier is not None:
     #     fp_classifier = os.path.abspath(fp_classifier)
     return _executor('volatility',
-                     {'metadata': metadata.loc[
-                        sorted(metadata.index), sorted(metadata.columns)],
-                      'alpha_diversity': alpha_diversity.loc[
-                        sorted(alpha_diversity.index),
-                        sorted(alpha_diversity.columns)]},
+                     {'metadata': metadata,
+                      'alpha_diversity': alpha_diversity},
                      pre_execute,
                      commands,
                      post_execute,
@@ -2657,7 +2654,7 @@ def _parse_timing(workdir, jobname):
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None,
               dry=True, use_grid=True, ppn=10, nocache=False,
-              pmem='8GB', environment=settings.QIIME_ENV, walltime='4:00:00',
+              pmem='20GB', environment=settings.QIIME_ENV, walltime='4:00:00',
               wait=True, timing=True, verbose=sys.stderr, array=1,
               dirty=False):
     """
@@ -2752,10 +2749,22 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                     {k: dm.filter(sorted(dm.ids)).data
                      for k, dm
                      in cache_arguments[arg].items()})
+        if (type(cache_arguments[arg]) == pd.Series):
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = cache_arguments[arg].sort_index()
+            #print('%s normalizing pd.Series' % arg)
+        if (type(cache_arguments[arg]) == pd.DataFrame):
+            #print('%s normalizing pd.DataFrame' % arg, cache_arguments[arg].isnull().sum(axis = 0).sum())
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = cache_arguments[arg].loc[
+                sorted(cache_arguments[arg].index),
+                sorted(cache_arguments[arg].columns)]
 
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
         str(_input).encode()).hexdigest(), jobname)
+    #print("STEFAN", results['file_cache'], file=sys.stderr)
+    #sys.exit(99)
 
     # convert back cache arguments if necessary
     for arg in cache_args_original.keys():
@@ -2775,7 +2784,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     # ready or are waited for
     dir_tmp = tempfile.gettempdir()
     if use_grid:
-        dir_tmp = os.environ['HOME'] + '/TMP/'
+        dir_tmp = '/gpfs/project/jansses/TMP'
         if not os.path.exists(dir_tmp):
             raise ValueError('Temporary directory "%s" does not exist. '
                              'Please create it and restart.' % dir_tmp)
@@ -2793,7 +2802,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     for wd in pot_workdirs:
         all_finished = True
         for i in range(array):
-            if not os.path.exists(wd+'/finished.info%i' % (i+1)):
+            if not os.path.exists(wd+'/finished.info%s' % ("%i" % (i+1) if array > 1 else "")):
                 all_finished = False
                 break
         if all_finished:
@@ -2830,15 +2839,15 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s${PBS_ARRAYID}' %
-                            (results['workdir'], FILE_STATUS))
+        lst_commands.append('touch %s/%s${%s}' %
+                            (results['workdir'], FILE_STATUS, settings.VARNAME_PBSARRAY))
         results['qid'] = cluster_run(
             lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
             environment, ppn=ppn, wait=wait, dry=dry,
             pmem=pmem, walltime=walltime,
             file_qid=results['workdir']+'/cluster_job_id.txt',
             timing=timing,
-            file_timing=results['workdir']+('/timing${PBS_ARRAYID}.txt'),
+            file_timing=results['workdir']+('/timing${%s}.txt' % settings.VARNAME_PBSARRAY),
             array=array, use_grid=use_grid)
         if dry:
             return results
