@@ -2379,7 +2379,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     """
     fig, ax = plt.subplots(len(diffTaxa), 3,
                            figsize=(3*5, 5*len(diffTaxa)))
-
+    meanrealabund = pd.DataFrame()
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
     comparisons = sorted(map(sorted, diffTaxa.keys()))
