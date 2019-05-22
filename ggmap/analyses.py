@@ -1951,7 +1951,9 @@ def picrust(counts, **executor_args):
     Install
     -------
     conda create --name picrust python=2.7
-    source activate picrust
+    conda activate picrust
+    mkdir $CONDA_PREFIX/src/
+    cd $CONDA_PREFIX/src/
     wget https://github.com/picrust/picrust/releases/down \
         load/v1.1.3/picrust-1.1.3.tar.gz
     tar xzvf picrust-1.1.3.tar.gz
