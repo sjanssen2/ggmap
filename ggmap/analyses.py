@@ -2058,13 +2058,20 @@ def bugbase(counts, **executor_args):
 
     Install
     -------
+    conda create --name bugbase
+    conda activate bugbase
+    mkdir -p $CONDA_PREFIX/src
+    cd $CONDA_PREFIX/src
     git clone https://github.com/knights-lab/BugBase
-    export BUGBASE_PATH=~/miniconda2/envs/notebookServer/src/bugbase/BugBase
+    export BUGBASE_PATH=$CONDA_PREFIX/src/BugBase
     sudo apt-get install gfortran libblas-dev liblapack-dev
-    edit: ...envs/notebookServer/etc/conda/activate.d/env_vars.sh
+    mkdir -p $CONDA_PREFIX/etc/conda/activate.d/
+    edit: $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
         #!/bin/bash
-        export PATH=...envs/notebookServer/src/bugbase/BugBase/bin:$PATH
-        export BUGBASE_PATH=...envs/notebookServer/src/bugbase/BugBase
+        module load R
+        export PATH=$CONDA_PREFIX/src/BugBase/bin:$PATH
+        export BUGBASE_PATH=$CONDA_PREFIX/src/BugBase
+    bash $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
     ./bin/run.bugbase.r
     """
     def pre_execute(workdir, args):
