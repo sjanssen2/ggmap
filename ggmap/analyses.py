@@ -1066,11 +1066,11 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
         fp_sepp = '/home/jansses/miniconda3/envs/sepp/'
         commands.append('%sbin/run-sepp.sh "%s" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
             fp_sepp,
-            workdir+'/sequences${%s}.mfa',
+            workdir+'/sequences${%s}.mfa' % settings.VARNAME_PBSARRAY,
             settings.VARNAME_PBSARRAY,
             ppn,
             ref,
-            sdcomp, settings.VARNAME_PBSARRAY,
+            sdcomp,
             fp_sepp))
         return commands
 
