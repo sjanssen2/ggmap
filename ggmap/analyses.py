@@ -1064,9 +1064,10 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
         if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
         fp_sepp = '/home/jansses/miniconda3/envs/sepp/'
-        commands.append('%sbin/run-sepp.sh "%s" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
+        commands.append('%sbin/run-sepp.sh "%s/sequences%s.mfa" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
             fp_sepp,
-            workdir+'/sequences${%s}.mfa' % settings.VARNAME_PBSARRAY,
+            workdir,
+            '${%s}' % settings.VARNAME_PBSARRAY if len(range(0, seqs.shape[0], chunksize)) > 1 else '1',
             settings.VARNAME_PBSARRAY,
             ppn,
             ref,
