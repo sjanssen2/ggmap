@@ -1873,6 +1873,14 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
     -------
     plt.Figure or pd.DataFrame
     """
+    def _get_ax(axes, row, col):
+        if len(axes.shape) == 2:
+            return axes[row][col]
+        elif len(axes.shape) == 1:
+            return axes[col]
+        else:
+            raise ValueError("Just one? plot. Should be two!")
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         num_rows = 0
@@ -1912,9 +1920,10 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                 else:
                     plotDistant_groups(
                         **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                        ax=axarr[row][0])
+                        ax=_get_ax(axarr, row, 0))
                     plotGroup_histograms(
-                        alpha[a_metric], metadata[field], ax=axarr[row][1],
+                        alpha[a_metric], metadata[field],
+                        ax=_get_ax(axarr, row, 1),
                         min_group_size=minnumalpha)
                 # axarr[row][1].set_xlim((0, 20))
                 row += 1
@@ -1947,9 +1956,10 @@ def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
                 else:
                     plotDistant_groups(
                         **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                        ax=axarr[row][0])
+                        ax=_get_ax(axarr, row, 0))
                     plotGroup_permanovas(
-                        beta[b_metric], metadata[field], **b, ax=axarr[row][1],
+                        beta[b_metric], metadata[field], **b,
+                        ax=_get_ax(axarr, row, 1),
                         horizontal=True)
                 row += 1
 
