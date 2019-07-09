@@ -71,6 +71,7 @@ def process_study(metadata: pd.DataFrame,
     counts = counts.loc[sorted((set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
 
     results = dict()
+    results['taxonomy'] = {'RDP': res_taxonomy}
 
     # run: rarefaction curves
     results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid)
