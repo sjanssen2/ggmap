@@ -16,6 +16,7 @@ from skbio import OrdinationResults
 from scipy.cluster.hierarchy import ward
 
 from ggmap.analyses import _executor
+from ggmap import settings
 
 
 # From this answer on stack overflow, I'm calculating Cramer's V:
