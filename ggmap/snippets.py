@@ -2702,12 +2702,14 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
 
     # Loop over data dimensions and create text annotations.
     fmt = '.2f' if normalize else 'd'
-    thresh = cm.max() / 2.
+    # deal with an edge case extreme black and white result, thus look at amplitude not absolute values
+    thresh = (cm - cm.min()).max() / 2.
+    # thresh = cm.max() / 2.
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             ax.text(j, i, format(cm[i, j], fmt),
                     ha="center", va="center",
-                    color="white" if cm[i, j] > thresh else "black")
+                    color="white" if cm[i, j]-cm.min() > thresh else "black")
     return ax
 
 
