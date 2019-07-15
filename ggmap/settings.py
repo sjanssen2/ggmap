@@ -102,6 +102,10 @@ def init(err=sys.stderr):
         GRIDNAME = 'HPCHHU'
         VARNAME_PBSARRAY = 'PBS_ARRAY_INDEX'
         GRIDENGINE_BINDIR = '/opt/pbs/bin'
+    else:
+        GRIDNAME = 'LOCAL'
+        VARNAME_PBSARRAY = 'NOGRID'
+        GRIDENGINE_BINDIR = 'NOGRID'
 
     # if settings file does not exist, create one with current values as a
     # primer for user edits
