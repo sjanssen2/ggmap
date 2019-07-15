@@ -571,3 +571,116 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
                      ppn=1,
                      environment=None,
                      **executor_args)
+
+
+def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
+           formula: str, strat: str=None, permutations: int=999, ppn=1,
+           **executor_args):
+    """Performs multiway adonis on beta diversity.
+       See: http://cc.oulu.fi/~jarioksa/softhelp/vegan/html/adonis.html
+
+    Parameters
+    ----------
+    metadata : pd.DataFrame
+        Metadata.
+    dm : DistanceMatrix
+        A beta diversity distance matrix, e.g. unweighted unifrac.
+    formula : str
+        A typical model formula such as Y ~ A + B*C, but Y will be the provided
+        distance matrix and should NOT be added.
+        A, B, and C may be factors or continuous variables, must be columns
+        in metadata table.
+    strat : str
+        Default: None.
+        groups (strata) within which to constrain permutations.
+        Must be a column in provided metadata table.
+    permutations : int
+        Default: 999
+        number of replicate permutations used for the hypothesis tests (F tests).
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ?
+    """
+    def pre_execute(workdir, args):
+        if (args['strat'] is not None) and (args['strat'] not in metadata.columns):
+            raise ValueError("Column '%s' for strat cannot be found in metadata." % args['strat'])
+        if '~' in args['formula']:
+            raise ValueError('Please omit the "Y~" part in the formula as it will be automatically added.')
+        for factor in args['formula'].split():
+            if factor not in metadata.columns:
+                raise ValueError("Column '%s' of formula '%s' cannot be found in metadata." % (args['formula'], factor))
+
+        idx_samples = set(args['metadata'].index) & set(args['dm'].ids)
+        if len(set(args['metadata'].index)) != len(set(args['dm'].ids)):
+            sys.stderr.write(
+                'You provided %s and %s samples in metadata and beta dm'
+                'respectively. Merging to %s samples for further analysis.\n'
+                % (args['metadata'].shape[0], len(set(args['dm'].ids)),
+                   len(idx_samples)))
+
+        args['metadata'].loc[idx_samples, :].to_csv('%s/metadata.tsv' % workdir, sep="\t",
+                                index=True)
+        args['dm'].filter(idx_samples, strict=False).write('%s/beta.tsv' % workdir)
+
+        with open('%s/rscript.R' % workdir, 'w') as f:
+            f.write('library(vegan)\n')
+            f.write('dm <- as.dist(as(read.table("%s/beta.tsv", sep="\\t", header=TRUE, row.names=1), "matrix"))\n' % workdir)
+            f.write('meta = read.csv("%s/metadata.tsv", sep="\\t", row.names=1, header=TRUE)\n' % workdir)
+            flag_strat = ''
+            if args['strat'] is not None:
+                flag_strat = ' strat=meta$%s,' % args['strat']
+            flag_parallel = ''
+            if 'ppn' in executor_args:
+                if executor_args['ppn'] > 1:
+                    flag_parallel = 'parallel=%i' % executor_args['ppn']
+            f.write('res <- adonis(dm ~ %s, data=meta, %s permutations=%i %s)\n' % (args['formula'], flag_strat, args['permutations'], flag_parallel))
+            f.write('write.table(res$aov.tab, "%s/result.tsv", sep="\\t", append=F, quote=FALSE)\n' % workdir)
+        if 'dry' in executor_args:
+            if executor_args['dry']:
+                print('R SCRIPT:\n----------------')
+                with open('%s/rscript.R' % workdir, 'r') as f:
+                    print(''.join(f.readlines()))
+                print('----------------')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('R --vanilla < %s/rscript.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        try:
+            rda = pd.read_csv('%s/result.tsv' % workdir, sep='\t', index_col=0)
+        except EmptyDataError:
+            sys.stderr.write('No significant covariates found!\n')
+            return {'table': pd.DataFrame()}
+
+        # # drop fields not starting with a +, i.e. are <All variables> or <none>
+        # rda = rda.loc[[idx for idx in rda.index if idx.startswith('+')], :]
+        #
+        # # compute adjusted effect size
+        # rda['effect size'] = rda['R2.adj'] - ([0] + list(
+        #     rda['R2.adj'].values)[:-1])
+        #
+        # rda.index = map(lambda x: x.replace('+ ', ''), rda.index)
+        #
+        # rda = rda.reset_index().rename(columns={'index': 'covariate'})
+
+        return {'table': rda}
+
+    return _executor('adonis',
+                     {'metadata': metadata,
+                      'dm': dm,
+                      'formula': formula,
+                      'strat': strat,
+                      'permutations': permutations},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn,
+                     environment=settings.QIIME2_ENV,
+                     **executor_args)
