@@ -2417,8 +2417,8 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
-def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
-    """Generates Emperor plots as qzv.
+def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", **executor_args):
+    """Generates Emperor plots as qzv. Or procrustes if two distance metrics are given.
 
     Parameters
     ----------
@@ -2429,6 +2429,10 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
         Dictionary of (multiple) beta diversity distance metrices.
     fp_results : str
         Filepath to directory where to store generated emperor plot qzvs.
+    other_beta_diversities : dict(str: DistanceMatrix)
+        Default: None
+        Dictionary of (multiple) beta diversity distance metrices as other
+        distances for procrustes plots.
     infix : str
         Output filenames have pattern: "emperor%s_%s.gzv" % (infix, metric)
     executor_args:
@@ -2441,6 +2445,11 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
             samples &= set(args['beta_diversities'][metric].ids)
+        if args['other_beta_diversities'] is not None:
+            if sorted(args['beta_diversities'].keys()) != sorted(args['other_beta_diversities'].keys()):
+                raise ValueError("Procrustes: reference and other beta diversity metrics do NOT contain the same metrics!")
+            for metric in args['other_beta_diversities'].keys():
+                samples &= set(args['other_beta_diversities'][metric].ids)
 
         if (args['metadata'].shape[0] != len(samples)):
             sys.stderr.write(
@@ -2456,6 +2465,11 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
             os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
             args['beta_diversities'][metric].filter(samples).write(
                 '%s/%s/distance-matrix.tsv' % (workdir, metric))
+        if args['other_beta_diversities'] is not None:
+            for metric in args['other_beta_diversities'].keys():
+                os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
+                args['other_beta_diversities'][metric].filter(samples).write(
+                    '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
 
     def commands(workdir, ppn, args):
         commands = []
@@ -2480,33 +2494,70 @@ def emperor(metadata, beta_diversities, fp_results, infix="", **executor_args):
                 ('%s/beta_%s.qza' % (workdir, metric),
                  '%s/pcoa_%s' % (workdir, metric))
             )
-            # generate emperor plot
-            commands.append(
-                ('qiime emperor plot '
-                 '--i-pcoa %s '
-                 '--m-metadata-file %s '
-                 '--o-visualization %s ') %
-                ('%s/pcoa_%s.qza' % (workdir, metric),
-                 '%s/metadata.tsv' % workdir,
-                 '%s/emperor_%s.qzv' % (workdir, metric))
-            )
+            if args['other_beta_diversities'] is not None:
+                # import diversity matrix as qiime2 artifact
+                commands.append(
+                    ('qiime tools import '
+                     '--input-path %s '
+                     '--type "DistanceMatrix" '
+                     # '--source-format DistanceMatrixDirectoryFormat '
+                     '--output-path %s ') %
+                    ('%s/other_%s' % (workdir, metric),
+                     # " % Properties([\"phylogenetic\"])"
+                     # if 'unifrac' in metric else '',
+                     '%s/other_beta_%s.qza' % (workdir, metric)))
+                # compute PcoA
+                commands.append(
+                    ('qiime diversity pcoa '
+                     '--i-distance-matrix %s '
+                     '--o-pcoa %s ') %
+                    ('%s/other_beta_%s.qza' % (workdir, metric),
+                     '%s/other_pcoa_%s' % (workdir, metric))
+                )
+                # generate procrustes emperor plot
+                commands.append(
+                    ('qiime emperor procrustes-plot '
+                     '--i-reference-pcoa %s '
+                     '--i-other-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/pcoa_%s.qza' % (workdir, metric),
+                     '%s/other_pcoa_%s.qza' % (workdir, metric),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor-procrustes_%s.qzv' % (workdir, metric))
+                )
+            else:
+                # generate emperor plot
+                commands.append(
+                    ('qiime emperor plot '
+                     '--i-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/pcoa_%s.qza' % (workdir, metric),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor_%s.qzv' % (workdir, metric))
+                )
 
         return commands
 
     def post_execute(workdir, args):
         results = dict()
         os.makedirs(fp_results, exist_ok=True)
+        label_procrustes = ""
+        if args['other_beta_diversities'] is not None:
+            label_procrustes = '-procrustes'
         for metric in args['beta_diversities']:
             results[metric] = os.path.join(
-                fp_results, 'emperor%s_%s.qzv' % (infix, metric))
+                fp_results, 'emperor%s%s_%s.qzv' % (label_procrustes, infix, metric))
             shutil.move(
-                "%s/emperor_%s.qzv" % (workdir, metric),
+                "%s/emperor%s_%s.qzv" % (workdir, label_procrustes, metric),
                 results[metric])
         return results
 
     return _executor('emperor',
                      {'metadata': metadata,
-                      'beta_diversities': beta_diversities},
+                      'beta_diversities': beta_diversities,
+                      'other_beta_diversities': other_beta_diversities},
                      pre_execute,
                      commands,
                      post_execute,
