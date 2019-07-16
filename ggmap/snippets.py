@@ -3016,3 +3016,95 @@ def ganttChart(metadata: pd.DataFrame,
             plt.gca().add_artist(legend_events)
 
     return fig, colors_events, plot_entities
+
+
+def get_dictvalue(_hash, _key, default):
+    if _hash is None:
+        return default
+    return _hash.get(_key, default)
+
+
+def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
+                    col_events: str, col_entities: str,
+                    cols_groups: [str]=None, colors_groups=None, cis_groups=None, dashes_groups=None,
+                    intervals: [(float, float)]=None,
+                    ax=None, test_groups=None, alternative: str='two-sided', pthreshold: float=0.05,
+                    print_samplesizes=True, print_legend=True):
+    def _get_group_name(group):
+        return ' '.join(group)
+
+    idx_samples = set(metadata.index) & set(data.index)
+    meta = metadata.loc[idx_samples, :].copy()
+    meta['__fakegroup__'] = 'all'
+    if cols_groups is None:
+        cols_groups = ['__fakegroup__']
+    meta_data = meta.merge(data, left_index=True, right_index=True, how='left')
+
+    if intervals is not None:
+        for (start, stop) in intervals:
+            if start >= stop:
+                raise ValueError("Intervals: start need to be smaller than end")
+            ax.axvspan(start, stop, facecolor='#fff09d', zorder=0)
+
+    ax.grid(b=True, which='major', color='lightgray', linewidth=1.0, axis='x')
+
+    legend_elements = []
+    xtick_labels = []
+    group_sizes = []
+    for group in meta.groupby(cols_groups).size().index.get_values():
+        # plot lines
+        data_group = meta_data[(meta_data[cols_groups] == group).all(axis=1)]
+        sns.lineplot(data=data_group,
+                     y=data.name, x=col_events,
+                     color=get_dictvalue(colors_groups, group, None),
+                     ci=get_dictvalue(cis_groups, group, 95),
+                     dashes=[get_dictvalue(dashes_groups, group, None)],
+                     style=(None if get_dictvalue(dashes_groups, group, None) is None else '__fakegroup__'),
+                     ax=ax)
+        # fill legend
+        legend_elements.append(Line2D([0], [0], color=get_dictvalue(colors_groups, group, None), lw=4, label=_get_group_name(group), linestyle=':' if get_dictvalue(dashes_groups, group, None) is not None else None))
+
+        # collect group size information for ticks
+        ns = data_group.groupby(col_events).size()
+        ns.name = _get_group_name(group)
+        group_sizes.append(ns)
+
+    if print_legend:
+        ax.legend(handles=legend_elements)
+
+    # ensure every time point in metadata gets its own tick + grid line
+    existing_ticks = set(ax.get_xticks())
+    if ax.get_subplotspec().get_geometry()[2:] == (0, 0):
+        existing_ticks = set()
+    ax.set_xticks(sorted(set(meta_data[col_events].unique()) | existing_ticks))
+
+    group_tests = []
+    if test_groups is not None:
+        for (group_A, group_B) in test_groups:
+            g_res = {}
+            for event, g in meta_data.groupby(col_events):
+                try:
+                    res = mannwhitneyu(
+                        g[(g[cols_groups] == group_A).all(axis=1)][data.name].values,
+                        g[(g[cols_groups] == group_B).all(axis=1)][data.name].values, alternative=alternative)
+                    g_res[event] = res.pvalue if res.statistic > 0 else 1
+                except ValueError as e:
+                    if str(e) == 'All numbers are identical in mannwhitneyu':
+                        g_res[event] = 1
+                #print(event, group_A, group_B, res)
+            g_res = pd.Series(g_res)
+            g_res.name = '"%s" %s "%s"' % (_get_group_name(group_A), {'two-sided': 'vs', 'greater': '>', 'less': '<'}.get(alternative), _get_group_name(group_B))
+            group_tests.append(g_res)
+    group_tests = pd.concat(group_tests, axis=1).fillna(1)
+
+    # print sample sizes on top x axis
+    group_sizes = pd.concat(group_sizes, axis=1).fillna(0).astype(int)
+    ax_numsamples = ax.twiny()
+    ax_numsamples.set_xticks(list(ax.get_xticks()) + [ax.get_xlim()[1]])
+    ax_numsamples.set_xlim(ax.get_xlim())
+
+    xlabels = pd.concat([group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isnull(x) else str(x)) if print_samplesizes else pd.DataFrame(),
+                         group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else '')], axis=1).apply(lambda x: '\n'.join(x), axis=1)
+    xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
+                                               ['\n'.join(group_tests.columns)])
+    ax_numsamples.set_xticklabels(xlabels)
