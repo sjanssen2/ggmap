@@ -605,12 +605,12 @@ def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
     ?
     """
     def pre_execute(workdir, args):
-        if (args['strat'] is not None) and (args['strat'] not in metadata.columns):
+        if ('strat' in args) and (args['strat'] is not None) and (args['strat'] not in args['metadata'].columns):
             raise ValueError("Column '%s' for strat cannot be found in metadata." % args['strat'])
         if '~' in args['formula']:
             raise ValueError('Please omit the "Y~" part in the formula as it will be automatically added.')
         for factor in args['formula'].split():
-            if factor not in metadata.columns:
+            if factor not in args['metadata'].columns:
                 raise ValueError("Column '%s' of formula '%s' cannot be found in metadata." % (args['formula'], factor))
 
         idx_samples = set(args['metadata'].index) & set(args['dm'].ids)
@@ -620,6 +620,8 @@ def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
                 'respectively. Merging to %s samples for further analysis.\n'
                 % (args['metadata'].shape[0], len(set(args['dm'].ids)),
                    len(idx_samples)))
+        if len(idx_samples) < 2:
+            raise ValueError('You must provide at least 2 samples!')
 
         args['metadata'].loc[idx_samples, :].to_csv('%s/metadata.tsv' % workdir, sep="\t",
                                 index=True)
