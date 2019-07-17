@@ -2,6 +2,7 @@ import sys
 import time
 from datetime import datetime
 import itertools
+import re
 
 import pandas as pd
 from pandas.errors import EmptyDataError
@@ -609,7 +610,7 @@ def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
             raise ValueError("Column '%s' for strat cannot be found in metadata." % args['strat'])
         if '~' in args['formula']:
             raise ValueError('Please omit the "Y~" part in the formula as it will be automatically added.')
-        for factor in args['formula'].split():
+        for factor in re.split('\W+', args['formula']):
             if factor not in args['metadata'].columns:
                 raise ValueError("Column '%s' of formula '%s' cannot be found in metadata." % (args['formula'], factor))
 
