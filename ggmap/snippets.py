@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from itertools import combinations
-from skbio.stats.distance import permanova
+from skbio.stats.distance import permanova, DistanceMatrix
 from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
@@ -3072,6 +3072,9 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
 
     if print_legend:
         ax.legend(handles=legend_elements)
+    else:
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
 
     # ensure every time point in metadata gets its own tick + grid line
     existing_ticks = set(ax.get_xticks())
@@ -3213,4 +3216,3 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
     xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
                                                ['\n'.join(group_tests.columns)])
     ax_numsamples.set_xticklabels(xlabels)
-    
