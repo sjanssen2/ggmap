@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from itertools import combinations
-from skbio.stats.distance import permanova
+from skbio.stats.distance import permanova, DistanceMatrix
 from scipy.stats import mannwhitneyu
 import networkx as nx
 import warnings
@@ -3016,3 +3016,203 @@ def ganttChart(metadata: pd.DataFrame,
             plt.gca().add_artist(legend_events)
 
     return fig, colors_events, plot_entities
+
+
+def get_dictvalue(_hash, _key, default):
+    if _hash is None:
+        return default
+    return _hash.get(_key, default)
+
+
+def _get_group_name(group):
+    return ' '.join(group)
+
+
+def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
+                    col_events: str, col_entities: str,
+                    cols_groups: [str]=None, colors_groups=None, cis_groups=None, dashes_groups=None,
+                    intervals: [(float, float)]=None,
+                    ax=None, test_groups=None, alternative: str='two-sided', pthreshold: float=0.05,
+                    print_samplesizes=True, print_legend=True):
+    idx_samples = set(metadata.index) & set(data.index)
+    meta = metadata.loc[idx_samples, :].copy()
+    meta['__fakegroup__'] = 'all'
+    if cols_groups is None:
+        cols_groups = ['__fakegroup__']
+    meta_data = meta.merge(data, left_index=True, right_index=True, how='left')
+
+    if intervals is not None:
+        for (start, stop) in intervals:
+            if start >= stop:
+                raise ValueError("Intervals: start need to be smaller than end")
+            ax.axvspan(start, stop, facecolor='#fff09d', zorder=0)
+
+    ax.grid(b=True, which='major', color='lightgray', linewidth=1.0, axis='x')
+
+    legend_elements = []
+    xtick_labels = []
+    group_sizes = []
+    for group in meta.groupby(cols_groups).size().index.get_values():
+        # plot lines
+        data_group = meta_data[(meta_data[cols_groups] == group).all(axis=1)]
+        sns.lineplot(data=data_group,
+                     y=data.name, x=col_events,
+                     color=get_dictvalue(colors_groups, group, None),
+                     ci=get_dictvalue(cis_groups, group, 95),
+                     dashes=[get_dictvalue(dashes_groups, group, None)],
+                     style=(None if get_dictvalue(dashes_groups, group, None) is None else '__fakegroup__'),
+                     ax=ax)
+        # fill legend
+        legend_elements.append(Line2D([0], [0], color=get_dictvalue(colors_groups, group, None), lw=4, label=_get_group_name(group), linestyle=':' if get_dictvalue(dashes_groups, group, None) is not None else None))
+
+        # collect group size information for ticks
+        ns = data_group.groupby(col_events).size()
+        ns.name = _get_group_name(group)
+        group_sizes.append(ns)
+
+    if print_legend:
+        ax.legend(handles=legend_elements)
+    else:
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+
+    # ensure every time point in metadata gets its own tick + grid line
+    existing_ticks = set(ax.get_xticks())
+    if ax.get_subplotspec().get_geometry()[2:] == (0, 0):
+        existing_ticks = set()
+    ax.set_xticks(sorted(set(meta_data[col_events].unique()) | existing_ticks))
+
+    group_tests = []
+    if test_groups is not None:
+        for (group_A, group_B) in test_groups:
+            g_res = {}
+            for event, g in meta_data.groupby(col_events):
+                try:
+                    res = mannwhitneyu(
+                        g[(g[cols_groups] == group_A).all(axis=1)][data.name].values,
+                        g[(g[cols_groups] == group_B).all(axis=1)][data.name].values, alternative=alternative)
+                    g_res[event] = res.pvalue if res.statistic > 0 else 1
+                except ValueError as e:
+                    if str(e) == 'All numbers are identical in mannwhitneyu':
+                        g_res[event] = 1
+                #print(event, group_A, group_B, res)
+            g_res = pd.Series(g_res)
+            g_res.name = '"%s" %s "%s"' % (_get_group_name(group_A), {'two-sided': 'vs', 'greater': '>', 'less': '<'}.get(alternative), _get_group_name(group_B))
+            group_tests.append(g_res)
+    group_tests = pd.concat(group_tests, axis=1).fillna(1)
+
+    # print sample sizes on top x axis
+    group_sizes = pd.concat(group_sizes, axis=1).fillna(0).astype(int)
+    ax_numsamples = ax.twiny()
+    ax_numsamples.set_xticks(list(ax.get_xticks()) + [ax.get_xlim()[1]])
+    ax_numsamples.set_xlim(ax.get_xlim())
+
+    xlabels = pd.concat([group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isnull(x) else str(x)) if print_samplesizes else pd.DataFrame(),
+                         group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else '')], axis=1).apply(lambda x: '\n'.join(x), axis=1)
+    xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
+                                               ['\n'.join(group_tests.columns)])
+    ax_numsamples.set_xticklabels(xlabels)
+
+
+def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_name: str,
+                    col_events: str,
+                    col_groups: str=None, colors_groups=None,
+                    intervals: [(float, float)]=None,
+                    ax=None, pthreshold: float=0.05,
+                    print_legend=True, print_samplesizes=True, legend_title=None):
+    idx_samples = set(metadata.index) & set(beta.ids)
+    metadata = metadata.loc[idx_samples, :]
+    beta = beta.filter(idx_samples, strict=False)
+
+    grp_values = sorted(metadata[col_groups].unique())
+    if len(grp_values) != 2:
+        raise ValueError("Column %s has more or less than 2 states: %s. Cannot visualize more than two states." % (col_groups, grp_values))
+
+    distances = []
+    group_tests = []
+    # collect group size information for ticks
+    group_sizes = metadata.groupby([col_events, col_groups]).size().unstack().fillna(0)
+    for event, g in metadata.groupby(col_events):
+        for group, g_intra in g.groupby(col_groups):
+            for (idx_a, idx_b) in combinations(g_intra.index, 2):
+                distances.append({'type': 'intra: %s' % group,
+                                  col_events: event,
+                                  metric_name: beta[idx_a, idx_b]})
+
+        idx_as = g[g[col_groups] == grp_values[0]].index
+        idx_bs = g[g[col_groups] == grp_values[1]].index
+        if min(len(idx_as), len(idx_bs)) > 1:
+            for idx_a in idx_as:
+                for idx_b in idx_bs:
+                    distances.append({'type': 'inter',
+                                      col_events: event,
+                                      metric_name: beta[idx_a, idx_b]})
+
+        x = plotNetworks(col_groups, g, None, {'beta': beta}, summarize=True)
+        pvalue = 1
+        testname = None
+        if 'p-value' in x[0].columns:
+            pvalue = x[0]['p-value'].iloc[0]
+            testname = '%s: %i' % (x[0]['test name'].iloc[0], x[0]['num_permutations'].iloc[0])
+        group_tests.append({col_events: event, 'p-value': pvalue, 'testname': testname})
+    group_tests = pd.DataFrame(group_tests).set_index(col_events)
+    group_tests = group_tests.rename(columns={'p-value': group_tests['testname'].dropna().iloc[0]})
+    del group_tests['testname']
+
+    distances = pd.DataFrame(distances)
+
+    # ensure every time point in metadata gets its own tick + grid line
+    existing_ticks = set(ax.get_xticks())
+    if ax.get_subplotspec().get_geometry()[2:] == (0, 0):
+        existing_ticks = set()
+    xticks = sorted(existing_ticks | set(metadata[col_events].unique()))
+
+    interval_size = 0.8
+    if ax.get_subplotspec().get_geometry()[2:] != (0, 0):
+        distances_spikeins = []
+        for x in range(int(min(xticks)), int(max(xticks))+1, 1):
+            distances_spikeins.append({'type': 'inter', col_events: x, metric_name: np.nan})
+        distances = distances.append(pd.DataFrame(distances_spikeins))
+        interval_size = int(min(map(lambda x: abs(x[0]-x[1]), zip(xticks, xticks[1:]))) * 0.6)
+
+    if intervals is not None:
+        for (start, stop) in intervals:
+            if start >= stop:
+                raise ValueError("Intervals: start need to be smaller than end")
+            ax.axvspan(start, stop, facecolor='#fff09d', zorder=0)
+
+    xlim = ax.get_xlim()
+    colors = None
+    if colors_groups is not None:
+        colors = {'inter': 'white'}
+        for k,v in colors_groups.items():
+            colors['intra: %s' % k] = v
+    sns.boxplot(data=distances, y=metric_name, x=col_events,
+                palette=colors,
+                width=interval_size,
+                hue='type',
+                hue_order=['intra: %s' % grp_values[0], 'inter', 'intra: %s' % grp_values[1]],
+                ax=ax)
+    ax.xaxis.grid(True)
+    if ax.get_subplotspec().get_geometry()[2:] != (0, 0):
+        ax.set_xticks(xticks)
+        ax.set_xlim(xlim)
+        ax.set_xticklabels(map(int, xticks))
+
+    if print_legend is False:
+        ax.get_legend().remove()
+    else:
+        if legend_title is None:
+            ax.get_legend().set_title(col_groups)
+        else:
+            ax.get_legend().set_title(legend_title)
+
+    ax_numsamples = ax.twiny()
+    ax_numsamples.set_xticks(list(ax.get_xticks()) + [ax.get_xlim()[1]])
+    ax_numsamples.set_xlim(ax.get_xlim())
+
+    xlabels = pd.concat([group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isnull(x) else str(int(x))) if print_samplesizes else pd.DataFrame(),
+                         group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else '')], axis=1).apply(lambda x: '\n'.join(x), axis=1)
+    xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
+                                               ['\n'.join(group_tests.columns)])
+    ax_numsamples.set_xticklabels(xlabels)
