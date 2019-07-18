@@ -3,6 +3,7 @@ import tempfile
 import glob
 import sys
 import threading
+import requests
 
 
 LOGFILE_PREFIX = 'log_taxid_'
@@ -156,48 +157,20 @@ def _get_taxids_cache(accessions, verbose=True):
 
 def _parse_ncbi_nucleotide(accessions):
     base_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
-    results = {}
-    url = ("%s?db=nucleotide&id=%s&rettype=docsum" % (
-            base_url,
-            ','.join(accessions)))
-    response = urllib.request.urlopen(url)
-
-    accession = None
-    taxid = None
-    block = ""
-    status = None
-    for line in response.read().decode('utf-8').split('\n'):
-        if line.startswith('<DocSum>'):
-            accession = None
-            taxid = None
-            block = ""
-        elif line.startswith('</DocSum>'):
-            if (accession is None) or (taxid is None):
-                print('Parsing error for block "%s".' % block)
-                sys.exit(1)
-            if (status == 'withdrawn'):
-                print("Withdraw '%s'" % accession, file=sys.stderr)
-                taxid = -1
-            try:
-                results[accession] = int(taxid)
-            except ValueError:
-                print('Parsing error for block "%s".' % block)
-                sys.exit(1)
-        elif '<Item Name="Extra" Type="String">' in line:
-            for id in ((line.split('>')[1]).split('<')[0]).split('|'):
-                if id in accessions:
-                    accession = id
-                    break
-        elif '<Item Name="Caption" Type="String">' in line:
-            id = (line.split('>')[1]).split('<')[0]
-            if id in accessions:
-                accession = id
-        elif '<Item Name="TaxId" Type="Integer">' in line:
-            taxid = (line.split('>')[1]).split('<')[0]
-        elif '<Item Name="Status" Type="String">' in line:
-            status = (line.split('>')[1]).split('<')[0]
-        block += line
-
+    r = requests.get((
+        '%s?'
+        'retmode=json&'
+        'db=nucleotide&'
+        'id=%s&'
+        'rettype=docsum') % (base_url, ','.join(accessions)))
+    response = r.json()['result']
+    
+    results = dict()
+    for _id in response.keys():
+        if _id == 'uids':
+            continue
+        results[response[_id]['accessionversion']] = response[_id]['taxid']
+    
     return results
 
 
