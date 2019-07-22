@@ -53,7 +53,7 @@ def process_study(metadata: pd.DataFrame,
             '(p.s. primer suggestions %s)\n') % (primer_forward, primer_reverse, text))
 
     # compute taxonomic lineages for feature sequences
-    res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid)
+    res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, walltime="1:59:00", pmem="20GB")
     idx_chloroplast_mitochondria = res_taxonomy['results'][res_taxonomy['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, set(counts.columns) - control_samples].sum(axis=0)
@@ -74,7 +74,7 @@ def process_study(metadata: pd.DataFrame,
     results['taxonomy'] = {'RDP': res_taxonomy}
 
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid)
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=True)
     if rarefaction_depth is None:
         return results
 
@@ -82,11 +82,11 @@ def process_study(metadata: pd.DataFrame,
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=True)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2, fix_zero_len_branches=True)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
