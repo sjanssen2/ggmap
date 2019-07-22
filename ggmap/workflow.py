@@ -13,7 +13,7 @@ def process_study(metadata: pd.DataFrame,
                   control_samples: {str},
                   fp_deblur_biom: str,
                   fp_insertiontree: str,
-                  fp_closedref_biom: str,
+                  fp_closedref_biom: str=None,
                   rarefaction_depth: None,
                   fp_taxonomy_trained_classifier: str='/home/sjanssen/GreenGenes/gg-13-8-99-515-806-nb-classifier.qza',
                   tree_insert: TreeNode=None,
@@ -22,6 +22,13 @@ def process_study(metadata: pd.DataFrame,
                   dry: bool=True,
                   use_grid: bool=True,
                   ppn: int=20):
+    """
+    parameters
+    ----------
+    fp_closedref_biom : str
+        Default: None, i.e. no metagenomic predictions will be computed.
+        Filepath to a feature-table, produced by closed reference picking.
+        Used for PICRUSt1, Bugbase (future work) predictions.
 
     for (_type, fp) in [('Deblur table', fp_deblur_biom),
                         ('Insertion tree', fp_insertiontree),
@@ -97,18 +104,19 @@ def process_study(metadata: pd.DataFrame,
         raise ValueError("Be patient and wait/poll for beta diversity results!")
 
     # run: picrust
-    results['picrust'] = dict()
-    results['picrust']['counts'] = picrust(biom2pandas(fp_closedref_biom), dry=dry, wait=False, use_grid=use_grid)
-    if results['picrust']['counts']['results'] is not None:
-        results['picrust']['diversity'] = dict()
-        for db in results['picrust']['counts']['results'].keys():
-            results['picrust']['diversity'][db] = dict()
-            for level in results['picrust']['counts']['results'][db].keys():
-                results['picrust']['diversity'][db][level] = dict()
-                results['picrust']['diversity'][db][level]['alpha'] = alpha_diversity(results['picrust']['counts']['results'][db][level], rarefaction_depth=None, metrics=['shannon', 'observed_otus'], dry=dry, wait=False, use_grid=use_grid)
-                results['picrust']['diversity'][db][level]['beta'] = beta_diversity(results['picrust']['counts']['results'][db][level], metrics=['bray_curtis'], dry=dry, wait=False, use_grid=use_grid)
-    else:
-        raise ValueError("Be patient and wait/poll for picrust results!")
+    if fp_closedref_biom is not None:
+        results['picrust'] = dict()
+        results['picrust']['counts'] = picrust(biom2pandas(fp_closedref_biom), dry=dry, wait=False, use_grid=use_grid)
+        if results['picrust']['counts']['results'] is not None:
+            results['picrust']['diversity'] = dict()
+            for db in results['picrust']['counts']['results'].keys():
+                results['picrust']['diversity'][db] = dict()
+                for level in results['picrust']['counts']['results'][db].keys():
+                    results['picrust']['diversity'][db][level] = dict()
+                    results['picrust']['diversity'][db][level]['alpha'] = alpha_diversity(results['picrust']['counts']['results'][db][level], rarefaction_depth=None, metrics=['shannon', 'observed_otus'], dry=dry, wait=False, use_grid=use_grid)
+                    results['picrust']['diversity'][db][level]['beta'] = beta_diversity(results['picrust']['counts']['results'][db][level], metrics=['bray_curtis'], dry=dry, wait=False, use_grid=use_grid)
+        else:
+            raise ValueError("Be patient and wait/poll for picrust results!")
 
     #res_bugbase = bugbase(biom2pandas('FromQiita/67822.otu_table.biom'), dry=False, wait=True, use_grid=False)
     return results
