@@ -29,6 +29,7 @@ def process_study(metadata: pd.DataFrame,
         Default: None, i.e. no metagenomic predictions will be computed.
         Filepath to a feature-table, produced by closed reference picking.
         Used for PICRUSt1, Bugbase (future work) predictions.
+    """
 
     for (_type, fp) in [('Deblur table', fp_deblur_biom),
                         ('Insertion tree', fp_insertiontree),
