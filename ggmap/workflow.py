@@ -35,7 +35,7 @@ def process_study(metadata: pd.DataFrame,
                         ('Insertion tree', fp_insertiontree),
                         ('ClosedRef table', fp_closedref_biom),
                         ('Naive bayes classifier', fp_taxonomy_trained_classifier)]:
-        if not exists(fp):
+        if (fp is not None) & (not exists(fp)):
             raise ValueError('The given file path "%s" for the %s does not exist!' % (fp, _type))
 
     # load deblur biom table
