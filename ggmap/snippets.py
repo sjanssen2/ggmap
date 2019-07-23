@@ -28,6 +28,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.multiclass import unique_labels
 from sklearn.metrics import confusion_matrix
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import math
 
 
@@ -3099,7 +3100,6 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
                 except ValueError as e:
                     if str(e) == 'All numbers are identical in mannwhitneyu':
                         g_res[event] = 1
-                #print(event, group_A, group_B, res)
             g_res = pd.Series(g_res)
             g_res.name = '"%s" %s "%s"' % (_get_group_name(group_A), {'two-sided': 'vs', 'greater': '>', 'less': '<'}.get(alternative), _get_group_name(group_B))
             group_tests.append(g_res)
@@ -3131,6 +3131,7 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
     grp_values = sorted(metadata[col_groups].unique())
     if len(grp_values) != 2:
         raise ValueError("Column %s has more or less than 2 states: %s. Cannot visualize more than two states." % (col_groups, grp_values))
+    group_names = ['intra: %s' % grp_values[0], 'inter', 'intra: %s' % grp_values[-1]]
 
     distances = []
     group_tests = []
@@ -3171,14 +3172,14 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
         existing_ticks = set()
     xticks = sorted(existing_ticks | set(metadata[col_events].unique()))
 
-    interval_size = 0.8
-    if ax.get_subplotspec().get_geometry()[2:] != (0, 0):
-        distances_spikeins = []
-        for x in range(int(min(xticks)), int(max(xticks))+1, 1):
-            distances_spikeins.append({'type': 'inter', col_events: x, metric_name: np.nan})
-        distances = distances.append(pd.DataFrame(distances_spikeins))
-        interval_size = int(min(map(lambda x: abs(x[0]-x[1]), zip(xticks, xticks[1:]))) * 0.6)
-
+    interval_size = min(map(lambda x: abs(x[0]-x[1]), zip(sorted(distances[col_events].unique()), sorted(distances[col_events].unique())[1:])))
+    # if False:#ax.get_subplotspec().get_geometry()[2:] != (0, 0):
+    #     distances_spikeins = []
+    #     for x in range(int(min(xticks)), int(max(xticks))+1, 1):
+    #         distances_spikeins.append({'type': 'inter', col_events: x, metric_name: np.nan})
+    #     distances = distances.append(pd.DataFrame(distances_spikeins))
+    #interval_size = int(min(map(lambda x: abs(x[0]-x[1]), zip(xticks, xticks[1:]))) * 0.6)
+    #
     if intervals is not None:
         for (start, stop) in intervals:
             if start >= stop:
@@ -3191,21 +3192,33 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
         colors = {'inter': 'white'}
         for k,v in colors_groups.items():
             colors['intra: %s' % k] = v
-    sns.boxplot(data=distances, y=metric_name, x=col_events,
-                palette=colors,
-                width=interval_size,
-                hue='type',
-                hue_order=['intra: %s' % grp_values[0], 'inter', 'intra: %s' % grp_values[1]],
-                ax=ax)
+    for group in group_names:
+        if group not in colors:
+            colors[group] = sns.color_palette()[len(colors)]
+    for event, g in distances.groupby(col_events):
+        box_width = (interval_size / 4)
+        for pos, group in enumerate(group_names):
+            bp = ax.boxplot(g[g['type'] == group][metric_name], manage_ticks=False, positions=[event + ((pos-1) * (interval_size/4))], widths=box_width, patch_artist=True, sym='d')
+            for patch in bp['boxes']:
+                patch.set(facecolor=colors[group])
+            plt.setp(bp['medians'], color="black")
+            plt.setp(bp['fliers'], markerfacecolor='gray')
+            plt.setp(bp['fliers'], markeredgecolor='gray')
+
+     # sns.boxplot(data=distances, y=metric_name, x=col_events,
+     #             palette=colors,
+     #             hue='type',
+     #             hue_order=['intra: %s' % grp_values[0], 'inter', 'intra: %s' % grp_values[1]],
+     #             ax=ax, manage_ticks=False)
     ax.xaxis.grid(True)
     if ax.get_subplotspec().get_geometry()[2:] != (0, 0):
         ax.set_xticks(xticks)
         ax.set_xlim(xlim)
-        ax.set_xticklabels(map(int, xticks))
+        ax.set_xticklabels(xticks)
 
-    if print_legend is False:
-        ax.get_legend().remove()
-    else:
+    if print_legend is True:
+        legend_elements = [Patch(label=group, facecolor=colors[group], edgecolor='black') for group in group_names]
+        ax.legend(handles=legend_elements)
         if legend_title is None:
             ax.get_legend().set_title(col_groups)
         else:
@@ -3220,3 +3233,4 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
     xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
                                                ['\n'.join(group_tests.columns)])
     ax_numsamples.set_xticklabels(xlabels)
+    ax.set_ylabel(metric_name)
