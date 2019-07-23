@@ -2553,7 +2553,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
 @cache
 def identify_important_features(metadata_group, counts, num_trees=1000,
                                 stdout=sys.stdout, test_size=0.25,
-                                num_repeats=5, max_features=100, n_jobs=1):
+                                num_repeats=5, max_features=100, n_jobs=1,
+                                min_features=1):
     """Use Random Forests to determine most X important features to predict
        sample labels.
 
@@ -2584,6 +2585,9 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
     max_features : int
         Default: 100.
         Stop after exploring accuracy for max_features number of features.
+    min_features : int
+        Default: 1.
+        Enforce testing of at least this number of features.
     Returns
     -------
     ?
@@ -2636,7 +2640,7 @@ def identify_important_features(metadata_group, counts, num_trees=1000,
                     'sum of feature importance':
                     feature_importance.iloc[:num_features].sum(),
                     'features': feature_importance.iloc[:num_features].index})
-        if best_RF._has_score >= 1:
+        if (best_RF._has_score >= 1) and (num_features >= min_features):
             break
     res = pd.DataFrame(res)
 
