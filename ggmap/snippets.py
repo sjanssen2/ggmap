@@ -28,6 +28,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.multiclass import unique_labels
 from sklearn.metrics import confusion_matrix
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import math
 
 
@@ -3171,7 +3172,7 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
         existing_ticks = set()
     xticks = sorted(existing_ticks | set(metadata[col_events].unique()))
 
-    interval_size = min(map(lambda x: abs(x[0]-x[1]), zip(sorted(distances['age_group_month'].unique()), sorted(distances['age_group_month'].unique())[1:])))
+    interval_size = min(map(lambda x: abs(x[0]-x[1]), zip(sorted(distances[col_events].unique()), sorted(distances[col_events].unique())[1:])))
     # if False:#ax.get_subplotspec().get_geometry()[2:] != (0, 0):
     #     distances_spikeins = []
     #     for x in range(int(min(xticks)), int(max(xticks))+1, 1):
@@ -3197,10 +3198,12 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
     for event, g in distances.groupby(col_events):
         box_width = (interval_size / 4)
         for pos, group in enumerate(group_names):
-            bp = ax.boxplot(g[g['type'] == group][metric_name], manage_ticks=False, positions=[event + ((pos-1) * (interval_size/4))], widths=box_width, patch_artist=True)
+            bp = ax.boxplot(g[g['type'] == group][metric_name], manage_ticks=False, positions=[event + ((pos-1) * (interval_size/4))], widths=box_width, patch_artist=True, sym='d')
             for patch in bp['boxes']:
                 patch.set(facecolor=colors[group])
             plt.setp(bp['medians'], color="black")
+            plt.setp(bp['fliers'], markerfacecolor='gray')
+            plt.setp(bp['fliers'], markeredgecolor='gray')
 
      # sns.boxplot(data=distances, y=metric_name, x=col_events,
      #             palette=colors,
@@ -3214,7 +3217,7 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
         ax.set_xticklabels(xticks)
 
     if print_legend is True:
-        legend_elements = [Line2D([0], [0], color=colors[group], lw=4, label=group) for group in group_names]
+        legend_elements = [Patch(label=group, facecolor=colors[group], edgecolor='black') for group in group_names]
         ax.legend(handles=legend_elements)
         if legend_title is None:
             ax.get_legend().set_title(col_groups)
