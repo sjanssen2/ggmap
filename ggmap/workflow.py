@@ -35,7 +35,7 @@ def process_study(metadata: pd.DataFrame,
                         ('Insertion tree', fp_insertiontree),
                         ('ClosedRef table', fp_closedref_biom),
                         ('Naive bayes classifier', fp_taxonomy_trained_classifier)]:
-        if (fp is not None) & (not exists(fp)):
+        if (fp is not None) and (not exists(fp)):
             raise ValueError('The given file path "%s" for the %s does not exist!' % (fp, _type))
 
     # load deblur biom table
@@ -64,6 +64,8 @@ def process_study(metadata: pd.DataFrame,
     res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid)
     idx_chloroplast_mitochondria = res_taxonomy['results'][res_taxonomy['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
+    if type(control_samples) != set:
+        raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
     plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, set(counts.columns) - control_samples].sum(axis=0)
     if plant_ratio.min() < 0.95:
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n')
