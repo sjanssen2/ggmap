@@ -2417,7 +2417,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
-def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", **executor_args):
+def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", ppn=1, **executor_args):
     """Generates Emperor plots as qzv. Or procrustes if two distance metrics are given.
 
     Parameters
@@ -2562,6 +2562,7 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
+                     ppn=ppn,
                      **executor_args)
 
 
