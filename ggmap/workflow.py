@@ -82,7 +82,7 @@ def process_study(metadata: pd.DataFrame,
     results['taxonomy'] = {'RDP': res_taxonomy}
 
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=True)
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid)
     if rarefaction_depth is None:
         return results
 
@@ -90,11 +90,11 @@ def process_study(metadata: pd.DataFrame,
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=True)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2, fix_zero_len_branches=True)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
