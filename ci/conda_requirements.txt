@@ -6,7 +6,7 @@ click
 pandas
 biom-format>=2.1.7
 basemap
-matplotlib
+matplotlib>=3.1.1
 seaborn
 numpy
 xlrd

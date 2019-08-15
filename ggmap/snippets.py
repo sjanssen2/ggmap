@@ -30,6 +30,7 @@ from sklearn.metrics import confusion_matrix
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import math
+from skbio.sequence import DNA
 
 
 settings.init()
@@ -3234,3 +3235,42 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
                                                ['\n'.join(group_tests.columns)])
     ax_numsamples.set_xticklabels(xlabels)
     ax.set_ylabel(metric_name)
+
+
+def get_empV4region(sequence: str):
+    """Very naive method to extract V4 regions from larger sequences,
+       by pattern matching with EMP primer sequences. This does not
+       respect imperfect primer annealing. PrimerProspector might be
+       the better choice for the same operation!!"""
+    reference = DNA(sequence)
+    primers = {'fwd': DNA("GTGYCAGCMGCCGCGGTAA"),
+               'rev': DNA("GGACTACNVGGGTWTCTAAT")}
+
+    # find primer positions in input sequence
+    positions = {k: [] for k,v in primers.items()}
+    for _type in ['fwd', 'rev']:
+        for prm in primers[_type].expand_degenerates():
+            if _type == 'rev':
+                prm = prm.complement(reverse=True)
+            pos = 0
+            while True:
+                try:
+                    pos = reference.index(prm, pos)
+                    positions[_type].append(pos)
+                except ValueError as e:
+                    if 'is not present in' in str(e):
+                        break
+                pos += 1
+        if len(positions['fwd']) <= 0:
+            break
+
+    # slice sub-sequences
+    slices = [reference[f+len(primers['fwd']):r] for f in positions['fwd'] for r in positions['rev'] if r - f > 0]
+    for i, s in enumerate(slices):
+        # I learned those parameters from the GG alignment
+        if len(s) < 150:
+            sys.stderr.write("Warning from get_v4region: the %i. found sub-sequence seems to be too short (< 150).\n" % (i+1))
+        if len(s) > 260:
+            sys.stderr.write("Warning from get_v4region: the %i. found sub-sequence seems to be too long (> 260).\n" % (i+1))
+
+    return slices
