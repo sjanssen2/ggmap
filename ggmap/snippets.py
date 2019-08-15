@@ -3238,6 +3238,10 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
 
 
 def get_empV4region(sequence: str):
+    """Very naive method to extract V4 regions from larger sequences,
+       by pattern matching with EMP primer sequences. This does not
+       respect imperfect primer annealing. PrimerProspector might be
+       the better choice for the same operation!!"""
     reference = DNA(sequence)
     primers = {'fwd': DNA("GTGYCAGCMGCCGCGGTAA"),
                'rev': DNA("GGACTACNVGGGTWTCTAAT")}
