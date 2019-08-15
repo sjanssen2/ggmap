@@ -19,9 +19,11 @@ def process_study(metadata: pd.DataFrame,
                   tree_insert: TreeNode=None,
                   verbose=sys.stderr,
                   is_v4_region: bool=True,
+                  fix_zero_len_branches: bool=False,
                   dry: bool=True,
                   use_grid: bool=True,
-                  ppn: int=20):
+                  ppn: int=20,
+                  emperor_infix: str=""):
     """
     parameters
     ----------
@@ -84,7 +86,7 @@ def process_study(metadata: pd.DataFrame,
     results['taxonomy'] = {'RDP': res_taxonomy}
 
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid)
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
     if rarefaction_depth is None:
         return results
 
@@ -92,17 +94,17 @@ def process_study(metadata: pd.DataFrame,
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, ppn=2)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
     # run: emperor plot
     if results['beta_diversity']['results'] is not None:
-        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './', dry=dry, wait=False, use_grid=use_grid)
+        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './', infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid)
     else:
         raise ValueError("Be patient and wait/poll for beta diversity results!")
 
