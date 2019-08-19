@@ -22,6 +22,7 @@ from skbio.tree import TreeNode
 
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
 from ggmap import settings
+import seaborn as sns
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
@@ -1653,7 +1654,10 @@ def denovo_tree_qiime2(counts, **executor_args):
 
     Returns
     -------
-    A newick string of the created phylogenetic tree."""
+    {'tree': skbio.tree.TreeNode
+        skbio TreeNode object.
+    }
+    """
     def pre_execute(workdir, args):
         # store all unique sequences to a fasta file
         # as in sortmerna we need a header map, because fasttree will otherwise
@@ -2688,6 +2692,204 @@ def volatility(metadata: pd.DataFrame, alpha_diversity: pd.DataFrame,
                      post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=1,
+                     **executor_args)
+
+
+def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: str="AGRGTTYGATYMTGGCTCAG", seq_primer_rwd: str="RGYTACCTTGTTACGACTT",
+                 ppn=10, pmem='30GB', walltime='6:00:00', **executor_args):
+    """Uses dada2 to demultiplex PacBio amplicon sequences and returns feature table.
+
+    Paramaters
+    ----------
+    demux : Pandas.DataFrame
+        Demultiplexing information. Must contain columns:
+        - sample_name: should match to your metadata for this experiment.
+        - fp_fastq: relative path to sequencing file in fastq format
+    fp_fastqprefix : str
+        Default: None
+        If given, a directory pointing to the fastq files that prefixes all
+        relative file paths given in the demux table, column "fp_fastq".
+    seq_primer_fwd : str
+        Default: "AGRGTTYGATYMTGGCTCAG" = F27
+        The forward primer sequence.
+    seq_primer_rwd : str
+        Default: "RGYTACCTTGTTACGACTT" = R1492
+        The reverse primer sequence.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    Pandas.DataFrame: feature table.
+
+    Install
+    -------
+    conda create --name dada2_pacbio -y
+    conda activate dada2_pacbio
+
+    # there is a concurrency issue with one of the used libaries, see https://github.com/benjjneb/dada2/issues/684
+    # to solve, we need to make sure to use the following conda package
+    conda install r-rcppparallel=4.4.3=r35h0357c0b_2 -c conda-forge -y
+
+    # install dependencies devtools will complain about
+    conda install -c r -c conda-forge r-git2r r-httr r-gh r-usethis
+
+    ### somehow basic libraries cannot be found by default. Thus, I came up with a dirty hack:
+    # the linker is ~/miniconda3/envs/dada2_pacbio/x86_64-conda_cos6-linux-gnu/bin/ld I renamed it into ld_bin and created a new bash script named ld
+    # within the script I am adding paths to the linker. Content of this wrapper is:
+    #	#!/usr/bin/bash
+    #	ld -L/usr/lib64/ -L/home/jansses/miniconda3/envs/dada2_pacbio/x86_64-conda_cos6-linux-gnu/lib/ $@
+    # don't forget to chmod a+x
+
+    # you should not update to later version if R asks for, because this will crash condas R packages
+    R
+    	install.packages("devtools")
+    	library("devtools")
+    	devtools::install_github("benjjneb/dada2", ref="v1.12")
+    	if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+    	BiocManager::install("gridExtra")
+    	BiocManager::install("phyloseq")
+    """
+    MANDATORY_DEMUX_COLUMNS = ['sample_name', 'fp_fastqprefix']
+    DEMUX_INTERNAL_COLUMNS = ['__demux_fp_fastq']
+
+    def pre_execute(workdir, args):
+        # test if demux table contains necessary columns
+        missing_columns = []
+        for c in MANDATORY_DEMUX_COLUMNS:
+            if c not in args['demux'].columns:
+                missing_columns.append(c)
+        if len(missing_columns) > 0:
+            raise ValueError("You demux table does not contain all mandatory columns. I am missing column(s) '%s'!" % "', '".join(missing_columns))
+
+        # test that given demux column names do not collide with internally created columns
+        colliding_columns = []
+
+        for c in DEMUX_INTERNAL_COLUMNS:
+            if c in args['demux'].columns:
+                colliding_columns.append(c)
+        if len(colliding_columns) > 0:
+            raise ValueError("Your demux table contains columns whose names collide with internal operations. Please rename columns '%s'." % "', '".join(colliding_columns))
+
+        # merge prefix and individual sample input file paths + test if files are present
+        def _join_test_fps(fp_fastq):
+            fp = os.path.join("" if fp_fastqprefix is None else fp_fastqprefix, fp_fastq)
+            if os.path.exists(fp):
+                return os.path.abspath(fp)
+            else:
+                return None
+        args['demux']['__demux_fp_fastq'] = args['demux']['fp_fastqprefix'].apply(_join_test_fps)
+
+        if args['demux']['__demux_fp_fastq'].dropna().shape[0] < args['demux'].shape[0]:
+            raise ValueError("%i of %i fastq input files cannot be found! You might have to specify or correct the 'fp_fastqprefix'\n  %s" % (args['demux'][pd.isnull(args['demux']['__demux_fp_fastq'])].shape[0], args['demux'].shape[0], '  \n'.join(args['demux'][pd.isnull(args['demux']['__demux_fp_fastq'])]['fp_fastqprefix'].values)))
+
+        duplicate_samples = args['demux'][args['demux']['sample_name'].isin(
+            [n for n, c in args['demux']['sample_name'].value_counts().iteritems() if c > 1])]
+        if duplicate_samples.shape[0] > 0:
+            raise ValueError('Your demux table contains following duplicates:\n%s' % duplicate_samples['sample_name'].value_counts())
+
+        # store demux table as input for R call
+        args['demux'][['sample_name'] + DEMUX_INTERNAL_COLUMNS].to_csv("%s/demux.csv" % workdir, sep="\t")
+
+        # generate R code
+        with open('%s/dada2_pacbio.R' % workdir, 'w') as f:
+            f.write('library(dada2); packageVersion("dada2")\n')
+            f.write('library(Biostrings)\n')
+            f.write('library(ShortRead)\n')
+            f.write('library(ggplot2)\n')
+            f.write('library(reshape2)\n')
+            f.write('library(gridExtra)\n')
+            f.write('library(phyloseq)\n')
+
+            f.write('path.out <- "Figures/"\n')
+            f.write('path.rds <- "RDS/"\n')
+            f.write('F27 <- "%s"\n' % args['seq_primer_fwd'])
+            f.write('R1492 <- "%s"\n' % args['seq_primer_rwd'])
+            f.write('rc <- dada2:::rc\n')
+            f.write('theme_set(theme_bw())\n')
+
+            f.write('\n# list all input files: fastq\n')
+            f.write('fns <- %s\n' % ('c(\n%s)' % ',\n'.join(map(lambda x: '    "%s"' % x, args['demux']['__demux_fp_fastq'].values))))
+
+            f.write('\n# set tmp filename for primer less fastq\n')
+            f.write('nops <- %s\n' % ('c(\n%s)' % ',\n'.join(map(lambda x: '    "%s"' % str(os.path.abspath(os.path.join(workdir, '01_noprimer', x+'.fastq'))), args['demux']['sample_name'].values))))
+            f.write('\n# perform primer removal\n')
+            f.write('prim <- removePrimers(fns, nops, primer.fwd=F27, primer.rev=dada2:::rc(R1492), orient=TRUE)\n')
+
+            f.write('\n# inspect length distribution\n')
+            f.write('lens.fn <- lapply(nops, function(fn) nchar(getSequences(fn)))\n')
+            f.write('lens <- do.call(c, lens.fn)\n')
+            f.write('write.table(lens, file="%s/results_lengthdistribution.csv", sep="\\t")\n' % workdir)
+
+            f.write('\n# filter\n')
+            f.write('filts <- %s\n' % ('c(\n%s)' % ',\n'.join(map(lambda x: '    "%s"' % str(os.path.abspath(os.path.join(workdir, '02_filtered', x+'.fastq'))), args['demux']['sample_name'].values))))
+            f.write('track <- filterAndTrim(nops, filts, minQ=3, minLen=1000, maxLen=1600, maxN=0, rm.phix=FALSE, maxEE=2)\n')
+            #f.write('write.table(track, file="%s/results_track.csv", sep="\\t")\n' % workdir)
+
+            f.write('\n# dereplicate sequences\n')
+            f.write('drp <- derepFastq(filts, verbose=TRUE)\n')
+
+            f.write('\n# learn error model\n')
+            f.write('errmodel <- learnErrors(drp, errorEstimationFunction=PacBioErrfun, BAND_SIZE=32, multithread=TRUE)\n')
+            f.write('write.table(getErrors(errmodel), file="%s/results_errors_table.csv")\n' % workdir)
+            f.write('saveRDS(errmodel, "%s/dada2_error_model.rds")\n' % workdir)
+
+            f.write('\n# Denoise\n')
+            f.write('dd2 <- dada(drp, err=errmodel, BAND_SIZE=32, multithread=TRUE)\n')
+            f.write('saveRDS(dd2, "%s/dada2_error_model_dd2.rds")\n' % workdir)
+            f.write('st2 <- makeSequenceTable(dd2)\n')
+            f.write('write.table(st2, "%s/results_feature-table.csv", sep="\t")\n' % workdir)
+            f.write('write.table(cbind(sample_name=c(%s), ccs=prim[,1], primers=prim[,2], filtered=track[,2], denoised=sapply(dd2, function(x) sum(x$denoised))), file="%s/results_summary.csv", sep="\\t")\n' % (','.join(map(lambda x: '"%s"' % x, args['demux']['sample_name'].values)), workdir))
+            f.write('\n')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('R --vanilla < %s/dada2_pacbio.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        counts = pd.read_csv('%s/results_feature-table.csv' % workdir, sep="\t").T.fillna(0).astype(int)
+        counts.columns = map(lambda x: x[:-6] if x.endswith('.fastq') else x, counts.columns)
+        lendistr = pd.read_csv('%s/results_lengthdistribution.csv' % workdir, sep="\t", squeeze=True)
+        tracking = pd.read_csv('%s/results_summary.csv' % workdir, sep="\t", index_col=1).rename(columns={
+            'ccs': '01_rawreads',
+            'primers': '02_primers_removed',
+            'filtered': '03_quality_filtering',
+            'denoised': '04_final_counts',
+        })
+        del tracking['sample_name']
+        tracking.index.name = 'sample_name'
+        return {'counts': counts,
+                'read_length_distribution': lendistr,
+                'stats': tracking.sort_values('04_final_counts')}
+
+    def post_cache(cache_results):
+        # generate plot for read length distribution
+        lendistr = cache_results['results']['read_length_distribution']
+        fig, axes = plt.subplots(1, 1)
+        g = sns.distplot(lendistr, kde=False, bins=100, ax=axes)
+        g.set_xlim(lendistr.mean() - (2*lendistr.std()), lendistr.mean() + (2*lendistr.std()))
+        g.set_ylabel('frequency')
+        g.set_xlabel('read length')
+        g.set_title('Histogram of read lengths\nWe expect to see a strong peak around ~1450bp')
+        cache_results['results']['read_length_distribution'] = fig
+
+        return cache_results
+
+    return _executor('dada2_pacbio',
+                     {'demux': demux.copy(),
+                      'seq_primer_fwd': seq_primer_fwd,
+                      'seq_primer_rwd': seq_primer_rwd},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache=post_cache,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime=walltime,
+                     environment="dada2_pacbio",
                      **executor_args)
 
 

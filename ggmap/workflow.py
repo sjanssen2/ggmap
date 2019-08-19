@@ -23,7 +23,8 @@ def process_study(metadata: pd.DataFrame,
                   dry: bool=True,
                   use_grid: bool=True,
                   ppn: int=20,
-                  emperor_infix: str=""):
+                  emperor_infix: str="",
+                  emperor_fp: str=None):
     """
     parameters
     ----------
@@ -104,7 +105,7 @@ def process_study(metadata: pd.DataFrame,
 
     # run: emperor plot
     if results['beta_diversity']['results'] is not None:
-        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './', infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid)
+        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './' if emperor_fp is None else emperor_fp, infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid, walltime='00:20:00', pmem='8GB')
     else:
         raise ValueError("Be patient and wait/poll for beta diversity results!")
 

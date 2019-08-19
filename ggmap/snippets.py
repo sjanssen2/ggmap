@@ -2707,7 +2707,7 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
     ax.set(xticks=np.arange(cm.shape[1]),
            yticks=np.arange(cm.shape[0]),
            # ... and label them with the respective list entries
-           xticklabels=classes, yticklabels=classes,
+           xticklabels=[c for c in y_true.unique() if c in classes], yticklabels=[c for c in y_pred.unique() if c in classes],#classes,
            title=title,
            ylabel='True label',
            xlabel='Predicted label')
