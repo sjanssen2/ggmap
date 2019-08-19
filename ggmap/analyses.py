@@ -1654,7 +1654,10 @@ def denovo_tree_qiime2(counts, **executor_args):
 
     Returns
     -------
-    A newick string of the created phylogenetic tree."""
+    {'tree': skbio.tree.TreeNode
+        skbio TreeNode object.
+    }
+    """
     def pre_execute(workdir, args):
         # store all unique sequences to a fasta file
         # as in sortmerna we need a header map, because fasttree will otherwise
@@ -2848,6 +2851,7 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
 
     def post_execute(workdir, args):
         counts = pd.read_csv('%s/results_feature-table.csv' % workdir, sep="\t").T.fillna(0).astype(int)
+        counts.columns = map(lambda x: x[:-6] if x.endswith('.fastq') else x, counts.columns)
         lendistr = pd.read_csv('%s/results_lengthdistribution.csv' % workdir, sep="\t", squeeze=True)
         tracking = pd.read_csv('%s/results_summary.csv' % workdir, sep="\t", index_col=1).rename(columns={
             'ccs': '01_rawreads',
@@ -2859,7 +2863,7 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
         tracking.index.name = 'sample_name'
         return {'counts': counts,
                 'read_length_distribution': lendistr,
-                'stats': tracking}
+                'stats': tracking.sort_values('04_final_counts')}
 
     def post_cache(cache_results):
         # generate plot for read length distribution
