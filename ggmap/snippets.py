@@ -3212,8 +3212,8 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
      #             hue_order=['intra: %s' % grp_values[0], 'inter', 'intra: %s' % grp_values[1]],
      #             ax=ax, manage_ticks=False)
     ax.xaxis.grid(True)
+    ax.set_xticks(xticks)
     if ax.get_subplotspec().get_geometry()[2:] != (0, 0):
-        ax.set_xticks(xticks)
         ax.set_xlim(xlim)
         ax.set_xticklabels(xticks)
 
