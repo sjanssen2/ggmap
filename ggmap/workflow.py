@@ -85,7 +85,9 @@ def process_study(metadata: pd.DataFrame,
 
     results = dict()
     results['taxonomy'] = {'RDP': res_taxonomy}
+    results['counts_plantsremoved'] = counts
 
+    #return results
     # run: rarefaction curves
     results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
     if rarefaction_depth is None:
