@@ -3162,7 +3162,10 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
             testname = '%s: %i' % (x[0]['test name'].iloc[0], x[0]['num_permutations'].iloc[0])
         group_tests.append({col_events: event, 'p-value': pvalue, 'testname': testname})
     group_tests = pd.DataFrame(group_tests).set_index(col_events)
-    group_tests = group_tests.rename(columns={'p-value': group_tests['testname'].dropna().iloc[0]})
+    testname = 'failing'
+    if  group_tests['testname'].dropna().shape[0] > 0:
+        testname = group_tests['testname'].dropna().iloc[0]
+    group_tests = group_tests.rename(columns={'p-value': testname})
     del group_tests['testname']
 
     distances = pd.DataFrame(distances)
