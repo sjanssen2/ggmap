@@ -40,7 +40,7 @@ install: conda_install
 		conda create -n ggmap python=3.5 -y; \
 	  source activate ggmap; \
 	fi;
-	conda install -c conda-forge pyproj -y;
+	conda install basemap --override-channels --channel conda-forge
 	conda install --file ci/conda_requirements.txt -c conda-forge -y;
 	pip install -r ci/pip_requirements.txt;
 	python setup.py develop;
