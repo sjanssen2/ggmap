@@ -2896,6 +2896,102 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
                      **executor_args)
 
 
+def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entities: str, col_phenotype: str,
+              num_intervals: int=20, num_permutations: int=100,
+              ppn=12, pmem='10GB', walltime='2:00:00', **executor_args):
+    """Uses dada2 to demultiplex PacBio amplicon sequences and returns feature table.
+
+    Paramaters
+    ----------
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    ?
+
+    Install
+    -------
+    conda create -n MetaLonDA r-essentials r-base
+    conda activate MetaLonDA
+    conda install -c r -c conda-forge r-git2r r-httr r-gh r-usethis
+
+    # you should not update to later version if R asks for, because this will crash condas R packages
+    R
+    	install.packages("devtools")
+    	library("devtools")
+    	if (!requireNamespace("BiocManager", quietly = TRUE))
+    		install.packages("BiocManager")
+    	BiocManager::install("DESeq2")
+    	BiocManager::install("metagenomeSeq")
+    	BiocManager::install("edgeR")
+    	install.packages("MetaLonDA")
+    """
+    counts = counts.loc[:, set(counts.columns) & set(meta.index)]
+    meta = meta.loc[set(counts.columns) & set(meta.index), :]
+
+    def pre_execute(workdir, args):
+        # test if demux table contains necessary columns
+        missing_columns = []
+        for c in [col_time, col_entities, col_phenotype]:
+            if c not in args['meta'].columns:
+                missing_columns.append(c)
+        if len(missing_columns) > 0:
+            raise ValueError("You metadata do not contain all specified columns. I am missing column(s) '%s'!" % "', '".join(missing_columns))
+
+        args['counts'].to_csv('%s/counts.csv' % workdir, sep="\t")
+
+        # generate R code
+        with open('%s/metalonda.R' % workdir, 'w') as f:
+            f.write('library(MetaLonDA); packageVersion("MetaLonDA")\n')
+            f.write('counts <- as.matrix(read.csv("%s/counts.csv", sep="\\t", row.names=1, header=T))\n' % workdir)
+            f.write('Group = factor(c(%s))\n' % ', '.join(map(lambda x: '"%s"' % x, args['meta'].loc[args['counts'].columns, args['col_phenotype']].values)))
+            f.write('Time = c(%s)\n' % ', '.join(map(lambda x: '%s' % x, args['meta'].loc[args['counts'].columns, args['col_time']].values)))
+            f.write('ID = factor(c(%s))\n' % ', '.join(map(lambda x: '"%s"' % x, args['meta'].loc[args['counts'].columns, args['col_entities']].values)))
+
+            f.write(('output.metalonda.all = metalondaAll('
+                        'Count = counts, '
+                        'Time = Time, '
+                        'Group = Group, '
+                        'ID = ID, '
+                        'n.perm = %i, '
+                        'fit.method = "nbinomial", '
+                        'num.intervals = %i, '
+                        'parall = FALSE, '
+                        'pvalue.threshold = 0.05, '
+                        'adjust.method = "BH", '
+                        'time.unit = "days", '
+                        'norm.method = "none", '
+                        'prefix = "MetaLonDA_results", '
+                        'ylabel = "Read Counts", '
+                        'col = c("black", "green"))\n') % (num_permutations, num_intervals))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('R --vanilla < %s/metalonda.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        return None
+
+    return _executor('metalonda',
+                     {'counts': counts,
+                      'meta': meta,
+                      'col_time': col_time,
+                      'col_entities': col_entities,
+                      'col_phenotype': col_phenotype},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime=walltime,
+                     environment="MetaLonDA",
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
