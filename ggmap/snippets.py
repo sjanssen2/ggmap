@@ -31,7 +31,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import math
 from skbio.sequence import DNA
-
+from skbio.tree import TreeNode
 
 settings.init()
 
@@ -3162,7 +3162,10 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
             testname = '%s: %i' % (x[0]['test name'].iloc[0], x[0]['num_permutations'].iloc[0])
         group_tests.append({col_events: event, 'p-value': pvalue, 'testname': testname})
     group_tests = pd.DataFrame(group_tests).set_index(col_events)
-    group_tests = group_tests.rename(columns={'p-value': group_tests['testname'].dropna().iloc[0]})
+    testname = 'failing'
+    if  group_tests['testname'].dropna().shape[0] > 0:
+        testname = group_tests['testname'].dropna().iloc[0]
+    group_tests = group_tests.rename(columns={'p-value': testname})
     del group_tests['testname']
 
     distances = pd.DataFrame(distances)
@@ -3274,3 +3277,138 @@ def get_empV4region(sequence: str):
             sys.stderr.write("Warning from get_v4region: the %i. found sub-sequence seems to be too long (> 260).\n" % (i+1))
 
     return slices
+
+
+def split_tree_into_clusters(tree: TreeNode, maxdepth: float=0.3, return_fake_taxonomy: bool=True):
+    """Traverses given tree and clusters tips according to maximal depth of sub-tree.
+       Useful to cluster e.g. sequences with similarity threshold.
+
+       Parameters
+       ----------
+       tree : skbio.tree.TreeNode
+          Input tree.
+       maxdepth : float
+          Default: 0.3.
+          Maximal length of path from root of sub-tree to all of it's tips.
+          The smaller, the deeper the cuts, the smaller but more resulting clusters.
+       return_fake_taxonomy : bool
+          Default: True.
+
+       Returns
+       -------
+       dict(
+        'clusters': dict('cluster_name': [tip names]),
+        'taxonomy': pd.Series(tip name: cluster_name),
+        'tree': skbio.tree.TreeNode,
+       )
+       Returned tree is the reduced input tree, where tips are now the found clusters.
+    """
+    tree_internal = tree.deepcopy()
+
+    for node in tree_internal.postorder():
+        node.max_tip_length = None
+        if node.length is None:
+            node.length = 0
+
+    # round 1: compute maximal distance from node to longest tip
+    for node in tree_internal.postorder():
+        if node.is_tip():
+            node.max_tip_length = 0
+        else:
+            node.max_tip_length = max([child.length + child.max_tip_length for child in iter(node)])
+
+    # round 2: find clusters
+    clusters = dict()
+    for node in tree_internal.levelorder():
+        if node.max_tip_length <= maxdepth:
+            # add all tips to return set
+            cluster_name = 'cluster_%i' % (len(clusters)+1)
+            clusters[cluster_name] = {subnode.name for subnode in node.preorder() if subnode.is_tip()}
+
+            node.children = []
+            node.name = 's__%s' % cluster_name
+
+    taxonomy = None
+    if return_fake_taxonomy:
+        taxonomy = dict()
+        for cluster_name, taxa in clusters.items():
+            for taxon in taxa:
+                taxonomy[taxon] = 'k__; p__; c__; o__; f__; g__; s__%s' % cluster_name
+        taxonomy = pd.Series(taxonomy)
+
+    return {'clusters': clusters, 'taxonomy': taxonomy, 'tree': tree_internal}
+
+
+def predict_timecourse(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entities: str, col_prediction: str, train_test_ratio: float=0.5, onlyusetimes=None, err=sys.stderr, iterations=2, usefeatures=None):
+    counts = counts.loc[:, set(counts.columns) & set(meta.index)]
+    meta = meta.loc[set(counts.columns) & set(meta.index), :]
+    if err is not None:
+        err.write('Using %i samples: ' % meta.shape[0])
+
+    tps = sorted(meta[col_time].unique())
+    if onlyusetimes is not None:
+        tps = []
+        for tp in sorted(onlyusetimes):
+            if meta[meta[col_time] == tp].shape[0] <= 0:
+                raise ValueError("Time point %s does not exist in your samples. You have time points [%s]" % (tp, ', '.join(map(str, sorted(meta[col_time].unique())))))
+            tps.append(tp)
+
+    if usefeatures is not None:
+        iterations = 1
+        for feature in usefeatures:
+            if feature not in counts.index:
+                raise ValueError("Feature '%s' is not in your count table!" % feature)
+
+    data = []
+    for hsid, g in meta.groupby(col_entities):
+        samples = []
+        for tpbin35 in tps:
+            if g[g[col_time] == tpbin35].shape[0] > 0:
+                x = counts.loc[:, g[g[col_time] == tpbin35].index[0]]
+            else:
+                x = pd.Series(index=counts.index)
+                x.index.name = 'Species'
+            x.name = '%s_%s' % (hsid, tpbin35)
+            samples.append(x)
+        x = pd.concat(samples, axis=1)
+        x = x.fillna(0).stack().reset_index().rename(columns={0: 'counts'})
+        debug = x
+        x['feature'] = x.apply(lambda row: row['Species']+'@'+row['level_1'].split('_')[-1], axis=1)
+        x = x.set_index('feature')
+        x = x['counts']
+        x.name = hsid
+        data.append(x)
+    timecounts = pd.concat(data, axis=1, sort=False).fillna(0).astype(int)
+
+    results = []
+    for i in range(iterations):
+        if usefeatures is None:
+            coi = random.sample(list(counts.index), random.randint(1, 40))
+        else:
+            coi = usefeatures
+
+        # 50% train, 50% test
+        clf = RandomForestClassifier(n_estimators=1000, n_jobs=1, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(
+            timecounts.loc[['%s@%s' % (cluster, timepoint) for cluster in coi for timepoint in tps], :].T,
+            meta.groupby(col_entities)[col_prediction].unique().apply(lambda x: x[0]),
+            test_size=train_test_ratio,
+            random_state=42)
+
+        # train the ML tool
+        clf = clf.fit(X_train, y_train)
+        # make predictions for test samples
+        prediction = pd.Series(clf.predict(X_test), index=X_test.index)
+        # assess accurracy
+        clf.accurracy = clf.score(X_test, y_test)
+
+        results.append({
+            'accurracy': clf.accurracy,
+            'iteration': i+1,
+            '#clusters': len(coi),
+            'timepoints': sorted(tps),
+            'clusters': sorted(coi),
+            'mean_counts': counts.loc[coi, :].sum(axis=0).mean(),
+        })
+
+    return [pd.DataFrame(results), timecounts]

@@ -221,7 +221,7 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
 
 
 def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
-                       verbose=sys.stderr):
+                       verbose=sys.stderr, name_analysis='beta_diversity'):
     """Pre-process skbio tree to ensure every branch has a length info.
 
     Notes
@@ -250,9 +250,9 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
     else:
         if verbose is not None:
             verbose.write(
-                ('beta_diversity: skipping check for branches without '
+                ('%s: skipping check for branches without '
                  'length information. Reactivate via fix_zero_le'
-                 'n_branches=True.\n'))
+                 'n_branches=True.\n') % name_analysis)
         shutil.copyfile(
             _get_ref_phylogeny(fp_reftree),
             workdir+'/reference.tree')
@@ -307,7 +307,8 @@ def rarefaction_curves(counts,
             else:
                 verbose = executor_args['verbose']
             writeReferenceTree(args['reference_tree'], workdir,
-                               fix_zero_len_branches, verbose=verbose)
+                               fix_zero_len_branches, verbose=verbose,
+                               name_analysis='rarefaction_curves')
 
         # prepare execution list
         max_rare_depth = args['counts'].sum().describe()['75%']
@@ -524,7 +525,8 @@ def alpha_diversity(counts, rarefaction_depth,
             else:
                 verbose = executor_args['verbose']
             writeReferenceTree(args['reference_tree'], workdir,
-                               fix_zero_len_branches, verbose=verbose)
+                               fix_zero_len_branches, verbose=verbose,
+                               name_analysis='alpha_diversity')
 
     def commands(workdir, ppn, args):
         commands = []
@@ -673,7 +675,8 @@ def beta_diversity(counts,
             else:
                 verbose = executor_args['verbose']
             writeReferenceTree(args['reference_tree'], workdir,
-                               fix_zero_len_branches, verbose=verbose)
+                               fix_zero_len_branches, verbose=verbose,
+                               name_analysis='beta_diversity')
 
     def commands(workdir, ppn, args):
         metrics_phylo = []
