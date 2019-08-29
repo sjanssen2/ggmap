@@ -102,6 +102,10 @@ def init(err=sys.stderr):
         GRIDNAME = 'HPCHHU'
         VARNAME_PBSARRAY = 'PBS_ARRAY_INDEX'
         GRIDENGINE_BINDIR = '/opt/pbs/bin'
+    elif '.computational.bio.uni-giessen.de' in hostname:
+        GRIDNAME = 'JLU'
+        VARNAME_PBSARRAY = 'SGE_TASK_ID'
+        GRIDENGINE_BINDIR = '/usr/bin'
     else:
         GRIDNAME = 'LOCAL'
         VARNAME_PBSARRAY = 'NOGRID'

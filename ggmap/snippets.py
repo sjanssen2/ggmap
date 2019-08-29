@@ -1211,19 +1211,21 @@ def cluster_run(cmds, jobname, result, environment=None,
 
             flag_array = ''
             if array > 1:
-                if settings.GRIDNAME == 'barnacle':
+                if settings.GRIDNAME == 'barnacle' or settings.GRIDNAME == 'JLU':
                     flag_array = '-t 1-%i' % array
                 elif settings.GRIDNAME == 'HPCHHU':
                     flag_array = '-J 1-%i' % array
-
+            resources = " -l walltime=%s,nodes=%i%s:ppn=%i,mem=%s " % (
+                walltime, nodes, highmem, ppn, pmem)
+            if settings.GRIDNAME == 'JLU':
+                resources = " -l virtual_free=%s -pe multislot %i " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, ppn)
             ge_cmd = (
-                ("%s/qsub %s %s -V -l "
-                 "walltime=%s,nodes=%i%s:ppn=%i,mem=%s -N cr_%s %s %s -r y") %
+                ("%s/qsub %s %s -V %s -N cr_%s %s %s -r y") %
                 (gebin,
                  '-A %s' % settings.GRID_ACCOUNT if settings.GRID_ACCOUNT != "" else "",
                  "-d '%s'" % pwd if settings.GRIDNAME == 'barnqacle' else '',
-                 walltime, nodes, highmem, ppn, pmem, jobname,
-                 flag_array, files_loc))
+                 resources,
+                 jobname, flag_array, files_loc))
             cmd_list += "echo '%s%s' | %s" % (cmd_conda, " && ".join(cmds), ge_cmd)
         else:
             slurm_script = "#!/bin/bash\n\n"
