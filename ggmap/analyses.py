@@ -2962,9 +2962,9 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                         'adjust.method = "BH", '
                         'time.unit = "days", '
                         'norm.method = "none", '
-                        'prefix = "MetaLonDA_results", '
+                        'prefix = "%s/MetaLonDA_results", '
                         'ylabel = "Read Counts", '
-                        'col = c("black", "green"))\n') % (num_permutations, num_intervals))
+                        'col = c("black", "green"))\n') % (num_permutations, num_intervals, workdir))
 
     def commands(workdir, ppn, args):
         commands = []
