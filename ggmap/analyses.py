@@ -2976,7 +2976,8 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
     def commands(workdir, ppn, args):
         commands = []
 
-        commands.append('export TMPDIR=%s; R --vanilla < %s/metalonda.R' % (os.environ['HOME'] + '/TMP/', workdir))
+        commands.append('export TMPDIR=%s' % workdir)
+        commands.append('R --vanilla < %s/metalonda.R' % workdir)
 
         return commands
 
