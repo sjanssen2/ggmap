@@ -2946,7 +2946,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
             raise ValueError("You metadata do not contain all specified columns. I am missing column(s) '%s'!" % "', '".join(missing_columns))
 
         args['counts'].to_csv('%s/counts.csv' % workdir, sep="\t")
-        map_featurenames.to_csv('%s/map_featurenames.csv', sep="\t")
+        map_featurenames.to_csv('%s/map_featurenames.csv' % workdir, sep="\t")
 
         # generate R code
         with open('%s/metalonda.R' % workdir, 'w') as f:
