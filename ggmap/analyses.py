@@ -2930,6 +2930,12 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
     counts = counts.loc[:, set(counts.columns) & set(meta.index)]
     meta = meta.loc[set(counts.columns) & set(meta.index), :]
 
+    # since MetaLonDA uses feature names for file names,
+    # we need to rename those in order to prevent file system issues
+    # e.g. if feature names are full length 16S sequences
+    map_featurenames = pd.Series({feature: "feature%i" % (i+1) for (i, feature) in enumerate(counts.sort_index().index)})
+    counts.index = map_featurenames.loc[counts.index]
+
     def pre_execute(workdir, args):
         # test if demux table contains necessary columns
         missing_columns = []
@@ -2940,6 +2946,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
             raise ValueError("You metadata do not contain all specified columns. I am missing column(s) '%s'!" % "', '".join(missing_columns))
 
         args['counts'].to_csv('%s/counts.csv' % workdir, sep="\t")
+        map_featurenames.to_csv('%s/map_featurenames.csv', sep="\t")
 
         # generate R code
         with open('%s/metalonda.R' % workdir, 'w') as f:
@@ -2964,7 +2971,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                         'norm.method = "none", '
                         'prefix = "%s/MetaLonDA_results", '
                         'ylabel = "Read Counts", '
-                        'col = c("black", "green"))\n') % (num_permutations, num_intervals, workdir))
+                        'col = c("black", "green"))\n') % (args['num_permutations'], args['num_intervals'], workdir))
 
     def commands(workdir, ppn, args):
         commands = []
@@ -2981,7 +2988,9 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                       'meta': meta,
                       'col_time': col_time,
                       'col_entities': col_entities,
-                      'col_phenotype': col_phenotype},
+                      'col_phenotype': col_phenotype,
+                      'num_intervals': num_intervals,
+                      'num_permutations': num_permutations},
                      pre_execute,
                      commands,
                      post_execute,
