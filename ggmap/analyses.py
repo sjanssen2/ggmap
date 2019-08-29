@@ -1064,7 +1064,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
         sdcomp = ''
         if 'stopdecomposition' in args:
             sdcomp = ' -M %f ' % args['stopdecomposition']
-        fp_sepp = '/home/jansses/miniconda3/envs/sepp/'
+        fp_sepp = '$CONDA_PREFIX/'
         commands.append('%sbin/run-sepp.sh "%s/sequences%s.mfa" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
             fp_sepp,
             workdir,
@@ -1116,7 +1116,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
                 '.tog.relabelled.tre'
             cluster_run([
                 'cd %s' % workdir,
-                '/home/jansses/miniconda3/envs/sepp/bin/guppy tog %s' %
+                '$CONDA_PREFIX/bin/guppy tog %s' %
                 file_mergedplacements,
                 'cat %s | python %s > %s' % (
                     file_mergedplacements.replace('.json', '.tog.tre'),
