@@ -16,6 +16,8 @@ import re
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
@@ -2898,6 +2900,7 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
 
 def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entities: str, col_phenotype: str,
               num_intervals: int=20, num_permutations: int=100,
+              rf_iterations: int=10, rf_train_test_ratio: float=0.5,
               ppn=12, pmem='10GB', walltime='2:00:00', **executor_args):
     """Uses dada2 to demultiplex PacBio amplicon sequences and returns feature table.
 
@@ -2982,7 +2985,58 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
         return commands
 
     def post_execute(workdir, args):
-        return None
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+
+        # parse dominant intervals and re-map feature names
+        intervalls = pd.read_csv('%s/MetaLonDA_results/MetaLonDA_TimeIntervals.csv' % workdir, sep=",", index_col=0)
+        map_featurenames = pd.read_csv('%s/map_featurenames.csv' % workdir, sep="\t").rename(columns={'Unnamed: 0': 'feature', '0': 'mapped_name'}).set_index('mapped_name')
+        intervalls.index = map_featurenames.loc[intervalls.index, 'feature']
+        intervalls = intervalls.reset_index().set_index(['feature', 'start', 'end'])
+
+        featurecounts = []
+        counts_remapped = counts.copy()
+        counts_remapped.index = map_featurenames.loc[counts_remapped.index, 'feature']
+        for (feature, start, end), row in intervalls.iterrows():
+            x = meta[[col_entities, col_time]].merge(counts_remapped.loc[feature, :], left_index=True, right_index=True)
+            x = x[x[col_time].apply(lambda x: start <= x <= end)].groupby(col_entities)[feature].mean()
+            x.name = '%s@%s@%s' % (feature, start, end)
+            featurecounts.append(x)
+        featurecounts = pd.concat(featurecounts, axis=1, sort=False).T.reindex(meta[args['col_entities']].unique(), axis=1).fillna(0)
+
+        phenotypes = meta.groupby(args['col_entities'])[args['col_phenotype']].unique().apply(lambda x: x[0])
+
+        if (rf_iterations > 0) and (verbose is not None):
+            verbose.write("running random forest: ")
+        rf_scores = []
+        for i in range(rf_iterations):
+            if verbose is not None:
+                verbose.write(".")
+            # 50% train, 50% test
+            clf = RandomForestClassifier(n_estimators=1000, n_jobs=1)
+            X_train, X_test, y_train, y_test = train_test_split(
+                featurecounts.T,
+                phenotypes,
+                test_size=rf_train_test_ratio)
+
+            # train the ML tool
+            clf = clf.fit(X_train, y_train)
+            # make predictions for test samples
+            prediction = pd.Series(clf.predict(X_test), index=X_test.index)
+            # assess accurracy
+            rf_scores.append({'accurracy': clf.score(X_test, y_test), 'iteration': i+1})
+        if (rf_iterations > 0) and (verbose is not None):
+            verbose.write(" done.\n")
+
+        return {'intervals': intervalls,
+                'featurecounts': featurecounts,
+                'phenotypes': phenotypes,
+                'rf_scores': pd.DataFrame(rf_scores)
+               }
+
+        #return None
 
     return _executor('metalonda',
                      {'counts': counts,
