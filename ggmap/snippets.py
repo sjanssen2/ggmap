@@ -1041,6 +1041,7 @@ def _add_timing_cmds(commands, file_timing):
         if cmd.startswith('cd ') or\
            cmd.startswith('module load ') or\
            cmd.startswith('var_') or\
+           cmd.startswith('export ') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         elif cmd.startswith('if [ '):
@@ -2346,7 +2347,8 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
     return merged_diffTaxa
 
 
-def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
+def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
+                   taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=None,
                    num_ranks=2, title=None, scale_height=0.7,
                    feature_color_map=None):
@@ -2363,6 +2365,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         First level: keys = pairs of group labels
         Second level: keys = feature, values = some numbers (are not considered
         right now)
+    onlyusetaxa : [str]
+        Default: None.
+        Restrict list of differentially abundant taxa to those provided in the
+        list.
     taxonomy : Pandas.Series
         Default: none
         Taxonomy labels for features.
@@ -2398,8 +2404,12 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
     relabund = counts / counts.sum()
     comparisons = sorted(map(sorted, diffTaxa.keys()))
     for i, (meta_value_a, meta_value_b) in enumerate(comparisons):
-        # only consider taxa given in the diffTaxa object
+        # only consider taxa given in the diffTaxa object...
         taxa = list(diffTaxa[(meta_value_a, meta_value_b)])
+        # ... and further subset if user provides an additional list of taxa
+        if onlyusetaxa is not None:
+            taxa = [t for t in taxa if t in onlyusetaxa]
+
         samples_a = metadata_field[metadata_field == meta_value_a].index
         samples_b = metadata_field[metadata_field == meta_value_b].index
         foldchange = np.log(
@@ -2445,6 +2455,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, taxonomy=None,
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
         if len(taxa) > 0:
+            if relabund_field.groupby('level_1')['relative abundance'].sum().max() > 1:
+                raise ValueError("If we add up all relative abundances, we have more than 100%. This is impossible! Please check if you provided the full count table, or errounously subsetted it to e.g. specific features. If this is the case, correct and use parameter 'onlyusetaxa'!")
             g = sns.boxplot(data=relabund_field,
                             x='relative abundance',
                             y='feature',
