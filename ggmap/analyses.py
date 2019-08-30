@@ -3044,7 +3044,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
 
         for phenotype in meta[col_phenotype].unique():
             if phenotype not in colors_phenotype:
-                colors_phenotype[phenotype] = ['green', 'blue'][len(colors_phenotype)]
+                colors_phenotype[phenotype] = ['green', 'blue'][len(colors_phenotype)-1]
         fig, ax = plt.subplots(1,1, figsize=(10, 0.5*intervals['feature'].unique().shape[0]))
         feature_names = dict()
         for i, (feature, g) in enumerate(intervals.groupby('feature')):
