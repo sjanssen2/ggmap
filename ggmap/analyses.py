@@ -15,7 +15,10 @@ import re
 
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from matplotlib.ticker import FuncFormatter
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
@@ -2893,6 +2896,217 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
                      pmem=pmem,
                      walltime=walltime,
                      environment="dada2_pacbio",
+                     **executor_args)
+
+
+def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entities: str, col_phenotype: str,
+              colors_phenotype: dict={}, taxonomy: pd.Series=None,
+              num_intervals: int=20, num_permutations: int=100,
+              rf_iterations: int=10, rf_train_test_ratio: float=0.5,
+              ppn=12, pmem='10GB', walltime='2:00:00', **executor_args):
+    """Uses dada2 to demultiplex PacBio amplicon sequences and returns feature table.
+
+    Paramaters
+    ----------
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    ?
+
+    Install
+    -------
+    conda create -n MetaLonDA r-essentials r-base
+    conda activate MetaLonDA
+    conda install -c r -c conda-forge r-git2r r-httr r-gh r-usethis
+
+    # you should not update to later version if R asks for, because this will crash condas R packages
+    R
+    	install.packages("devtools")
+    	library("devtools")
+    	if (!requireNamespace("BiocManager", quietly = TRUE))
+    		install.packages("BiocManager")
+    	BiocManager::install("DESeq2")
+    	BiocManager::install("metagenomeSeq")
+    	BiocManager::install("edgeR")
+    	install.packages("MetaLonDA")
+    """
+    counts = counts.loc[:, set(counts.columns) & set(meta.index)]
+    meta = meta.loc[set(counts.columns) & set(meta.index), :]
+
+    # since MetaLonDA uses feature names for file names,
+    # we need to rename those in order to prevent file system issues
+    # e.g. if feature names are full length 16S sequences
+    map_featurenames = pd.Series({feature: "feature%i" % (i+1) for (i, feature) in enumerate(counts.sort_index().index)})
+    counts_orig = counts.copy()
+    counts.index = map_featurenames.loc[counts.index]
+
+    def pre_execute(workdir, args):
+        if meta[args['col_phenotype']].unique().shape[0] != 2:
+            raise ValueError("You have more / less than 2 phenotypes!")
+
+        # test if demux table contains necessary columns
+        missing_columns = []
+        for c in [col_time, col_entities, col_phenotype]:
+            if c not in args['meta'].columns:
+                missing_columns.append(c)
+        if len(missing_columns) > 0:
+            raise ValueError("You metadata do not contain all specified columns. I am missing column(s) '%s'!" % "', '".join(missing_columns))
+
+        args['counts'].to_csv('%s/counts.csv' % workdir, sep="\t")
+        map_featurenames.to_csv('%s/map_featurenames.csv' % workdir, sep="\t", header=True)
+
+        # generate R code
+        with open('%s/metalonda.R' % workdir, 'w') as f:
+            f.write('library(MetaLonDA); packageVersion("MetaLonDA")\n')
+            f.write('counts <- as.matrix(read.csv("%s/counts.csv", sep="\\t", row.names=1, header=T))\n' % workdir)
+            f.write('Group = factor(c(%s))\n' % ', '.join(map(lambda x: '"%s"' % x, args['meta'].loc[args['counts'].columns, args['col_phenotype']].values)))
+            f.write('Time = c(%s)\n' % ', '.join(map(lambda x: '%s' % x, args['meta'].loc[args['counts'].columns, args['col_time']].values)))
+            f.write('ID = factor(c(%s))\n' % ', '.join(map(lambda x: '"%s"' % x, args['meta'].loc[args['counts'].columns, args['col_entities']].values)))
+
+            f.write(('output.metalonda.all = metalondaAll('
+                        'Count = counts, '
+                        'Time = Time, '
+                        'Group = Group, '
+                        'ID = ID, '
+                        'n.perm = %i, '
+                        'fit.method = "nbinomial", '
+                        'num.intervals = %i, '
+                        'parall = FALSE, '
+                        'pvalue.threshold = 0.05, '
+                        'adjust.method = "BH", '
+                        'time.unit = "days", '
+                        'norm.method = "none", '
+                        'prefix = "%s/MetaLonDA_results", '
+                        'ylabel = "Read Counts", '
+                        'col = c("black", "green"))\n') % (args['num_permutations'], args['num_intervals'], workdir))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('export TMPDIR=%s' % workdir)
+        commands.append('R --vanilla < %s/metalonda.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+
+        # parse dominant intervals and re-map feature names
+        intervalls = pd.read_csv('%s/MetaLonDA_results/MetaLonDA_TimeIntervals.csv' % workdir, sep=",", index_col=0)
+        map_featurenames = pd.read_csv('%s/map_featurenames.csv' % workdir, sep="\t").rename(columns={'Unnamed: 0': 'feature', '0': 'mapped_name'}).set_index('mapped_name')
+        intervalls.index = map_featurenames.loc[intervalls.index, 'feature']
+        intervalls = intervalls.reset_index().set_index(['feature', 'start', 'end'])
+
+        featurecounts = []
+        counts_remapped = counts.copy()
+        counts_remapped.index = map_featurenames.loc[counts_remapped.index, 'feature']
+        for (feature, start, end), row in intervalls.iterrows():
+            x = meta[[col_entities, col_time]].merge(counts_remapped.loc[feature, :], left_index=True, right_index=True)
+            x = x[x[col_time].apply(lambda x: start <= x <= end)].groupby(col_entities)[feature].mean()
+            x.name = '%s@%s@%s' % (feature, start, end)
+            featurecounts.append(x)
+        featurecounts = pd.concat(featurecounts, axis=1, sort=False).T.reindex(meta[args['col_entities']].unique(), axis=1).fillna(0)
+
+        phenotypes = meta.groupby(args['col_entities'])[args['col_phenotype']].unique().apply(lambda x: x[0])
+
+        if (rf_iterations > 0) and (verbose is not None):
+            verbose.write("running random forest: ")
+        rf_scores = []
+        for i in range(rf_iterations):
+            if verbose is not None:
+                verbose.write(".")
+            # 50% train, 50% test
+            clf = RandomForestClassifier(n_estimators=1000, n_jobs=1)
+            X_train, X_test, y_train, y_test = train_test_split(
+                featurecounts.T,
+                phenotypes,
+                test_size=rf_train_test_ratio)
+
+            # train the ML tool
+            clf = clf.fit(X_train, y_train)
+            # make predictions for test samples
+            prediction = pd.Series(clf.predict(X_test), index=X_test.index)
+            # assess accurracy
+            rf_scores.append({'accurracy': clf.score(X_test, y_test), 'iteration': i+1})
+        if (rf_iterations > 0) and (verbose is not None):
+            verbose.write(" done.\n")
+
+        return {'intervals': intervalls,
+                'featurecounts': featurecounts,
+                'phenotypes': phenotypes,
+                'rf_scores': pd.DataFrame(rf_scores)
+               }
+
+    def post_cache(cache_results):
+        intervals = cache_results['results']['intervals'].reset_index()
+
+        for phenotype in meta[col_phenotype].unique():
+            if phenotype not in colors_phenotype:
+                colors_phenotype[phenotype] = (['green', 'blue']*4)[len(colors_phenotype)]
+        fig, ax = plt.subplots(1,1, figsize=(10, 0.5*intervals['feature'].unique().shape[0]))
+        feature_names = dict()
+        for i, (feature, g) in enumerate(intervals.groupby('feature')):
+            feature_names[feature] = {
+                'name': '%i: %s...' % (len(feature_names), feature[:40]) if len(feature) > 40 else feature,
+                'taxonomy': "" if taxonomy is None else [r for r in taxonomy[feature].split(';') if len(r.strip()[3:]) > 0][-1],
+            }
+            for j, (phenotype, g_pheno) in enumerate(g.groupby('dominant')):
+                for _, row in g_pheno.sort_values('start').iterrows():
+                    ax.hlines(i, row['start'], row['end'], lw=6, color=colors_phenotype[phenotype])
+        ax.set_yticks(range(len(feature_names)))
+        ax.set_yticklabels([f['name'] for f in feature_names.values()])
+        ax.set_ylim(-1, len(feature_names))
+        ax.xaxis.grid(which='both')
+        ax.yaxis.grid(which='both')
+        if taxonomy is not None:
+            ax_taxa = ax.twinx()
+            ax_taxa.set_ylim(ax.get_ylim())
+            ax_taxa.set_yticks(ax.get_yticks())
+            ax_taxa.set_yticklabels([f['taxonomy'] for f in feature_names.values()])
+
+        ax.set_xlabel(col_time)
+        ax.set_title("MetaLonDA significant intervals, %i permutations and %i time intervals" % (num_permutations, num_intervals))
+        ax.legend(
+            handles=[mpatches.Patch(color=colors_phenotype[phenotype], label=phenotype) for phenotype in meta[col_phenotype].unique()],
+            loc='upper left',
+            bbox_to_anchor=(1.21, 1.05), title="dominant in:")
+        cache_results['results']['plot_summary'] = ax
+
+        fig, axes = plt.subplots(intervals['feature'].unique().shape[0], 1, figsize=(10, 5*intervals['feature'].unique().shape[0]), sharex=False, sharey=False)
+        for i, (feat, _) in enumerate(intervals.groupby('feature')):
+            data = meta[[col_entities, col_time, col_phenotype]].merge(counts_orig.loc[feat,:], left_index=True, right_index=True)
+            sns.lineplot(data=data, y=feat, x=col_time, hue=col_phenotype, palette=colors_phenotype, estimator=None, units=col_entities, ax=axes[i])
+            axes[i].set_title(feature_names[feat]['name'])
+            if taxonomy is not None:
+                axes[i].set_title(axes[i].get_title() + "\n" + feature_names[feat]['taxonomy'])
+            axes[i].set_ylabel('reads')
+            axes[i].xaxis.grid(which='both')
+        cache_results['results']['plot_counts'] = ax
+
+        return cache_results
+
+
+    return _executor('metalonda',
+                     {'counts': counts,
+                      'meta': meta,
+                      'col_time': col_time,
+                      'col_entities': col_entities,
+                      'col_phenotype': col_phenotype,
+                      'num_intervals': num_intervals,
+                      'num_permutations': num_permutations},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache=post_cache,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime=walltime,
+                     environment="MetaLonDA",
                      **executor_args)
 
 
