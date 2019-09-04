@@ -34,6 +34,7 @@ from skbio.sequence import DNA
 from skbio.tree import TreeNode
 
 settings.init()
+plt.rcParams['svg.fonttype'] = 'none'
 
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
@@ -1837,7 +1838,7 @@ def plotGroup_permanovas(beta, groupings,
 
 
 # definition of network plots
-def plotNetworks(field, metadata, alpha, beta, b_min_num=5, pthresh=0.05,
+def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: dict, b_min_num=5, pthresh=0.05,
                  permutations=999, name=None, minnumalpha=21,
                  fct_beta_test=permanova, summarize=False):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
@@ -2680,7 +2681,7 @@ def plot_identify_important_features(res):
 
 
 # copy and paste from https://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html#sphx-glr-auto-examples-model-selection-plot-confusion-matrix-py
-def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
+def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series,
                           normalize=False,
                           title=None,
                           cmap=plt.cm.Blues,
@@ -2697,10 +2698,12 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
         else:
             title = 'Confusion matrix, without normalization'
 
-    # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
     # Only use the labels that appear in the data
-    classes = set(y_true.unique()) & set(y_pred.unique()) & set(classes)
+    classes = set(y_true.unique()) & set(y_pred.unique())
+
+    # Compute confusion matrix
+    cm = confusion_matrix(y_true, y_pred, sorted(classes))
+
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
         if verbose is not None:
@@ -2710,25 +2713,25 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
             verbose.write('Confusion matrix, without normalization\n')
 
     if verbose is not None:
-        verbose.write(cm)
+        verbose.write(str(cm))
 
     if ax is None:
         fig, ax = plt.subplots()
-        fig.tight_layout()
+        #fig.tight_layout()
     im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
     #ax.figure.colorbar(im, ax=ax)
     # We want to show all ticks...
     ax.set(xticks=np.arange(cm.shape[1]),
            yticks=np.arange(cm.shape[0]),
            # ... and label them with the respective list entries
-           xticklabels=[c for c in y_true.unique() if c in classes], yticklabels=[c for c in y_pred.unique() if c in classes],#classes,
+           xticklabels=sorted(classes), yticklabels=sorted(classes),#classes,
            title=title,
-           ylabel='True label',
-           xlabel='Predicted label')
+           ylabel='True %s' % ('label' if y_true.name is None else y_true.name),
+           xlabel='Predicted %s' % ('label' if y_true.name is None else y_true.name))
 
     # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=xtickrotation, ha="center",
-             rotation_mode="anchor")
+    #plt.setp(ax.get_xticklabels(), rotation=xtickrotation, ha="center",
+#             rotation_mode="anchor")
 
     # Loop over data dimensions and create text annotations.
     fmt = '.2f' if normalize else 'd'
@@ -2740,6 +2743,14 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series, classes: [str],
             ax.text(j, i, format(cm[i, j], fmt),
                     ha="center", va="center",
                     color="white" if cm[i, j]-cm.min() > thresh else "black")
+
+    ax.grid(b=False, which='both', axis='both')
+    ax.set_ylim((-0.5,1.5))
+    ax.set_xlim((-0.5,1.5))
+
+    for loc in ax.spines.keys():
+        ax.spines[loc].set_color('0') # ['bottom'].set_color('0')
+
     return ax
 
 
@@ -3426,3 +3437,46 @@ def predict_timecourse(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, 
         })
 
     return [pd.DataFrame(results), timecounts]
+
+
+def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iterations: int=10, train_test_ratio: float=0.5, title=None):
+    results = []
+    for i in range(iterations):
+        if i == 0:
+            random_state=42
+        else:
+            random_state=None
+        clf = RandomForestClassifier(n_estimators=1000, n_jobs=1, random_state=random_state)
+        idx_samples = sorted(set(phenotype.index) & set(counts.columns))
+        X_train, X_test, y_train, y_test = train_test_split(counts.loc[:, idx_samples].T, phenotype.loc[idx_samples], test_size=train_test_ratio, random_state=random_state)
+        clf = clf.fit(X_train, y_train)
+        prediction = pd.Series(clf.predict(X_test), index=X_test.index)
+        results.append({'iteration': i,
+                        'accurracy': clf.score(X_test, y_test),
+                        'train': y_train,
+                        'test': y_test,
+                        'prediction': prediction,
+                        'clf': clf})
+    results = pd.DataFrame(results)
+
+    fig, axes = plt.subplots(1,2)
+
+    ax = axes[0]
+    chosen_iteration = results.sort_values(by='accurracy').index[int(results.shape[0]/2)]
+    plot_confusion_matrix(results.loc[chosen_iteration, 'test'],
+                          results.loc[chosen_iteration, 'prediction'],
+                          title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().iteritems()]),
+                                                                                ', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'test'].value_counts().sort_index().iteritems()]),
+                                                                                results.loc[chosen_iteration, 'accurracy']),
+                          xtickrotation=0, ax=ax, verbose=None)
+
+    ax = axes[1]
+    sns.swarmplot(results['accurracy'], ax=ax, orient='v')
+    ax.set_xlabel('%i iterations' % iterations)
+    ax.yaxis.set_label_position("right")
+    ax.yaxis.set_ticks_position("right")
+
+    if title is not None:
+        fig.suptitle(title)
+
+    return fig, results.loc[chosen_iteration, 'clf']

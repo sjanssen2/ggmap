@@ -2900,7 +2900,7 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
 
 
 def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entities: str, col_phenotype: str,
-              colors_phenotype: dict={},
+              colors_phenotype: dict={}, taxonomy: pd.Series=None,
               num_intervals: int=20, num_permutations: int=100,
               rf_iterations: int=10, rf_train_test_ratio: float=0.5,
               ppn=12, pmem='10GB', walltime='2:00:00', **executor_args):
@@ -2943,6 +2943,9 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
     counts.index = map_featurenames.loc[counts.index]
 
     def pre_execute(workdir, args):
+        if meta[args['col_phenotype']].unique().shape[0] != 2:
+            raise ValueError("You have more / less than 2 phenotypes!")
+
         # test if demux table contains necessary columns
         missing_columns = []
         for c in [col_time, col_entities, col_phenotype]:
@@ -3044,32 +3047,43 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
 
         for phenotype in meta[col_phenotype].unique():
             if phenotype not in colors_phenotype:
-                colors_phenotype[phenotype] = ['green', 'blue'][len(colors_phenotype)-1]
+                colors_phenotype[phenotype] = (['green', 'blue']*4)[len(colors_phenotype)]
         fig, ax = plt.subplots(1,1, figsize=(10, 0.5*intervals['feature'].unique().shape[0]))
         feature_names = dict()
         for i, (feature, g) in enumerate(intervals.groupby('feature')):
-            feature_names[feature] = '%i: %s...' % (len(feature_names), feature[:40]) if len(feature) > 40 else feature
+            feature_names[feature] = {
+                'name': '%i: %s...' % (len(feature_names), feature[:40]) if len(feature) > 40 else feature,
+                'taxonomy': "" if taxonomy is None else [r for r in taxonomy[feature].split(';') if len(r.strip()[3:]) > 0][-1],
+            }
             for j, (phenotype, g_pheno) in enumerate(g.groupby('dominant')):
                 for _, row in g_pheno.sort_values('start').iterrows():
                     ax.hlines(i, row['start'], row['end'], lw=6, color=colors_phenotype[phenotype])
         ax.set_yticks(range(len(feature_names)))
-        ax.set_yticklabels(feature_names.values())
+        ax.set_yticklabels([f['name'] for f in feature_names.values()])
         ax.set_ylim(-1, len(feature_names))
         ax.xaxis.grid(which='both')
         ax.yaxis.grid(which='both')
+        if taxonomy is not None:
+            ax_taxa = ax.twinx()
+            ax_taxa.set_ylim(ax.get_ylim())
+            ax_taxa.set_yticks(ax.get_yticks())
+            ax_taxa.set_yticklabels([f['taxonomy'] for f in feature_names.values()])
+
         ax.set_xlabel(col_time)
         ax.set_title("MetaLonDA significant intervals, %i permutations and %i time intervals" % (num_permutations, num_intervals))
         ax.legend(
             handles=[mpatches.Patch(color=colors_phenotype[phenotype], label=phenotype) for phenotype in meta[col_phenotype].unique()],
             loc='upper left',
-            bbox_to_anchor=(1.01, 1.05), title="dominant in:")
+            bbox_to_anchor=(1.21, 1.05), title="dominant in:")
         cache_results['results']['plot_summary'] = ax
 
         fig, axes = plt.subplots(intervals['feature'].unique().shape[0], 1, figsize=(10, 5*intervals['feature'].unique().shape[0]), sharex=False, sharey=False)
         for i, (feat, _) in enumerate(intervals.groupby('feature')):
             data = meta[[col_entities, col_time, col_phenotype]].merge(counts_orig.loc[feat,:], left_index=True, right_index=True)
             sns.lineplot(data=data, y=feat, x=col_time, hue=col_phenotype, palette=colors_phenotype, estimator=None, units=col_entities, ax=axes[i])
-            axes[i].set_title(feature_names[feat])
+            axes[i].set_title(feature_names[feat]['name'])
+            if taxonomy is not None:
+                axes[i].set_title(axes[i].get_title() + "\n" + feature_names[feat]['taxonomy'])
             axes[i].set_ylabel('reads')
             axes[i].xaxis.grid(which='both')
         cache_results['results']['plot_counts'] = ax
