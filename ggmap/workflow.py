@@ -24,7 +24,8 @@ def process_study(metadata: pd.DataFrame,
                   use_grid: bool=True,
                   ppn: int=20,
                   emperor_infix: str="",
-                  emperor_fp: str=None):
+                  emperor_fp: str=None,
+                  beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"]):
     """
     parameters
     ----------
@@ -101,7 +102,7 @@ def process_study(metadata: pd.DataFrame,
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, metrics=beta_metrics)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
