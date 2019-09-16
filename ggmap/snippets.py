@@ -2776,6 +2776,7 @@ def ganttChart(metadata: pd.DataFrame,
                align_to_event_title: str = None,
                counts: pd.DataFrame = None,
                order_entities: list = None,
+               timeresolution: str = 'days',
                ):
     """Generates Gantt chart of chronologic experiment design.
 
@@ -2840,11 +2841,18 @@ def ganttChart(metadata: pd.DataFrame,
         If provided, events of missing samples will be drawn dotted,
         instead of with a solid line.
     order_entities : [str]
-	List of entity names to order their plotting vertically.
-
+	    List of entity names to order their plotting vertically.
+    timeresolution : str {days, seconds}
+        Default: days
+        Time resolution for internal coordinate system.
+        For short time periods, seconds might be more appropriate to visualize
+        time intervals.
     Returns
     -------
     """
+    if timeresolution not in ['days', 'seconds']:
+        raise ValueError('timeresolution must either be "days" or "seconds"!')
+
     COL_DEATH = '_death'
     COL_GROUP = '_group'
     COL_YPOS = '_ypos'
@@ -2890,8 +2898,9 @@ def ganttChart(metadata: pd.DataFrame,
             meta[col] = pd.to_datetime(metadata[col])
     # convert dates into internal coordinate system
     date_baseline = meta[cols_dates].stack().min()
+    #return date_baseline, cols_dates, meta
     for col in cols_dates:
-        meta[col] = meta[col].apply(lambda x: (x - date_baseline).days)
+        meta[col] = meta[col].apply(lambda x: getattr((x - date_baseline), timeresolution))
     # try to find end date for entities
     if col_death is not None:
         meta[COL_DEATH] = meta[col_death]
@@ -2991,7 +3000,7 @@ def ganttChart(metadata: pd.DataFrame,
         color=plot_entities[COL_ENTITY_COLOR].apply(
             lambda x: colors_entities.get(x, 'black')),
     )
-    plt.xlabel('days')
+    plt.xlabel(timeresolution)
     plt.ylabel(col_entities)
     # improve tick frequency, which is not easy!
     # plt.xticks(np.arange(axes.get_xlim()[0], axes.get_xlim()[1], 27))
@@ -3060,7 +3069,10 @@ def get_dictvalue(_hash, _key, default):
 
 
 def _get_group_name(group):
-    return ' '.join(group)
+    if type(group) == str:
+        return group
+    else:
+        return ' '.join(group)
 
 
 def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
@@ -3087,7 +3099,11 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
     legend_elements = []
     xtick_labels = []
     group_sizes = []
+    if colors_groups is None:
+        colors_groups = dict()
     for group in meta.groupby(cols_groups).size().index.get_values():
+        if group not in colors_groups:
+            colors_groups[group] = sns.color_palette()[len(colors_groups)]
         # plot lines
         data_group = meta_data[(meta_data[cols_groups] == group).all(axis=1)]
         sns.lineplot(data=data_group,
@@ -3133,7 +3149,9 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
             g_res = pd.Series(g_res)
             g_res.name = '"%s" %s "%s"' % (_get_group_name(group_A), {'two-sided': 'vs', 'greater': '>', 'less': '<'}.get(alternative), _get_group_name(group_B))
             group_tests.append(g_res)
-    group_tests = pd.concat(group_tests, axis=1).fillna(1)
+        group_tests = pd.concat(group_tests, axis=1).fillna(1)
+    else:
+        group_tests = pd.DataFrame()
 
     # print sample sizes on top x axis
     group_sizes = pd.concat(group_sizes, axis=1).fillna(0).astype(int)
@@ -3141,11 +3159,17 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
     ax_numsamples.set_xticks(list(ax.get_xticks()) + [ax.get_xlim()[1]])
     ax_numsamples.set_xlim(ax.get_xlim())
 
-    xlabels = pd.concat([group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isnull(x) else str(x)) if print_samplesizes else pd.DataFrame(),
-                         group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else '')], axis=1).apply(lambda x: '\n'.join(x), axis=1)
-    xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
-                                               ['\n'.join(group_tests.columns)])
-    ax_numsamples.set_xticklabels(xlabels)
+    xlabels = []
+    if print_samplesizes:
+        xlabels.append(group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isna(x) else str(x)))
+    if test_groups:
+        xlabels.append(group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else ''))
+    if len(xlabels) > 0:
+        xlabels = pd.concat(xlabels, axis=1).apply(lambda x: '\n'.join(x), axis=1)
+        xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
+                                                   ['\n'.join(group_tests.columns)])
+        ax_numsamples.set_xticklabels(xlabels)
+        ax_numsamples.get_xticklabels()[-1].set_ha("left")
 
 
 def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_name: str,
@@ -3220,9 +3244,8 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
             ax.axvspan(start, stop, facecolor='#fff09d', zorder=0)
 
     xlim = ax.get_xlim()
-    colors = None
+    colors = {'inter': 'white'}
     if colors_groups is not None:
-        colors = {'inter': 'white'}
         for k,v in colors_groups.items():
             colors['intra: %s' % k] = v
     for group in group_names:
@@ -3266,6 +3289,7 @@ def plot_timecourse_beta(metadata: pd.DataFrame, beta: DistanceMatrix, metric_na
     xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
                                                ['\n'.join(group_tests.columns)])
     ax_numsamples.set_xticklabels(xlabels)
+    ax_numsamples.get_xticklabels()[-1].set_ha("left")
     ax.set_ylabel(metric_name)
 
 
