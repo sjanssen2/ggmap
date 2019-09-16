@@ -14,7 +14,7 @@ import sys
 import time
 from itertools import combinations
 from skbio.stats.distance import permanova, DistanceMatrix
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, kruskal
 import networkx as nx
 import warnings
 import matplotlib.cbook
@@ -1390,12 +1390,18 @@ def detect_distant_groups_alpha(alpha, groupings,
             args['alternative'] = 'two-sided'
             args['x'] = args.pop('a')
             args['y'] = args.pop('b')
+        elif fct_test == kruskal:
+            args['x'] = list(args.pop('a').values)
+            args['y'] = list(args.pop('b').values)
 
         if a not in network:
             network[a] = dict()
 
         try:
-            res = fct_test(**args)
+            if fct_test == kruskal:
+                res = fct_test(args['x'], args['y'])
+            else:
+                res = fct_test(**args)
             network[a][b] = {'p-value': res.pvalue,
                              'test-statistic': res.statistic}
         except ValueError as e:
@@ -1844,7 +1850,7 @@ def plotGroup_permanovas(beta, groupings,
 # definition of network plots
 def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: dict, b_min_num=5, pthresh=0.05,
                  permutations=999, name=None, minnumalpha=21,
-                 fct_beta_test=permanova, summarize=False):
+                 fct_beta_test=permanova, fct_alpha_test=mannwhitneyu, summarize=False):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
 
     Parameters
@@ -1878,6 +1884,9 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
         Default: skbio.stats.distance.permanova
         Python function to execute test.
         Valid functions are "permanova" or "anosim" from skbio.stats.distance.
+    fct_alpha_test : function
+        Default: mannwhitneyu
+        Python function to execute test.
 
     Returns
     -------
@@ -1908,7 +1917,7 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
             for a_metric in alpha.columns:
                 a = detect_distant_groups_alpha(
                     alpha[a_metric], metadata[field],
-                    min_group_size=minnumalpha)
+                    min_group_size=minnumalpha, fct_test=fct_alpha_test)
                 if summarize:
                     networks['alpha'][a_metric] = a
                     for i in a['network'].keys():
