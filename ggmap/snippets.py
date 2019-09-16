@@ -1263,6 +1263,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             with subprocess.Popen(
                     cmd_list, shell=True, stdout=subprocess.PIPE) as task_qsub:
                 qid = task_qsub.stdout.read().decode('ascii').rstrip()
+                if settings.GRIDNAME == 'JLU':
+                    qid = qid.split(" ")[2]
                 if slurm:
                     qid = qid.split()[-1]
                     os.remove(file_script)
@@ -1299,8 +1301,10 @@ def cluster_run(cmds, jobname, result, environment=None,
                             poll_stati = []
                             for i in range(array):
                                 p = subprocess.call(
-                                    "%s/qstat %s" %
-                                    (gebin, qid.replace('[]', '[%i]' % (i+1))),
+                                    "%s/qstat %s %s" %
+                                    (gebin,
+                                     ' -j ' if settings.GRIDNAME == 'JLU' else '',
+                                     qid.replace('[]', '[%i]' % (i+1))),
                                     shell=True)
                                 poll_stati.append(p == 0)
                             if any(poll_stati):

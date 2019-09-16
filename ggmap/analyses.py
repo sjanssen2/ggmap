@@ -648,6 +648,7 @@ def beta_diversity(counts,
                             "bray_curtis"],
                    reference_tree=None,
                    fix_zero_len_branches=False,
+                   remove_zero_entropy_samples: bool=False,
                    **executor_args):
     """Computes beta diversity values for given BIOM table.
 
@@ -665,6 +666,23 @@ def beta_diversity(counts,
     Returns
     -------
     Dict of Pandas.DataFrame, one per metric."""
+    zeroEntropySamples = []
+    for sample in counts.columns:
+        if counts[sample].fillna(0).value_counts().shape[0] <= 1:
+            zeroEntropySamples.append(sample)
+    if remove_zero_entropy_samples is False:
+        if len(zeroEntropySamples) > 0:
+            raise ValueError("%i samples have zero entropy, i.e. all features have the same value, which can lead to downstream errors and is quite unlikely to happen for real data. Please check and remove those samples:\n%s\nOr set 'remove_zero_entropy_samples=True'." % (len(zeroEntropySamples), ', '.join(map(lambda x: '"%s"' % x, zeroEntropySamples))))
+    else:
+        counts = counts.loc[:, [s for s in counts.columns if s not in zeroEntropySamples]]
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+        if len(zeroEntropySamples) > 0:
+            verbose.write('Silently excluded %i samples, due to their zero entropy.\n' % len(zeroEntropySamples))
+    if counts.shape[1] <= 1:
+        raise ValueError("Your feature table has less than two samples!")
 
     def pre_execute(workdir, args):
         # store counts as a biom file
@@ -3282,7 +3300,12 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     for wd in pot_workdirs:
         all_finished = True
         for i in range(array):
-            if not os.path.exists(wd+'/finished.info%s' % ("%i" % (i+1) if array > 1 else "")):
+            exp_finish_suffix = ""
+            if array > 1:
+                exp_finish_suffix = str(int(i+1))
+            if (array == 1) and (settings.GRIDNAME == 'JLU'):
+                exp_finish_suffix = 'undefined'
+            if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
                 all_finished = False
                 break
         if all_finished:
