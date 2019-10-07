@@ -23,7 +23,7 @@ from sklearn.ensemble import RandomForestClassifier
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents)
 from ggmap import settings
 import seaborn as sns
 
@@ -3125,6 +3125,122 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                      pmem=pmem,
                      walltime=walltime,
                      environment="MetaLonDA",
+                     **executor_args)
+
+
+def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
+          col_envname, col_type,
+          #col_envID=None,
+          EM_iterations=1000, **executor_args):
+    """FEAST for microbial source tracking.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        feature-table
+    metadata : Pandas.DataFrame
+        metadata for samples of feature-table.
+        Need to contain columns for "envname", "type" and "envID".
+    col_envname : str
+        column name in metadata specifying the environment _name_. Like "infant",
+        "adult gut", "soil", ...
+    INACTIVE col_envID : str
+        column name in metadata specifying the environment ID to group "Sinks" and "Sources".
+    col_type : str
+        column name in metadata specifiying if sample is either "Sink" or "Source".
+    EM_iterations : int
+        Default: 1000.
+        Number of EM iterations. We recommend using this default value.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    ?
+    """
+    # general sanity checks
+    (counts, metadata) = sync_counts_metadata(counts, metadata)
+    check_column_presents(metadata, [col_envname, col_type])
+    def _fix_sourcesink(value):
+        if value.lower() == 'sink':
+            return 'Sink'
+        elif value.lower() == 'source':
+            return 'Source'
+        return value
+    metadata[col_type] = metadata[col_type].apply(_fix_sourcesink)
+    metadata[col_envname] = metadata[col_envname].fillna('unnamed Environment')
+
+    def pre_execute(workdir, args):
+        #  check logic of column values
+        sinksource = args['metadata'][args['col_type']].value_counts()
+        if len(set(sinksource.index) & set(['Sink', 'Source'])) != 2:
+            display(sinksource)
+            raise ValueError("Column '%s' needs to define for each sample to be either 'Sink' or 'Source' (case sensitive)." % (col_type))
+
+        idx_sources = list(args['metadata'][args['metadata'][args['col_type']] == 'Source'].index)
+        for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
+            args['counts'].loc[:, idx_sources + [idx]].to_csv('%s/feature-table_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label=False)
+            args['metadata'].loc[idx_sources + [idx], [col_envname, col_type]].to_csv('%s/metadata_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label="SampleID")
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        arr_var = '${%s}' % settings.VARNAME_PBSARRAY if args['metadata'][args['metadata'][args['col_type']] == 'Sink'].shape[0] > 1 else '1'
+        commands.append((
+            "Rscript --vanilla $CONDA_PREFIX/src/feast/feast_main.R "
+            "-m %s/metadata_%s.txt "
+            "-c %s/feature-table_%s.txt "
+            "-s 0 "
+            "-e %i "
+            "-r %s/feast.results_%s.csv "
+            "> %s/feast_%s.out 2> %s/feast_%s.err") % (workdir, arr_var, workdir, arr_var, args['EM_iterations'], workdir, arr_var, workdir, arr_var, workdir, arr_var))
+
+        return commands
+
+    def post_execute(workdir, args):
+        return None
+        # counts = pd.read_csv('%s/results_feature-table.csv' % workdir, sep="\t").T.fillna(0).astype(int)
+        # counts.columns = map(lambda x: x[:-6] if x.endswith('.fastq') else x, counts.columns)
+        # lendistr = pd.read_csv('%s/results_lengthdistribution.csv' % workdir, sep="\t", squeeze=True)
+        # tracking = pd.read_csv('%s/results_summary.csv' % workdir, sep="\t", index_col=1).rename(columns={
+        #     'ccs': '01_rawreads',
+        #     'primers': '02_primers_removed',
+        #     'filtered': '03_quality_filtering',
+        #     'denoised': '04_final_counts',
+        # })
+        # del tracking['sample_name']
+        # tracking.index.name = 'sample_name'
+        # return {'counts': counts,
+        #         'read_length_distribution': lendistr,
+        #         'stats': tracking.sort_values('04_final_counts')}
+
+    # def post_cache(cache_results):
+    #     # generate plot for read length distribution
+    #     lendistr = cache_results['results']['read_length_distribution']
+    #     fig, axes = plt.subplots(1, 1)
+    #     g = sns.distplot(lendistr, kde=False, bins=100, ax=axes)
+    #     g.set_xlim(lendistr.mean() - (2*lendistr.std()), lendistr.mean() + (2*lendistr.std()))
+    #     g.set_ylabel('frequency')
+    #     g.set_xlabel('read length')
+    #     g.set_title('Histogram of read lengths\nWe expect to see a strong peak around ~1450bp')
+    #     cache_results['results']['read_length_distribution'] = fig
+    #
+    #     return cache_results
+
+    return _executor('feast',
+                     {'counts': counts,
+                      'metadata': metadata,
+                      'col_envname': col_envname,
+                      'col_type': col_type,
+                      #'col_envID': col_envID,
+                      'EM_iterations': EM_iterations,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     #post_cache=post_cache,
+                     environment="ggmap_feast",
+                     array=metadata[metadata[col_type] == 'Sink'].shape[0],
                      **executor_args)
 
 
