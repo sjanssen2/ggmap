@@ -3131,7 +3131,8 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
 def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
           col_envname, col_type,
           #col_envID=None,
-          EM_iterations=1000, **executor_args):
+          EM_iterations=1000,
+          ppn=4, mem='4GB', **executor_args):
     """FEAST for microbial source tracking.
 
     Paramaters
@@ -3198,21 +3199,20 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         return commands
 
     def post_execute(workdir, args):
-        return None
-        # counts = pd.read_csv('%s/results_feature-table.csv' % workdir, sep="\t").T.fillna(0).astype(int)
-        # counts.columns = map(lambda x: x[:-6] if x.endswith('.fastq') else x, counts.columns)
-        # lendistr = pd.read_csv('%s/results_lengthdistribution.csv' % workdir, sep="\t", squeeze=True)
-        # tracking = pd.read_csv('%s/results_summary.csv' % workdir, sep="\t", index_col=1).rename(columns={
-        #     'ccs': '01_rawreads',
-        #     'primers': '02_primers_removed',
-        #     'filtered': '03_quality_filtering',
-        #     'denoised': '04_final_counts',
-        # })
-        # del tracking['sample_name']
-        # tracking.index.name = 'sample_name'
-        # return {'counts': counts,
-        #         'read_length_distribution': lendistr,
-        #         'stats': tracking.sort_values('04_final_counts')}
+        # read feast results from file, one file per sink sample
+        results = []
+        for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
+            results.append(pd.read_csv('%s/feast.results_%s.csv' % (workdir, i+1), sep="\t", index_col=0, names=[idx]))
+        results = pd.concat(results, sort=False, axis=1)
+
+        # map every sink-sample to its environment name ...
+        results_env = results.copy().T
+        results_env[args['col_envname']] = list(map(lambda x: args['metadata'].loc[x, args['col_envname']], results.columns))
+
+        # and take the mean for each source over all samples of a env group
+        results_env = results_env.groupby('Env').mean()
+
+        return results_env
 
     # def post_cache(cache_results):
     #     # generate plot for read length distribution
@@ -3241,6 +3241,8 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      #post_cache=post_cache,
                      environment="ggmap_feast",
                      array=metadata[metadata[col_type] == 'Sink'].shape[0],
+                     ppn=ppn,
+                     mem=mem,
                      **executor_args)
 
 
