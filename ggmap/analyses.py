@@ -3132,7 +3132,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
           col_envname, col_type,
           #col_envID=None,
           EM_iterations=1000,
-          ppn=4, mem='4GB', **executor_args):
+          ppn=4, pmem='4GB', **executor_args):
     """FEAST for microbial source tracking.
 
     Paramaters
@@ -3242,7 +3242,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      environment="ggmap_feast",
                      array=metadata[metadata[col_type] == 'Sink'].shape[0],
                      ppn=ppn,
-                     mem=mem,
+                     pmem=pmem,
                      **executor_args)
 
 
