@@ -3171,6 +3171,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         return value
     metadata[col_type] = metadata[col_type].apply(_fix_sourcesink)
     metadata[col_envname] = metadata[col_envname].fillna('unnamed Environment')
+    metadata[col_envname] = metadata[col_envname].apply(lambda x: x.replace(' ', '_'))
 
     def pre_execute(workdir, args):
         #  check logic of column values
