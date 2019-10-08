@@ -137,4 +137,4 @@
  }
 
  print(Proportions_est)
-+write.table(Proportions_est, opt$result_file, sep='\t')
++write.table(Proportions_est, opt$result_file, sep='\t', row.names=names(Proportions_est[[1]]), col.names=FALSE)
