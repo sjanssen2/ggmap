@@ -3181,7 +3181,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         idx_sources = list(args['metadata'][args['metadata'][args['col_type']] == 'Source'].index)
         for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
             args['counts'].loc[:, idx_sources + [idx]].to_csv('%s/feature-table_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label=False)
-            args['metadata'].loc[idx_sources + [idx], [col_envname, col_type]].to_csv('%s/metadata_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label="SampleID")
+            args['metadata'].loc[idx_sources + [idx], [col_envname, col_type]].to_csv('%s/metadata_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label="SampleID", quoting=csv.QUOTE_NONNUMERIC)
 
     def commands(workdir, ppn, args):
         commands = []
