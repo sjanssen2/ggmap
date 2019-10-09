@@ -1980,6 +1980,8 @@ def picrust(counts, **executor_args):
 
     Install
     -------
+    outdated, better use ggmap_picrust1 env from anaconda/sjanssen2 !
+    
     conda create --name picrust python=2.7
     conda activate picrust
     mkdir $CONDA_PREFIX/src/
@@ -2064,7 +2066,7 @@ def picrust(counts, **executor_args):
                      commands,
                      post_execute,
                      ppn=1,
-                     environment=settings.PICRUST_ENV,
+                     environment='ggmap_picrust1',
                      **executor_args)
 
 
