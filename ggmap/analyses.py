@@ -3210,6 +3210,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         # even though source environments can consist of several samples, they don't get grouped by feast. Thus, I here sum their contribution
         results = pd.concat(results, sort=False, axis=1).reset_index().groupby('index').sum()
         results.index.name = "Source"
+        results.rename(index={'unknown': 'Unknown'})
 
         # map every sink-sample to its environment name ...
         # results_env = results.copy().T
@@ -3220,19 +3221,6 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         # results_env.index.name = 'Sink'
 
         return results  # _env.T
-
-    # def post_cache(cache_results):
-    #     # generate plot for read length distribution
-    #     lendistr = cache_results['results']['read_length_distribution']
-    #     fig, axes = plt.subplots(1, 1)
-    #     g = sns.distplot(lendistr, kde=False, bins=100, ax=axes)
-    #     g.set_xlim(lendistr.mean() - (2*lendistr.std()), lendistr.mean() + (2*lendistr.std()))
-    #     g.set_ylabel('frequency')
-    #     g.set_xlabel('read length')
-    #     g.set_title('Histogram of read lengths\nWe expect to see a strong peak around ~1450bp')
-    #     cache_results['results']['read_length_distribution'] = fig
-    #
-    #     return cache_results
 
     return _executor('feast',
                      {'counts': counts,
