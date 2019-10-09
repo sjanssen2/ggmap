@@ -12,6 +12,7 @@ import time
 import numpy as np
 import json
 import re
+import csv
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ from sklearn.ensemble import RandomForestClassifier
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents)
 from ggmap import settings
 import seaborn as sns
 
@@ -3125,6 +3126,118 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                      pmem=pmem,
                      walltime=walltime,
                      environment="MetaLonDA",
+                     **executor_args)
+
+
+def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
+          col_envname, col_type,
+          #col_envID=None,
+          EM_iterations=1000,
+          ppn=4, pmem='4GB', **executor_args):
+    """FEAST for microbial source tracking.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        feature-table
+    metadata : Pandas.DataFrame
+        metadata for samples of feature-table.
+        Need to contain columns for "envname", "type" and "envID".
+    col_envname : str
+        column name in metadata specifying the environment _name_. Like "infant",
+        "adult gut", "soil", ...
+    INACTIVE col_envID : str
+        column name in metadata specifying the environment ID to group "Sinks" and "Sources".
+    col_type : str
+        column name in metadata specifiying if sample is either "Sink" or "Source".
+    EM_iterations : int
+        Default: 1000.
+        Number of EM iterations. We recommend using this default value.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    ?
+    """
+    # general sanity checks
+    (counts, metadata) = sync_counts_metadata(counts, metadata)
+    check_column_presents(metadata, [col_envname, col_type])
+    def _fix_sourcesink(value):
+        if value.lower() == 'sink':
+            return 'Sink'
+        elif value.lower() == 'source':
+            return 'Source'
+        return value
+    metadata[col_type] = metadata[col_type].apply(_fix_sourcesink)
+    metadata[col_envname] = metadata[col_envname].fillna('unnamed Environment')
+    metadata[col_envname] = metadata[col_envname].apply(lambda x: x.replace(' ', '_'))
+
+    def pre_execute(workdir, args):
+        #  check logic of column values
+        sinksource = args['metadata'][args['col_type']].value_counts()
+        if len(set(sinksource.index) & set(['Sink', 'Source'])) != 2:
+            display(sinksource)
+            raise ValueError("Column '%s' needs to define for each sample to be either 'Sink' or 'Source' (case sensitive)." % (col_type))
+
+        idx_sources = list(args['metadata'][args['metadata'][args['col_type']] == 'Source'].index)
+        for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
+            args['counts'].loc[:, idx_sources + [idx]].to_csv('%s/feature-table_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label=False)
+            args['metadata'].loc[idx_sources + [idx], [col_envname, col_type]].rename(
+                columns={args['col_type']: 'SourceSink', args['col_envname']: 'Env'}).to_csv(
+                    '%s/metadata_%i.txt' % (workdir, i+1), sep="\t", index=True, index_label="SampleID", quoting=csv.QUOTE_NONNUMERIC)
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        arr_var = '${%s}' % settings.VARNAME_PBSARRAY if args['metadata'][args['metadata'][args['col_type']] == 'Sink'].shape[0] > 1 else '1'
+        commands.append((
+            "Rscript --vanilla $CONDA_PREFIX/src/feast/feast_main.R "
+            "-m %s/metadata_%s.txt "
+            "-c %s/feature-table_%s.txt "
+            "-s 0 "
+            "-e %i "
+            "-r %s/feast.results_%s.csv "
+            "> %s/feast_%s.out 2> %s/feast_%s.err") % (workdir, arr_var, workdir, arr_var, args['EM_iterations'], workdir, arr_var, workdir, arr_var, workdir, arr_var))
+
+        return commands
+
+    def post_execute(workdir, args):
+        # read feast results from file, one file per sink sample
+        results = []
+        for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
+            results.append(pd.read_csv('%s/feast.results_%s.csv' % (workdir, i+1), sep="\t", index_col=0, names=[idx]))
+        # even though source environments can consist of several samples, they don't get grouped by feast. Thus, I here sum their contribution
+        results = pd.concat(results, sort=False, axis=1).reset_index().groupby('index').sum()
+        results.index.name = "Source"
+        results.rename(index={'unknown': 'Unknown'})
+
+        # map every sink-sample to its environment name ...
+        # results_env = results.copy().T
+        # results_env[args['col_envname']] = list(map(lambda x: args['metadata'].loc[x, args['col_envname']], results.columns))
+
+        # and take the mean for each source over all samples of a env group
+        # results_env = results_env.groupby('Env').mean()
+        # results_env.index.name = 'Sink'
+
+        return results  # _env.T
+
+    return _executor('feast',
+                     {'counts': counts,
+                      'metadata': metadata,
+                      'col_envname': col_envname,
+                      'col_type': col_type,
+                      #'col_envID': col_envID,
+                      'EM_iterations': EM_iterations,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     #post_cache=post_cache,
+                     environment="ggmap_feast",
+                     array=metadata[metadata[col_type] == 'Sink'].shape[0],
+                     ppn=ppn,
+                     pmem=pmem,
                      **executor_args)
 
 

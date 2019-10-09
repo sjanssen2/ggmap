@@ -1,0 +1,140 @@
+--- "FEAST_src/FEAST_ main.R"	2019-10-04 10:02:38.662054934 +0200
++++ "FEAST_src/FEAST_ main.R"	2019-10-04 10:00:32.861945758 +0200
+@@ -1,25 +1,44 @@
++library("optparse")
++
+ rm(list = ls())
+ gc()
+
+-print("Change directory path")
+-dir_path = paste("~/FEAST/")
+-setwd(paste0(dir_path, "FEAST_src"))
+-source("src.R")
++option_list = list(
++  make_option(c("-m", "--metadata_file"), type="character", default=NULL,
++              help="Filepath to your metadata file.", metavar="character"),
++  make_option(c("-c", "--count_matrix"), type="character", default=NULL,
++              help="Filepath to your taxa count matrix file.", metavar="character"),
++  make_option(c("-r", "--result_file"), type="character", default='feast.results.csv',
++              help="Filepath for results table.", metavar="character"),
++	make_option(c("-s", "--different_sources_flag"), type="integer", default=1,
++              help="Relevant only when using multiple sinks. If you use different sources for each sink, different_sources_flag = 1, otherwise = 0 [default= %default]", metavar="number"),
++  make_option(c("-e", "--EM_iterations"), type="integer", default=1000,
++              help="Number of EM iterations. We recommend using the default value [default= %default].", metavar="number")
++)
++opt_parser = OptionParser(option_list=option_list);
++opt = parse_args(opt_parser);
++
++#print("Change directory path")
++#dir_path = paste("~/FEAST/")
++#setwd(paste0(dir_path, "FEAST_src"))
++source(file.path(Sys.getenv(c("CONDA_PREFIX")), "src",  "feast", "src.R"))
+
+ #Set the arguments of your data
+-metadata_file = "your_metadata_file_name"
+-count_matrix = "your_taxa_count_matrix"
+-EM_iterations = 1000 #default value
++#metadata_file = "your_metadata_file_name"
++#count_matrix = "your_taxa_count_matrix"
++EM_iterations = opt$EM_iterations #default value
+ ##if you use different sources for each sink, different_sources_flag = 1, otherwise = 0
+-different_sources_flag = 1
++different_sources_flag = opt$different_sources_flag
+
+-setwd(paste0(dir_path, "Data_files"))
++#setwd(paste0(dir_path, "Data_files"))
+ # Load sample metadata
+-metadata <- read.csv(metadata_file,h=T, sep = "\t", row.names = 1)
++metadata <- read.csv(opt$metadata_file,h=T, sep = "\t", row.names = 1)
+
+ # Load OTU table
+-otus <- read.table(count_matrix, header = T, comment = '', check = F, sep = '\t')
++otus <- read.table(opt$count_matrix, header = T, comment = '', check = F, sep = '\t')
+ otus <- t(as.matrix(otus))
++#sapply(otus, as.numeric)
++#print(otus)
+
+
+ # Extract only those samples in common between the two tables
+@@ -36,7 +53,7 @@
+
+
+ if(different_sources_flag == 0){
+-
++
+   metadata$id[metadata$SourceSink == 'Source'] = NA
+   metadata$id[metadata$SourceSink == 'Sink'] = c(1:length(which(metadata$SourceSink == 'Sink')))
+ }
+@@ -48,54 +65,54 @@
+
+
+ for(it in 1:length(Ids)){
+-
+-
++
++
+   # Extract the source environments and source/sink indices
+   if(different_sources_flag == 1){
+-
++
+     train.ix <- which(metadata$SourceSink=='Source' & metadata$id == Ids[it])
+     test.ix <- which(metadata$SourceSink=='Sink' & metadata$id == Ids[it])
+
+   }
+-
++
+   else{
+-
++
+     train.ix <- which(metadata$SourceSink=='Source')
+     test.ix <- which(metadata$SourceSink=='Sink' & metadata$id == Ids[it])
+   }
+-
+   num_sources <- length(train.ix)
+   COVERAGE =  min(rowSums(otus[c(train.ix, test.ix),]))  #Can be adjusted by the user
+-
++
+   # Define sources and sinks
+-
++
+   sources <- as.matrix(rarefy(otus[train.ix,], COVERAGE))
+   sinks <- as.matrix(rarefy(t(as.matrix(otus[test.ix,])), COVERAGE))
+-
+-
++
++
+   print(paste("Number of OTUs in the sink sample = ",length(which(sinks > 0))))
+   print(paste("Seq depth in the sources and sink samples = ",COVERAGE))
+   print(paste("The sink is:", envs[test.ix]))
+-
++
+   # Estimate source proportions for each sink
+-
++
+   FEAST_output<-FEAST(source=sources, sinks = t(sinks), env = envs[train.ix], em_itr = EM_iterations, COVERAGE = COVERAGE)
+   Proportions_est[[it]] <- FEAST_output$data_prop[,1]
+-
+-
++
++
+   names(Proportions_est[[it]]) <- c(as.character(envs[train.ix]), "unknown")
+-
++
+   if(length(Proportions_est[[it]]) < num_sources +1){
+-
++
+     tmp = Proportions_est[[it]]
+     Proportions_est[[it]][num_sources] = NA
+     Proportions_est[[it]][num_sources+1] = tmp[num_sources]
+   }
+-
++
+   print("Source mixing proportions")
+   print(Proportions_est[[it]])
+-
++
+
+ }
+
+ print(Proportions_est)
++write.table(Proportions_est, opt$result_file, sep='\t', row.names=names(Proportions_est[[1]]), col.names=FALSE)

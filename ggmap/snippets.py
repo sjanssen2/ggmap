@@ -3517,3 +3517,40 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
         fig.suptitle(title)
 
     return fig, results.loc[chosen_iteration, 'clf']
+
+
+def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, verbose=sys.stderr):
+    """Subsets samples that appear in feature-table and metdata.
+
+    Parameters
+    ----------
+    featuretable : pd.DataFrame
+        Feature-table. Columns are samples, rows are features.
+    metadata : pd.DataFrame
+        metadata information for samples.
+
+    Returns
+    -------
+    (featuretable: pd.DataFrame, metadata: pd.DataFrame)
+    """
+    sub_featuretable = featuretable.loc[:, [s for s in featuretable.columns if s in metadata.index]]
+    sub_metadata = metadata.loc[[s for s in metadata.index if s in featuretable.columns]]
+
+    if sub_featuretable.shape[1] == 0:
+        raise ValueError("No samples common in feature-table and metadata!")
+    if (sub_featuretable.shape[1] < featuretable.shape[1]) or (sub_metadata.shape[0] < metadata.shape[0]):
+        if verbose is not None:
+            verbose.write('Reduced to %i samples (feature-table had %i, metadata had %i samples)\n' % (sub_featuretable.shape[1], featuretable.shape[1], metadata.shape[0]))
+
+    return (sub_featuretable, sub_metadata)
+
+
+def check_column_presents(metadata: pd.DataFrame, column_names: [str]):
+    missing_columns = []
+    for colname in column_names:
+        if colname is None:
+            continue
+        if colname not in metadata.columns:
+            missing_columns.append(colname)
+    if len(missing_columns) > 0:
+        raise ValueError("The following %i column(s) are not present in the provided table: %s" % (len(missing_columns), ', '.join(missing_columns)))
