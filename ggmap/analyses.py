@@ -3207,16 +3207,19 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         results = []
         for i, (idx, row) in enumerate(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].iterrows()):
             results.append(pd.read_csv('%s/feast.results_%s.csv' % (workdir, i+1), sep="\t", index_col=0, names=[idx]))
-        results = pd.concat(results, sort=False, axis=1)
+        # even though source environments can consist of several samples, they don't get grouped by feast. Thus, I here sum their contribution
+        results = pd.concat(results, sort=False, axis=1).reset_index().groupby('index').sum()
+        results.index.name = "Source"
 
         # map every sink-sample to its environment name ...
-        results_env = results.copy().T
-        results_env[args['col_envname']] = list(map(lambda x: args['metadata'].loc[x, args['col_envname']], results.columns))
+        # results_env = results.copy().T
+        # results_env[args['col_envname']] = list(map(lambda x: args['metadata'].loc[x, args['col_envname']], results.columns))
 
         # and take the mean for each source over all samples of a env group
-        results_env = results_env.groupby('Env').mean()
+        # results_env = results_env.groupby('Env').mean()
+        # results_env.index.name = 'Sink'
 
-        return results_env
+        return results  # _env.T
 
     # def post_cache(cache_results):
     #     # generate plot for read length distribution
