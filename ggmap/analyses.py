@@ -1981,7 +1981,7 @@ def picrust(counts, **executor_args):
     Install
     -------
     outdated, better use ggmap_picrust1 env from anaconda/sjanssen2 !
-    
+
     conda create --name picrust python=2.7
     conda activate picrust
     mkdir $CONDA_PREFIX/src/
@@ -2066,7 +2066,7 @@ def picrust(counts, **executor_args):
                      commands,
                      post_execute,
                      ppn=1,
-                     environment='ggmap_picrust1',
+                     environment=settings.PICRUST_ENV,
                      **executor_args)
 
 
@@ -3160,7 +3160,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
 
     Returns
     -------
-    ?
+    pd.DataFrame: feature-table, with cols for samples and rows for source environment contribution.
     """
     # general sanity checks
     (counts, metadata) = sync_counts_metadata(counts, metadata)
@@ -3236,7 +3236,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      commands,
                      post_execute,
                      #post_cache=post_cache,
-                     environment="ggmap_feast",
+                     environment=settings.FEAST_ENV,
                      array=metadata[metadata[col_type] == 'Sink'].shape[0],
                      ppn=ppn,
                      pmem=pmem,
