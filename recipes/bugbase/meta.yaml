@@ -33,9 +33,9 @@ test:
     - test_16s_normalized_otus.txt
     - test_contributing_otus.txt
   commands:
-    - run.bugbase.r -i test_counts.csv -a -o test_results
+    - run.bugbase.r -i test_counts.txt -a -o test_results
     - diff test_contributing_otus.txt test_results/otu_contributions/contributing_otus.txt
-    - diff test_16s_normalized_otus.txt test_results/normalized_otus/test_16s_normalized_otus.txt
+    - diff test_16s_normalized_otus.txt test_results/normalized_otus/16s_normalized_otus.txt
 
 about:
   home: https://github.com/knights-lab/BugBase.git
