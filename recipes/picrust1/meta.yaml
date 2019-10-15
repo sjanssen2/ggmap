@@ -6,13 +6,27 @@ package:
 #  url: https://github.com/picrust/picrust/releases/download/v1.1.4/picrust-1.1.4.tar.gz
   #sha1: 58b589b9e3d94787c1a462147e34dd8db531ba77
 build:
-  number: 0
+  number: 1
 
 requirements:
   build:
     - picrust
+    - h5py
   run:
     - picrust
+    - h5py
+
+test:
+  files:
+    - test_counts.csv
+    - test_results.csv
+  commands:
+    - biom convert -i test_counts.csv -o counts.biom --to-hdf5
+    - normalize_by_copy_number.py -i counts.biom -o normalized.biom
+    - predict_metagenomes.py -t ko -i normalized.biom -o pred0.biom
+    - categorize_by_function.py -i pred0.biom -o pred1.biom -l 1 -c KEGG_Pathways
+    - biom convert -i pred1.biom -o pred1.csv --to-tsv
+    - diff pred1.csv test_results.csv
 
 about:
   home: https://github.com/picrust/picrust
