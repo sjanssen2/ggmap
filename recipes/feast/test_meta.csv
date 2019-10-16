@@ -1,0 +1,4 @@
+"SampleID"	"Env"	"SourceSink"
+"11758.V422.nr25.tp01"	"SPF@tp01@Pax5+/-"	"Source"
+"11758.V440.nr32.tp01"	"SPF@tp01@WT"	"Source"
+"11758.WT8.nr10.tp01"	"SPF#WT#1_month_together"	"Sink"
