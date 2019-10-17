@@ -10,6 +10,8 @@ package-picrust1:
 package-bugbase:
 	conda build bugbase/ -c conda-forge
 
+package-metalonda:
+	conda build metalonda/ -c conda-forge
 
 all-upload: upload-feast upload-picrust1
 upload-%: ${CONDA_PREFIX}/conda-bld/${PLATFORM}/%-*.tar.bz2
@@ -22,5 +24,5 @@ env-%: %/env.yaml
 		echo "conda environment '${ENV_PREFIX}${*}' already exists."; \
 	else \
 		echo "now building new environment '${ENV_PREFIX}${*}'"; \
-		conda env create --name ${ENV_PREFIX}${*} --file ${*}/env.yaml -y; \
+		conda env create --name ${ENV_PREFIX}${*} --file ${*}/env.yaml; \
 	fi
