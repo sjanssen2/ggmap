@@ -1,0 +1,47 @@
+package:
+  name: metalonda
+  version: "1.1.1"
+
+build:
+  number: 8
+
+requirements:
+  build:
+    - r-essentials
+    - r-base
+    - r-git2r
+    - r-httr
+    - r-gh
+    - r-usethis
+  run:
+    - r-essentials
+    - r-base
+    - r-git2r
+    - r-httr
+    - r-gh
+    - r-usethis
+
+test:
+  files:
+    - test_counts.csv
+    - test_metalonda.R
+    - test_exp_results_MetaLonDA_TimeIntervals.csv
+  commands:
+    - cat test_metalonda.R | R --vanilla
+    - cat test_exp_results_MetaLonDA_TimeIntervals.csv | cut -f -2 -d "," > exp
+    - cat test_obs_results/test_obs_results_MetaLonDA_TimeIntervals.csv | cut -f -2 -d "," > obs
+    - diff exp obs
+
+about:
+  home: https://github.com/aametwally/MetaLonDA
+  summary: 'METAgenomic LONgitudinal Differential Abundance method'
+  description: |
+    MetaLonDA (METAgenomic LONgitudinal Differential Abundance method) is a
+    method that identifies the significant time intervals of microbial features
+    in longitudinal studies. MetaLonDA has the ability to handle the
+    inconsistencies and common challenges associated with human studies, such
+    as variable sample collection times and uneven number of time points along
+    the subjects’ longitudinal study. The method employs a negative binomial
+    distribution in conjunction with a semi-parametric SS-ANOVA to model the
+    read counts. Then, it performs the significance testing based on unit
+    time intervals using permutation testing procedure.

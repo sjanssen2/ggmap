@@ -2925,7 +2925,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
               num_intervals: int=20, num_permutations: int=100,
               rf_iterations: int=10, rf_train_test_ratio: float=0.5,
               ppn=12, pmem='10GB', walltime='2:00:00', **executor_args):
-    """Uses dada2 to demultiplex PacBio amplicon sequences and returns feature table.
+    """METAgenomic LONgitudinal Differential Abundance method.
 
     Paramaters
     ----------
