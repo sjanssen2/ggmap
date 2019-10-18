@@ -14,7 +14,7 @@ package-metalonda:
 	conda build metalonda/ -c conda-forge
 
 package-dada2_pacbio:
-	conda build dada2_pacbio -c conda-forge
+	conda build dada2_pacbio -c conda-forge -c bioconda
 
 all-upload: upload-feast upload-picrust1 upload-bugbase upload-metalonda upload-dada2_pacbio
 upload-%: ${CONDA_PREFIX}/conda-bld/${PLATFORM}/%-*.tar.bz2
