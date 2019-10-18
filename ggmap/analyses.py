@@ -3127,7 +3127,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
                      ppn=ppn,
                      pmem=pmem,
                      walltime=walltime,
-                     environment="MetaLonDA",
+                     environment="ggmap_metalonda",
                      **executor_args)
 
 
