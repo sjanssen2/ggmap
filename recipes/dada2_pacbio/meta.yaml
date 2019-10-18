@@ -3,7 +3,7 @@ package:
   version: "1.12"
 
 build:
-  number: 1
+  number: 2
 
 requirements:
   build:
@@ -14,30 +14,30 @@ requirements:
     - r-httr
     - r-gh
     - r-usethis
-    # - r-lattice
-    # - r-colorspace
-    # - r-utf8
-    # - r-plyr
-    # - r-fansi
+    - zlib
+    - bioconductor-rhdf5lib
 
-  # run:
-  #   - r-essentials
-  #   - r-base
-  #   - r-git2r
-  #   - r-httr
-  #   - r-gh
-  #   - r-usethis
+  run:
+    # there is a concurrency issue with one of the used libaries, see https://github.com/benjjneb/dada2/issues/684
+    # to solve, we need to make sure to use the following conda package
+    - r-rcppparallel=4.4.3=r35h0357c0b_2
+    - r-git2r
+    - r-httr
+    - r-gh
+    - r-usethis
+    - zlib
+    - bioconductor-rhdf5lib
 
-# test:
-#   files:
-#     - test_counts.csv
-#     - test_metalonda.R
-#     - test_exp_results_MetaLonDA_TimeIntervals.csv
-#   commands:
-#     - cat test_metalonda.R | R --vanilla
-#     - cat test_exp_results_MetaLonDA_TimeIntervals.csv | cut -f -2 -d "," > exp
-#     - cat test_obs_results/test_obs_results_MetaLonDA_TimeIntervals.csv | cut -f -2 -d "," > obs
-#     - diff exp obs
+test:
+  files:
+    - test.R
+    - test_demux.csv
+    - test_exp_featuretable.csv
+    - test_L644.tp40.bam.Q20.fastq
+    - test_L833.tp40.bam.Q20.fastq
+  commands:
+    - R --vanilla < test.R
+    - diff test_exp_featuretable.csv results_feature-table.csv
 
 about:
   home: https://github.com/aametwally/MetaLonDA
