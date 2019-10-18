@@ -32,8 +32,8 @@ write.table(lens, file="results_lengthdistribution.csv", sep="\t")
 
 # filter
 filts <- c(
-    "/home/jansses/TMP/ana_dada2_pacbio_c_mnmidq/02_filtered/11953.L644.tp40.fastq",
-    "/home/jansses/TMP/ana_dada2_pacbio_c_mnmidq/02_filtered/11953.L833.tp40.fastq")
+    "02_filtered/11953.L644.tp40.fastq",
+    "02_filtered/11953.L833.tp40.fastq")
 track <- filterAndTrim(nops, filts, minQ=3, minLen=1000, maxLen=1600, maxN=0, rm.phix=FALSE, maxEE=2)
 
 # dereplicate sequences
