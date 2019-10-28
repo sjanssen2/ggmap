@@ -10,8 +10,12 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                 'variable_name': 'QIIME_ENV'},
             'condaenv_qiime2': {'default': 'qiime2-2019.1',
                                 'variable_name': 'QIIME2_ENV'},
-            'condaenv_picrust': {'default': 'picrust',
+            'condaenv_picrust': {'default': 'ggmap_picrust1',
                                  'variable_name': 'PICRUST_ENV'},
+            'condaenv_picrust2': {'default': 'ggmap_picrust2',
+                                 'variable_name': 'PICRUST2_ENV'},
+            'condaenv_feast': {'default': 'ggmap_feast',
+                                 'variable_name': 'FEAST_ENV'},
             # since condas init magic, activating an environment failes if
             # .bashrc is not read, which is the case when executing a
             # subprocess from python :-(
@@ -68,6 +72,10 @@ def init(err=sys.stderr):
     QIIME2_ENV = config['condaenv_qiime2']
     global PICRUST_ENV
     PICRUST_ENV = config['condaenv_picrust']
+    global PICRUST2_ENV
+    PICRUST2_ENV = config['condaenv_picrust2']
+    global FEAST_ENV
+    FEAST_ENV = config['condaenv_feast']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
     global FILE_REFERENCE_TAXONOMY

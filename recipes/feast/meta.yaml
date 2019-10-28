@@ -7,7 +7,7 @@ source:
   patches: parse_options.patch
 
 build:
-  number: 5
+  number: 6
 
 requirements:
   build:
@@ -42,6 +42,17 @@ requirements:
     - r-vegan
     - r-cowplot
     - r-optparse
+
+test:
+  files:
+    - test_counts.csv
+    - test_meta.csv
+    - test_results.csv
+  commands:
+    - Rscript --vanilla $CONDA_PREFIX/src/feast/feast_main.R -m test_meta.csv -c test_counts.csv -s 0 -e 1000 -r feast.results.csv
+    - cat test_results.csv | cut -f 1 | sort > exp_order
+    - cat feast.results.csv | cut -f 1 | sort > obs_order
+    - diff exp_order obs_order
 
 about:
   home: https://github.com/cozygene/FEAST/

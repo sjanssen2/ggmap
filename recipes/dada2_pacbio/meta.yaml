@@ -1,0 +1,46 @@
+package:
+  name: dada2_pacbio
+  version: "1.12"
+
+build:
+  number: 2
+
+requirements:
+  build:
+    # there is a concurrency issue with one of the used libaries, see https://github.com/benjjneb/dada2/issues/684
+    # to solve, we need to make sure to use the following conda package
+    - r-rcppparallel=4.4.3=r35h0357c0b_2
+    - r-git2r
+    - r-httr
+    - r-gh
+    - r-usethis
+    - zlib
+    - bioconductor-rhdf5lib
+
+  run:
+    # there is a concurrency issue with one of the used libaries, see https://github.com/benjjneb/dada2/issues/684
+    # to solve, we need to make sure to use the following conda package
+    - r-rcppparallel=4.4.3=r35h0357c0b_2
+    - r-git2r
+    - r-httr
+    - r-gh
+    - r-usethis
+    - zlib
+    - bioconductor-rhdf5lib
+
+test:
+  files:
+    - test.R
+    - test_demux.csv
+    - test_exp_featuretable.csv
+    - test_L644.tp40.bam.Q20.fastq
+    - test_L833.tp40.bam.Q20.fastq
+  commands:
+    - R --vanilla < test.R
+    - diff test_exp_featuretable.csv results_feature-table.csv
+
+about:
+  home: https://github.com/aametwally/MetaLonDA
+  summary: 'Using DADA2 to obtain ASVs for PacBio datasets.'
+  description: |
+    Following the tutorial on https://benjjneb.github.io/LRASManuscript/LRASms_fecal.html
