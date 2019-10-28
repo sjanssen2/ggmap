@@ -2070,6 +2070,157 @@ def picrust(counts, **executor_args):
                      **executor_args)
 
 
+def picrust2(counts, **executor_args):
+    """Translate closed ref OTU tables into predicted meta-transcriptomics.
+
+    Parameters
+    ----------
+    counts : Pandas.DataFrame
+        feature-table
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    One hash with following keys:
+    {'counts': {'COG': pd.DataFrame,
+                'EC': pd.DataFrame,
+                'KO': pd.DataFrame,
+                'PFAM': pd.DataFrame,
+                'TIGRFAM': pd.DataFrame,
+                'PHENO': pd.DataFrame,
+                'MetaCyc_pathways': pd.DataFrame},
+     'taxonomy': {'COG': pd.Series,
+                  'EC': pd.Series,
+                  'KO': pd.Series,
+                  'PFAM': pd.Series,
+                  'TIGRFAM': pd.Series,
+                  'PHENO': None,
+                  'MetaCyc_pathways: pd.Series'},
+     'NSTI': {'features': pd.Series,
+              'samples': pd.Series}
+    }
+    where 'counts' are the translated metagenomic counts per sample
+          'taxonomy' are vectors describing features more elaborately and features may collapse to sample "taxonomy" description
+          'NSTI' = "Nearest Sequenced Taxon Index": This index reflects the average phylogenetic distance between each 16S rRNA gene sequence in their sample
+    """
+    # determine if features are ASVs or OTU-IDs
+    IS_ASV = all(map(lambda x: re.sub("[ACGT]+", "", x.upper()) == "", counts.index))
+
+    TYPES = ['16S','COG','EC','KO','PFAM','TIGRFAM','PHENO']
+
+    def pre_execute(workdir, args):
+        if IS_ASV:
+            with open('%s/seqs.fna' % workdir, 'w') as f:
+                for seq in args['counts'].index:
+                    f.write('>%s\n%s\n' % (seq, seq))
+        else:
+            raise ValueError("picrust2 in ggmap does currently not support OTU tables.")
+
+        pandas2biom('%s/table.biom' % workdir, counts)
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # Place reads into reference tree
+        commands.append((
+            'place_seqs.py '
+            '-s %s/seqs.fna -o %s/out.tre -p %i '
+            '--intermediate %s/intermediate/place_seqs') %
+            (workdir, workdir, ppn, workdir))
+
+        # Hidden-state prediction of gene families
+        for _type in TYPES:
+            # NSTI computation leads to identical results per _type.
+            # Thus, we only do it for 16S.
+            withNSTI = _type == '16S'
+            commands.append((
+                'hsp.py '
+                '-i %s '
+                '-t %s/out.tre '
+                '-o %s/%s_predicted%s.tsv.gz '
+                '-p %i '
+                '%s') %
+                (_type, workdir, workdir, _type, '_and_nsti' if withNSTI else '', ppn, '-n' if withNSTI else ''))
+        # commands.append("cp /tmp/ana_picrust2/* -r %s" % workdir)
+
+        # Generate metagenome predictions
+        for _type in TYPES:
+            if _type == '16S':
+                continue
+            commands.append((
+                'metagenome_pipeline.py '
+                '-i %s/table.biom '
+                '-m %s/16S_predicted_and_nsti.tsv.gz '
+                '-f %s/%s_predicted.tsv.gz '
+                '-o %s/%s_metagenome_out ') %
+                (workdir, workdir, workdir, _type, workdir, _type))
+
+        # Pathway-level inference
+        commands.append((
+            'pathway_pipeline.py '
+            '-i %s/EC_metagenome_out/pred_metagenome_unstrat.tsv.gz '
+            '-o %s/pathways_out '
+            '-p %i') %
+            (workdir, workdir, ppn))
+
+        # Add functional descriptions
+        for _type in TYPES:
+            if _type in ['16S', 'PHENO']:
+                continue
+            commands.append((
+                'add_descriptions.py '
+                '-i %s/%s_metagenome_out/pred_metagenome_unstrat.tsv.gz '
+                '-m %s '
+                '-o %s/%s_metagenome_out/pred_metagenome_unstrat_descrip.tsv.gz') %
+                (workdir, _type, _type, workdir, _type))
+        commands.append((
+            'add_descriptions.py '
+            '-i %s/pathways_out/path_abun_unstrat.tsv.gz '
+            '-m METACYC '
+            '-o %s/pathways_out/path_abun_unstrat_descrip.tsv.gz') %
+            (workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        results['counts'] = dict()
+        for _type in TYPES:
+            if _type in ['16S']:
+                continue
+            if _type == 'PHENO':
+                results['counts'][_type] = pd.read_csv('%s/%s_metagenome_out/pred_metagenome_unstrat.tsv.gz' % (workdir, _type), compression='gzip', sep='\t', index_col=0)
+            else:
+                results['counts'][_type] = pd.read_csv('%s/%s_metagenome_out/pred_metagenome_unstrat_descrip.tsv.gz' % (workdir, _type), compression='gzip', sep='\t', index_col=0)
+        results['counts']['MetaCyc_pathways'] = pd.read_csv('%s/pathways_out/path_abun_unstrat_descrip.tsv.gz' % workdir, compression='gzip', sep='\t', index_col=0)
+
+        # split count table into real feature counts AND taxonomy series
+        results['taxonomy'] = dict()
+        for _type in results['counts'].keys():
+            if 'description' in results['counts'][_type].columns:
+                results['taxonomy'][_type] = results['counts'][_type]['description']
+                del results['counts'][_type]['description']
+            else:
+                results['taxonomy'][_type] = None
+
+        results['NSTI'] = {
+            'features': pd.read_csv('%s/16S_predicted_and_nsti.tsv.gz' % workdir, compression='gzip', sep='\t', index_col=0, squeeze=True)['metadata_NSTI'],
+            # all types return same NSTI samples values, thus we here arbitratily pick one
+            'samples': pd.read_csv('%s/%s_metagenome_out/weighted_nsti.tsv.gz' % (workdir, 'COG'), compression='gzip', sep='\t', index_col=0, squeeze=True)}
+
+        return results
+
+    return _executor('picrust2',
+                     {'counts': counts.fillna(0.0)},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.PICRUST2_ENV,
+                     **executor_args)
+
+
 def bugbase(counts, **executor_args):
     """BugBase is a microbiome analysis tool that determines high-level
        phenotypes present in microbiome samples.
