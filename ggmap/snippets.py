@@ -2469,7 +2469,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
         if len(taxa) > 0:
-            if relabund_field.groupby('level_1')['relative abundance'].sum().max() > 1:
+            grpsby = 'level_1'
+            if counts.columns.name is not None:
+                grpsby = counts.columns.name
+            if relabund_field.groupby(grpsby)['relative abundance'].sum().max() > 1:
                 raise ValueError("If we add up all relative abundances, we have more than 100%. This is impossible! Please check if you provided the full count table, or errounously subsetted it to e.g. specific features. If this is the case, correct and use parameter 'onlyusetaxa'!")
             g = sns.boxplot(data=relabund_field,
                             x='relative abundance',
