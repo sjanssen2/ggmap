@@ -3394,7 +3394,7 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      **executor_args)
 
 
-def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: skbio.TreeNode col_time: str, col_entities: str, **executor_args):
+def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: TreeNode, col_time: str, col_entities: str, ppn=1, pmem='5GB', **executor_args):
     """Paired and Longitudinal Ecological Dissimilarities.
 
     Paramaters
@@ -3410,25 +3410,50 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: skbio.TreeN
 
     Returns
     -------
-    dict(metric: skbio.DistanceMatrix)
+    {beta: dict(metric: skbio.DistanceMatrix),
+     meta_entities: pd.DataFrame}
     """
     counts, meta = sync_counts_metadata(counts, meta)
     check_column_presents(meta, [col_time, col_entities])
-    GAMMAS = [0, 0.5, 1]
+    GAMMAS = ["0", "0.5", "1"]
 
     def pre_execute(workdir, args):
         # write sample metadata
-        args['meta'].reset_index().rename(columns={args['col_entities']: 'subjID', args['col_time']: 'time', 'index': 'sampID'})[["subjID", "sampID", "time"]].to_csv('%s/meta_samples.tsv' % workdir, sep="\t", index_label='sample')
+        idx_name = 'level_0'
+        if args['meta'].index.name is not None:
+            idx_name = args['meta'].index.name
+        meta_samples = args['meta'].reset_index().rename(columns={args['col_entities']: 'subjID', args['col_time']: 'time', idx_name: 'sampID'})[["subjID", "sampID", "time"]].sort_values('sampID')
+        meta_samples.to_csv('%s/meta_samples.tsv' % workdir, sep="\t", index_label='sample')
 
         # write feature counts
         nonzero_counts = args['counts'][args['counts'].sum(axis=1) > 0]
-        nonzero_counts.T.to_csv('%s/counts.tsv', sep="\t", index_label='otu')
+        nonzero_counts.T.loc[meta_samples['sampID'].values, :].to_csv('%s/counts.tsv' % workdir, sep="\t", index_label='otu')
 
         # write tree
         tree = args['reference_tree'].shear(list(nonzero_counts.index))
         tree.prune()
         tree.write('%s/tree.newick' % workdir)
 
+        # generate R code
+        with open('%s/pldist.R' % workdir, 'w') as f:
+            f.write('library(pldist)\n')
+            f.write('library(ape)\n')
+            f.write('ggmap.otus <- as.matrix(read.table("%s/counts.tsv", header=TRUE, sep = "\\t", row.names = 1, as.is=TRUE))\n' % workdir)
+            f.write('ggmap.meta <- read.table("%s/meta_samples.tsv", header=TRUE, sep = "\\t", row.names = 1)\n' % workdir)
+            f.write('ggmap.tree <- read.tree(file="%s/tree.newick")\n' % workdir)
+            for clr in ['TRUE', 'FALSE']:
+                f.write('res <- pldist(ggmap.otus, ggmap.meta, paired=FALSE, binary=FALSE, method="unifrac", tree=ggmap.tree, gam=c(%s), clr=%s)\n' % (','.join(GAMMAS), clr))
+                for gamma in GAMMAS+['UW']:
+                    f.write('write.table(res$D[,,"d_%s"], "%s/res_%sCLR_%s.tsv", sep="\t", row.names=TRUE, col.names=NA)\n' % (gamma, workdir, 'no' if clr == 'FALSE' else '', gamma))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('R --vanilla < %s/pldist.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
         # identify metadata columns that apply to host_subjects not to individual samples
         entity_unique_cols = None
         for entity, g in args['meta'].groupby(args['col_entities']):
@@ -3440,77 +3465,16 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: skbio.TreeN
         # exclude columns that are identical across all host_subjects
         entity_unique_cols -= {col for col, n in args['meta'].apply(pd.Series.nunique).iteritems() if n == 1}
         meta_entities = args['meta'][list(entity_unique_cols)].groupby(args['col_entities']).apply(lambda row: row.iloc[0])
-        meta_entities.to_csv('%s/meta_entities.csv' % workdir, sep="\t")
 
-        # generate R code
-        with open('%s/pldist.R' % workdir, 'w') as f:
-            f.write('library(pldist)\n')
-            f.write('ggmap.otus <- as.matrix(read.table("%s/counts.tsv", header=TRUE, sep = "\\t", row.names = 1, as.is=TRUE))\n' % workdir)
-            f.write('ggmap.meta <- read.table("%s/meta_samples.tsv", header=TRUE, sep = "\\t", row.names = 1)\n' % workdir)
-            f.write('ggmap.tree <- read.tree(file="%s/tree.newick")\n' % workdir)
-            f.write('res <- pldist(ggmap.otus, ggmap.meta, paired=FALSE, binary=FALSE, method="unifrac", tree=ggmap.tree, gam=c(%s), clr=FALSE)\n' % ','.join(GAMMAS))
+        # load results
+        pldist_dms = dict()
+        for clr in ['TRUE', 'FALSE']:
             for gamma in GAMMAS+['UW']:
-                f.write('write.table(res$D[,,"d_%s"], "%s/res_noCLR_%s.tsv", sep="\t", row.names=TRUE, col.names=NA)\n' % (gamma, workdir, gamma))
+                name = ('noCLR' if clr == 'FALSE' else 'CLR') + '_' + gamma
+                pldist_dms[name] = pd.read_csv('%s/res_%sCLR_%s.tsv' % (workdir, 'no' if clr == 'FALSE' else '', gamma), sep="\t", index_col=0)
+                pldist_dms[name] = DistanceMatrix(pldist_dms[name], ids=pldist_dms[name].index)
 
-    def commands(workdir, ppn, args):
-        commands = []
-
-        commands.append('R --vanilla < %s/pldist.R' % workdir)
-
-        return commands
-
-    def post_execute(workdir, args):
-        # if 'verbose' not in executor_args:
-        #     verbose = sys.stderr
-        # else:
-        #     verbose = executor_args['verbose']
-        #
-        # # parse dominant intervals and re-map feature names
-        # intervalls = pd.read_csv('%s/MetaLonDA_results/MetaLonDA_TimeIntervals.csv' % workdir, sep=",", index_col=0)
-        # map_featurenames = pd.read_csv('%s/map_featurenames.csv' % workdir, sep="\t").rename(columns={'Unnamed: 0': 'feature', '0': 'mapped_name'}).set_index('mapped_name')
-        # intervalls.index = map_featurenames.loc[intervalls.index, 'feature']
-        # intervalls = intervalls.reset_index().set_index(['feature', 'start', 'end'])
-        #
-        # featurecounts = []
-        # counts_remapped = counts.copy()
-        # counts_remapped.index = map_featurenames.loc[counts_remapped.index, 'feature']
-        # for (feature, start, end), row in intervalls.iterrows():
-        #     x = meta[[col_entities, col_time]].merge(counts_remapped.loc[feature, :], left_index=True, right_index=True)
-        #     x = x[x[col_time].apply(lambda x: start <= x <= end)].groupby(col_entities)[feature].mean()
-        #     x.name = '%s@%s@%s' % (feature, start, end)
-        #     featurecounts.append(x)
-        # featurecounts = pd.concat(featurecounts, axis=1, sort=False).T.reindex(meta[args['col_entities']].unique(), axis=1).fillna(0)
-        #
-        # phenotypes = meta.groupby(args['col_entities'])[args['col_phenotype']].unique().apply(lambda x: x[0])
-        #
-        # if (rf_iterations > 0) and (verbose is not None):
-        #     verbose.write("running random forest: ")
-        # rf_scores = []
-        # for i in range(rf_iterations):
-        #     if verbose is not None:
-        #         verbose.write(".")
-        #     # 50% train, 50% test
-        #     clf = RandomForestClassifier(n_estimators=1000, n_jobs=1)
-        #     X_train, X_test, y_train, y_test = train_test_split(
-        #         featurecounts.T,
-        #         phenotypes,
-        #         test_size=rf_train_test_ratio)
-        #
-        #     # train the ML tool
-        #     clf = clf.fit(X_train, y_train)
-        #     # make predictions for test samples
-        #     prediction = pd.Series(clf.predict(X_test), index=X_test.index)
-        #     # assess accurracy
-        #     rf_scores.append({'accurracy': clf.score(X_test, y_test), 'iteration': i+1})
-        # if (rf_iterations > 0) and (verbose is not None):
-        #     verbose.write(" done.\n")
-        #
-        # return {'intervals': intervalls,
-        #         'featurecounts': featurecounts,
-        #         'phenotypes': phenotypes,
-        #         'rf_scores': pd.DataFrame(rf_scores)
-        #        }
-        return None
+        return {'beta': pldist_dms, 'meta_entities': meta_entities}
 
     return _executor('pldist',
                      {'counts': counts,
@@ -3523,8 +3487,8 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: skbio.TreeN
                      post_execute,
                      ppn=ppn,
                      pmem=pmem,
-                     walltime=walltime,
-                     environment="ggmap_pldist",
+                     walltime="00:59:00",
+                     environment=settings.PLDIST_ENV,
                      **executor_args)
 
 
