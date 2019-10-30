@@ -3394,6 +3394,104 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      **executor_args)
 
 
+def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: TreeNode, col_time: str, col_entities: str, ppn=1, pmem='5GB', **executor_args):
+    """Paired and Longitudinal Ecological Dissimilarities.
+
+    Paramaters
+    ----------
+    counts: pd.DataFrame
+        feature-table
+    meta: pd.DataFrame
+        metadata
+    reference_tree: skbio.TreeNode
+        Insertion tree containing all feature-ids as tips
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    {beta: dict(metric: skbio.DistanceMatrix),
+     meta_entities: pd.DataFrame}
+    """
+    counts, meta = sync_counts_metadata(counts, meta)
+    check_column_presents(meta, [col_time, col_entities])
+    GAMMAS = ["0", "0.5", "1"]
+
+    def pre_execute(workdir, args):
+        # write sample metadata
+        idx_name = 'level_0'
+        if args['meta'].index.name is not None:
+            idx_name = args['meta'].index.name
+        meta_samples = args['meta'].reset_index().rename(columns={args['col_entities']: 'subjID', args['col_time']: 'time', idx_name: 'sampID'})[["subjID", "sampID", "time"]].sort_values('sampID')
+        meta_samples.to_csv('%s/meta_samples.tsv' % workdir, sep="\t", index_label='sample')
+
+        # write feature counts
+        nonzero_counts = args['counts'][args['counts'].sum(axis=1) > 0]
+        nonzero_counts.T.loc[meta_samples['sampID'].values, :].to_csv('%s/counts.tsv' % workdir, sep="\t", index_label='otu')
+
+        # write tree
+        tree = args['reference_tree'].shear(list(nonzero_counts.index))
+        tree.prune()
+        tree.write('%s/tree.newick' % workdir)
+
+        # generate R code
+        with open('%s/pldist.R' % workdir, 'w') as f:
+            f.write('library(pldist)\n')
+            f.write('library(ape)\n')
+            f.write('ggmap.otus <- as.matrix(read.table("%s/counts.tsv", header=TRUE, sep = "\\t", row.names = 1, as.is=TRUE))\n' % workdir)
+            f.write('ggmap.meta <- read.table("%s/meta_samples.tsv", header=TRUE, sep = "\\t", row.names = 1)\n' % workdir)
+            f.write('ggmap.tree <- read.tree(file="%s/tree.newick")\n' % workdir)
+            for clr in ['TRUE', 'FALSE']:
+                f.write('res <- pldist(ggmap.otus, ggmap.meta, paired=FALSE, binary=FALSE, method="unifrac", tree=ggmap.tree, gam=c(%s), clr=%s)\n' % (','.join(GAMMAS), clr))
+                for gamma in GAMMAS+['UW']:
+                    f.write('write.table(res$D[,,"d_%s"], "%s/res_%sCLR_%s.tsv", sep="\t", row.names=TRUE, col.names=NA)\n' % (gamma, workdir, 'no' if clr == 'FALSE' else '', gamma))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append('R --vanilla < %s/pldist.R' % workdir)
+
+        return commands
+
+    def post_execute(workdir, args):
+        # identify metadata columns that apply to host_subjects not to individual samples
+        entity_unique_cols = None
+        for entity, g in args['meta'].groupby(args['col_entities']):
+            nunique = g.apply(pd.Series.nunique)
+            if entity_unique_cols is None:
+                entity_unique_cols = set(nunique[nunique == 1].index)
+            else:
+                entity_unique_cols &= set(nunique[nunique == 1].index)
+        # exclude columns that are identical across all host_subjects
+        entity_unique_cols -= {col for col, n in args['meta'].apply(pd.Series.nunique).iteritems() if n == 1}
+        meta_entities = args['meta'][list(entity_unique_cols)].groupby(args['col_entities']).apply(lambda row: row.iloc[0])
+
+        # load results
+        pldist_dms = dict()
+        for clr in ['TRUE', 'FALSE']:
+            for gamma in GAMMAS+['UW']:
+                name = ('noCLR' if clr == 'FALSE' else 'CLR') + '_' + gamma
+                pldist_dms[name] = pd.read_csv('%s/res_%sCLR_%s.tsv' % (workdir, 'no' if clr == 'FALSE' else '', gamma), sep="\t", index_col=0)
+                pldist_dms[name] = DistanceMatrix(pldist_dms[name], ids=pldist_dms[name].index)
+
+        return {'beta': pldist_dms, 'meta_entities': meta_entities}
+
+    return _executor('pldist',
+                     {'counts': counts,
+                      'meta': meta,
+                      'reference_tree': reference_tree,
+                      'col_time': col_time,
+                      'col_entities': col_entities},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime="00:59:00",
+                     environment=settings.PLDIST_ENV,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 

@@ -1,0 +1,44 @@
+package:
+  name: pldist
+  version: "0.0.1"
+
+build:
+  number: 2
+
+requirements:
+  build:
+    - r-devtools
+    - r-magick
+    - r-phangorn
+    - r-ape
+    - r-phytools
+  run:
+    - r-devtools
+    - r-magick
+    - r-phangorn
+    - r-ape
+    - r-phytools
+
+test:
+  files:
+    - test_counts.tsv
+    - test_meta.tsv
+    - test_cmds.r
+    - test_exp_UW.tsv
+  commands:
+    - R --vanilla < test_cmds.r
+    - diff test_exp_UW.tsv test_obs_UW.tsv
+
+about:
+  home: https://github.com/aplantin/pldist/
+  summary: 'Paired and Longitudinal Ecological Dissimilarities'
+  description: |
+    pldist allows distance-based analysis of paired and longitudinal microbiome
+    data. In particular, the package supports both paired and longitudinal
+    versions of unweighted UniFrac, generalized UniFrac, Bray-Curtis, Jaccard,
+    Gower, and Kulczynski distances or dissimilarities. Functions implementing
+    the transformations that underlie these distances are also provided so that
+    transformed OTU data may be included in analyses beyond distance-based
+    methods. The code can handle paired data, balanced longitudinal data, and
+    unbalanced longitudinal data, although use for highly unbalanced designs
+    is not recommended.
