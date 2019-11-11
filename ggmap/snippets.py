@@ -3590,7 +3590,7 @@ def _make_circles(items: [str], center=(0,0), level=1, width=6):
     return circles
 
 
-def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str, Dict[str, str]], ax: plt.axis=None, width: float=6):
+def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str, Dict[str, str]], ax: plt.axis=None, width: float=6, links=[]):
     """
     Parameters
     ----------
@@ -3606,6 +3606,8 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
     width : float
         Default: 6.0
         Width of drawing.
+    links : [(idx, idx)]
+        List of tuples of indices: Links between objects.
     Returns
     -------
 
@@ -3640,6 +3642,12 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
             ax.text(*c['label_position'], idx if type(idx) != tuple else idx[-1], horizontalalignment=c['label_horizontalalignment'], verticalalignment='center')
         if (c['level'] == level_names[-1]):
             ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=8)
+
+    # plot links
+    for (idx_a, idx_b) in links:
+        xa, ya = circles[idx_a]['center']
+        xb, yb = circles[idx_b]['center']
+        ax.plot([xa,xb],[ya,yb], '--', color='black', )
 
     ax.set_xlim(-1*width/2*1.3,width/2*1.3)
     ax.set_ylim(-1*width/2*1.3,width/2*1.3)
