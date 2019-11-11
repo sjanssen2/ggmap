@@ -1,3 +1,4 @@
+from typing import Dict
 import pandas as pd
 import biom
 from biom.util import biom_open
@@ -3557,3 +3558,98 @@ def check_column_presents(metadata: pd.DataFrame, column_names: [str]):
             missing_columns.append(colname)
     if len(missing_columns) > 0:
         raise ValueError("The following %i column(s) are not present in the provided table: %s" % (len(missing_columns), ', '.join(missing_columns)))
+
+
+# https://stackoverflow.com/questions/5300938/calculating-the-position-of-points-in-a-circle
+# https://math.stackexchange.com/questions/12166/numbers-of-circles-around-a-circle
+def _make_circles(items: [str], center=(0,0), level=1, width=6):
+    circles = dict()
+    if len(items) > 2:
+        r = math.sin(math.pi/len(items)) / (1-math.sin(math.pi/len(items)))
+        zoom = width/(4*r + 2)
+        inner_radius = r*zoom
+        outer_radius = (r+1)*zoom
+    else:
+        inner_radius = width/2/len(items)
+        outer_radius = inner_radius
+    if len(items) > 1:
+        for i, item in enumerate(items):
+            degree = i * (360 / len(items))
+            inner_center = (
+                center[0] + outer_radius * np.cos(i * (2*math.pi / len(items))),
+                center[1] + outer_radius * np.sin(i * (2*math.pi / len(items))))
+            label_position = (
+                center[0] + (outer_radius+inner_radius*1.25) * np.cos(i * (2*math.pi / len(items))),
+                center[1] + (outer_radius+inner_radius*1.25) * np.sin(i * (2*math.pi / len(items))))
+            circles[item] = {'center': inner_center, 'radius': inner_radius, 'level': level,
+                             'label_position': label_position,
+                             'label_horizontalalignment': 'center' if (degree == 90 or degree == 270) else 'right' if (90 < degree < 270) else 'left'}
+    else:
+        circles[items[0]] = {'center': center, 'radius': inner_radius, 'level': level, 'label_position': center, 'label_horizontalalignment': 'center'}
+
+    return circles
+
+
+def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str, Dict[str, str]], ax: plt.axis=None, width: float=6):
+    """
+    Parameters
+    ----------
+    meta : pd.DataFrame
+        Metadata with multi-index.
+    cols_grps : dict(str: str)
+        Dict: keys = multi-index level, values = column in meta providing state for color code.
+    colors : dict(str: dict(str: str))
+        Dict of Dicts. First level key refers to multi-index level, second key to color state and value is RGB color for drawing.
+    ax : plt.axis
+        Default: None, i.e. new figure will be created.
+        Otherwise, axis can be provided to which plot will be generated.
+    width : float
+        Default: 6.0
+        Width of drawing.
+    Returns
+    -------
+
+    """
+    circles = ()
+    level_names = list(map(lambda x: x.name, meta.index.levels))
+    for i in range(len(level_names)):
+        if i == 0:
+            circles = _make_circles(meta.index.get_level_values(i).unique(), level=level_names[i])
+        else:
+            for idx, g in meta.groupby(level_names[:i]):
+                circles.update(_make_circles(list(set(map(lambda x: x[:i+1], g.index))),
+                                            center=circles[idx]['center'],
+                                            level=level_names[i],
+                                            width=circles[idx]['radius']*(2-(0.1*(i+1)))))
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    # plot circles
+    for i, (idx, c) in enumerate(circles.items()):
+        color = 'black'
+        if c['level'] in cols_grps:
+            def _get_uniq_value(data):
+                if type(data) == str:
+                    return data
+                else:
+                    return data.iloc[0]
+            color = colors.get(c['level'], {None: 'black'}).get(_get_uniq_value(meta.loc[idx, cols_grps[c['level']]]), 'black')
+        ax.add_artist(plt.Circle(c['center'], c['radius'], color=color,
+                                 fill=c['level'] == meta.index.levels[-1].name))
+        if (c['level'] == level_names[0]):
+            ax.text(*c['label_position'], idx if type(idx) != tuple else idx[-1], horizontalalignment=c['label_horizontalalignment'], verticalalignment='center')
+        if (c['level'] == level_names[-1]):
+            ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=8)
+
+    ax.set_xlim(-1*width/2*1.3,width/2*1.3)
+    ax.set_ylim(-1*width/2*1.3,width/2*1.3)
+
+    legend_elements = []
+    for level in colors.keys():
+        for value, color in colors[level].items():
+            legend_elements.append(Patch(
+                label=value, facecolor=color))
+    ax.legend(handles=legend_elements, bbox_to_anchor=(1.41, 1))
+    ax.axis('off')
+
+    return circles
