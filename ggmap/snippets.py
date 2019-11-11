@@ -2417,6 +2417,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
     counts.index.name = 'feature'
     relabund = counts / counts.sum()
     comparisons = sorted(map(sorted, diffTaxa.keys()))
+    num_drawn_taxa = []
+    grp_colors = {k: sns.color_palette()[i] for i, k in enumerate({s for k in diffTaxa.keys() for s in k})}
     for i, (meta_value_a, meta_value_b) in enumerate(comparisons):
         # only consider taxa given in the diffTaxa object...
         taxa = list(diffTaxa[(meta_value_a, meta_value_b)])
@@ -2451,9 +2453,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
         #          if meanabund >= min_mean_abundance])))
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
-        else:
-            fig.set_size_inches(
-                fig.get_size_inches()[0], scale_height*len(taxa))
+        num_drawn_taxa.append(len(taxa))
 
         relabund_field = []
         for (samples, grpname) in [(samples_a, meta_value_a),
@@ -2469,13 +2469,17 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
         if len(diffTaxa) > 1:
             curr_ax = ax[i][0]
         if len(taxa) > 0:
-            if relabund_field.groupby('level_1')['relative abundance'].sum().max() > 1:
+            grpsby = 'level_1'
+            if counts.columns.name is not None:
+                grpsby = counts.columns.name
+            if relabund_field.groupby(grpsby)['relative abundance'].sum().max() > 1:
                 raise ValueError("If we add up all relative abundances, we have more than 100%. This is impossible! Please check if you provided the full count table, or errounously subsetted it to e.g. specific features. If this is the case, correct and use parameter 'onlyusetaxa'!")
             g = sns.boxplot(data=relabund_field,
                             x='relative abundance',
                             y='feature',
                             order=taxa,
                             hue='group',
+                            palette=grp_colors,
                             ax=curr_ax,
                             orient='h')
             if max_x_relabundance is None:
@@ -2507,9 +2511,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                     tick.set_color(colors[feature_color_map[tick.get_text()]])
 
         # MOVED ABUNDANCE
-        curr_ax = ax[1]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][1]
+        else:
+            curr_ax = ax[1]
         if len(taxa) > 0:
             #return (meanrealabund[meta_value_a]- meanrealabund[meta_value_b]).to_frame().reset_index()
             relabundshift = (meanrealabund[meta_value_a]- meanrealabund[meta_value_b]).loc[taxa].to_frame().reset_index()
@@ -2528,9 +2533,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                        +1.05*relabundshift[0].abs().max())
 
         # FOLD CHANGE
-        curr_ax = ax[2]
         if len(diffTaxa) > 1:
             curr_ax = ax[i][2]
+        else:
+            curr_ax = ax[2]
         if len(taxa) > 0:
             g = sns.barplot(data=foldchange.loc[taxa].to_frame().reset_index(),
                             orient='h',
@@ -2576,6 +2582,10 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
         if title is not None:
             titletext = title + "\n" + titletext
         fig.suptitle(titletext)
+
+    if sum(num_drawn_taxa) > 0:
+        fig.set_size_inches(
+            fig.get_size_inches()[0], scale_height*max(num_drawn_taxa)*len(comparisons))
 
     return fig, meanrealabund, relabund
 
