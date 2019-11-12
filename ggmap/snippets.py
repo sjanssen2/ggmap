@@ -3588,11 +3588,19 @@ def _make_circles(items: [str], center=(0,0), level=1, width=6):
             label_position = (
                 center[0] + (outer_radius+inner_radius*1.25) * np.cos(i * (2*math.pi / len(items))),
                 center[1] + (outer_radius+inner_radius*1.25) * np.sin(i * (2*math.pi / len(items))))
+            link_angle = random.random()*2*math.pi
+            link_position = (
+                inner_center[0] + (inner_radius*0.5) * np.cos(link_angle),
+                inner_center[1] + (inner_radius*0.5) * np.sin(link_angle))
             circles[item] = {'center': inner_center, 'radius': inner_radius, 'level': level,
                              'label_position': label_position,
+                             'link_position': link_position,
                              'label_horizontalalignment': 'center' if (degree == 90 or degree == 270) else 'right' if (90 < degree < 270) else 'left'}
     else:
-        circles[items[0]] = {'center': center, 'radius': inner_radius, 'level': level, 'label_position': center, 'label_horizontalalignment': 'center'}
+        circles[items[0]] = {'center': center, 'radius': inner_radius, 'level': level,
+                             'label_position': center,
+                             'link_position': center,
+                             'label_horizontalalignment': 'center'}
 
     return circles
 
@@ -3613,8 +3621,9 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
     width : float
         Default: 6.0
         Width of drawing.
-    links : [(idx, idx)]
+    links : [(idx, idx, field]
         List of tuples of indices: Links between objects.
+        "field" is optional and is used to color the link. Works only if colors["links"] is provided!
     Returns
     -------
 
@@ -3651,10 +3660,16 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
             ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=8)
 
     # plot links
-    for (idx_a, idx_b) in links:
-        xa, ya = circles[idx_a]['center']
-        xb, yb = circles[idx_b]['center']
-        ax.plot([xa,xb],[ya,yb], '--', color='black', )
+    links_ls = dict()
+    for link in links:
+        xa, ya = circles[link[0]]['link_position']
+        xb, yb = circles[link[1]]['link_position']
+        color = 'black'
+        if (len(link) > 2) and ('links' in colors):
+            if link[2] not in links_ls:
+                links_ls[link[2]] = ['--', '-.', ':', '-'][len(links_ls) % 4]
+            color = colors['links'][link[2]]
+        ax.plot([xa,xb],[ya,yb], ls=links_ls[link[2]], color=color, lw=3)
 
     ax.set_xlim(-1*width/2*1.3,width/2*1.3)
     ax.set_ylim(-1*width/2*1.3,width/2*1.3)
@@ -3664,6 +3679,9 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
         for value, color in colors[level].items():
             legend_elements.append(Patch(
                 label=value, facecolor=color))
+    if 'links' in colors:
+        for value, color in colors['links'].items():
+            legend_elements.append(Line2D([0],[0], label=value, color=color, ls=links_ls[value]))
     ax.legend(handles=legend_elements, bbox_to_anchor=(1.41, 1))
     ax.axis('off')
 
