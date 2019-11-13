@@ -3657,25 +3657,34 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str], colors: Dict[str
         if (c['level'] == level_names[0]):
             ax.text(*c['label_position'], idx if type(idx) != tuple else idx[-1], horizontalalignment=c['label_horizontalalignment'], verticalalignment='center')
         if (c['level'] == level_names[-1]):
-            ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=8)
+            ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=12*(width/10))
 
     # plot links
-    links_ls = dict()
-    for link in links:
-        xa, ya = circles[link[0]]['link_position']
-        xb, yb = circles[link[1]]['link_position']
-        color = 'black'
-        if (len(link) > 2) and ('links' in colors):
-            if link[2] not in links_ls:
-                links_ls[link[2]] = ['--', '-.', ':', '-'][len(links_ls) % 4]
-            color = colors['links'][link[2]]
-        ax.plot([xa,xb],[ya,yb], ls=links_ls[link[2]], color=color, lw=3)
+    AVIAL_LINESTYLES = ['--', '-.', ':', '-']
+    links = pd.DataFrame(links)
+    if links.shape[1] == 2:
+        links['color'] = 'black'
+        links['linestyle'] = AVIAL_LINESTYLES[0]
+    else:
+        if 'links' in colors:
+            links['color'] = links[2].apply(lambda x: colors['links'].get(x), 'black')
+            links_ls = dict()
+            for i, type_ in enumerate(links[2].unique()):
+                links_ls[type_] = AVIAL_LINESTYLES[i % len(AVIAL_LINESTYLES)]
+            links['linestyle'] = links[2].apply(lambda x: links_ls[x])
+    for _, g in sorted(links.groupby('color'), key=lambda x: x[1].shape[0], reverse=True):
+        for _, link in g.iterrows():
+            xa, ya = circles[link.loc[0]]['link_position']
+            xb, yb = circles[link.loc[1]]['link_position']
+            ax.plot([xa,xb],[ya,yb], ls=link['linestyle'], color=link['color'], lw=width/4)
 
     ax.set_xlim(-1*width/2*1.3,width/2*1.3)
     ax.set_ylim(-1*width/2*1.3,width/2*1.3)
 
     legend_elements = []
     for level in colors.keys():
+        if level == 'links':
+            continue
         for value, color in colors[level].items():
             legend_elements.append(Patch(
                 label=value, facecolor=color))
