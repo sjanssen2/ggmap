@@ -500,7 +500,8 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
     def commands(workdir, ppn, args):
         commands = []
 
-        commands.append('module load %s' % settings.R_MODULE)
+        if settings.GRIDNAME != 'JLU':
+            commands.append('module load %s' % settings.R_MODULE)
         commands.append('R --vanilla < %s/rscript.R' % workdir)
 
         return commands
@@ -570,7 +571,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
                      post_execute,
                      post_cache,
                      ppn=1,
-                     environment=None,
+                     environment=settings.QIIME2_ENV,
                      **executor_args)
 
 

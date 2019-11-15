@@ -2341,7 +2341,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         # escape values that Qiime2 might identify as numeric
         for c in args['cols_cat']:
             args['meta'][c] = args['meta'][c].apply(
-                lambda x: '_%s' % x if not x.startswith('_') else x)
+                lambda x: '_%s' % x if not str(x).startswith('_') else x)
         # write metadata into file
         args['meta'].to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
