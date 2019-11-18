@@ -65,6 +65,9 @@ def _clear_metadata(metadata,
         set(intervals) | set(dates.keys())
     if len(all_columns) < (len(set(categorials)) + len(set(ordinals.keys())) +
                            len(set(intervals)) + len(set(dates.keys()))):
+        col_usage = pd.Series(categorials + list(ordinals.keys()) +\
+                              intervals + list(dates.keys())).value_counts()
+        display(col_usage[col_usage > 1])
         raise ValueError(
             'You have repeatedly used metadata column names for ordinals, '
             'categorials or intervals. Make sure a column name only occures in'
@@ -114,10 +117,19 @@ def _clear_metadata(metadata,
     # convert all date fiels into seconds from epoch to make them interval
     # data. Format string reference at:
     # https://docs.python.org/3/library/datetime.html
+    def _convdate(date, frmt):
+        if pd.isnull(date):
+            return 0
+        if type(date) == float:
+            return date
+        elif type(date) == pd.Timestamp:
+            return time.mktime(date.timetuple())
+        else:
+            return time.mktime(datetime.strptime(date, frmt).timetuple())
     for column in dates.keys():
-        meta[column] = meta[column].apply(
-            lambda x: time.mktime(datetime.strptime(
-                x, dates[column]).timetuple()) if type(x) != float else x)
+        meta[column] = meta[column].apply(lambda x: _convdate(x, dates[column]))
+            #lambda x: time.mktime(datetime.strptime(
+            #    x, dates[column]).timetuple()) if type(x) != float else x)
 
     # convert ordinal labels into floats
     for column in ordinals.keys():
@@ -157,11 +169,11 @@ def correlate_metadata(metadata,
         Value is either None, i.e. no mapping provided, or it must be an
         ordered list of labels. Labels not covered by this list will be
         ignored!
+    intervals : [str]
+        List of column names of provided metadata DataFrame.
     dates : dict{str: str}
         Dictionary of column names and their format string to convert the date
         into a machine readable datetime object.
-    intervals : [str]
-        List of column names of provided metadata DataFrame.
     err : StringIO
         Default: sys.stderr
         Stream to print warnings to.
