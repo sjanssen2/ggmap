@@ -27,6 +27,7 @@ from skbio.tree import TreeNode
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents)
 from ggmap import settings
 import seaborn as sns
+import networkx as nx
 
 plt.switch_backend('Agg')
 plt.rc('font', family='DejaVu Sans')
@@ -3492,6 +3493,174 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: TreeNode, c
                      **executor_args)
 
 
+def scnic(counts: pd.DataFrame,
+          method: str='sparcc',
+          min_reads_per_feature: float=500,
+          min_mean_abundance_per_feature: float=2,
+          comp_minnumber: int=5,
+          comp_mincompsize: int=3,
+          ppn=8,
+          #col_envname, col_type,
+          #col_envID=None,
+          #EM_iterations=1000,
+          #ppn=4, pmem='4GB',
+          **executor_args):
+    """q2-SCNIC.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        feature-table
+    method : str
+        Default: sparcc.
+        Choose from 'kendall', 'pearson', 'spearman', 'sparcc'.
+    min_reads_per_feature : float
+        Default: 500.
+        Minimal number of reads per feature to be included for SCNIC analysis.
+        First filtering step.
+    min_mean_abundance_per_feature : float
+        Default: 2.
+        Minimal mean abundance of a feature across all samples.
+        Second filtering step.
+    comp_minnumber : int
+        Default: 5.
+        Minimal number of graph components to report.
+    comp_mincompsize : int
+        Default: 3.
+        Minimal number of nodes per component.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    ???
+    """
+    # filter such that only features persist that have more than min_reads_per_feature counts across all samples
+    counts = counts[counts.sum(axis=1) >= min_reads_per_feature]
+    # filter such that only features persist that have a mean abundance of at least
+    counts = counts[counts.mean(axis=1) >= min_mean_abundance_per_feature]
+    if 'verbose' in executor_args and executor_args['verbose'] is not None:
+        executor_args['verbose'].write('feature-table density: %.1f%%\n' % (
+            (1 - (float((counts == 0).sum().sum()) /
+            float(counts.shape[0]*counts.shape[1])))*100
+        ))
+
+    def pre_execute(workdir, args):
+        # filter feature table to avoid too many zeros, following:
+        # Correlational analyses are hampered by having large numbers of zeroes.
+        # Therefore we are first going to remove these from our data. In the
+        # q2-SCNIC plugin a method called sparcc-filter to do this based on
+        # the parameters used in Friedman et al. 23 This method removes all
+        # samples with a feature abundance total below 500 and all features
+        # with an average abundance less than 2 across all samples. You do not
+        # need to use these parameters and can use any method you chose to do
+        # this. Other methods for filtering feature tables are outlined here.
+
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             # '--source-format BIOMV210Format '
+             '--output-path %s') %
+            (workdir+'/input.biom', workdir+'/input'))
+
+        commands.append(
+            ('qiime SCNIC calculate-correlations '
+             '--i-table %s/input.qza '
+             '--p-method %s '
+             '--o-correlation-table %s/correls_%s.qza '
+             '--p-n-procs %i') %
+            (workdir, args['method'], workdir, args['method'], 8 if ppn > 8 else ppn)
+        )
+
+        commands.append(
+            ('qiime tools export '
+             '--input-path %s/correls_%s.qza '
+             '--output-path %s') %
+            (workdir, args['method'], workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        correlations = pd.read_csv('%s/pairwise_comparisons.tsv' % workdir, sep="\t")
+        correlations['abs_r'] = correlations['r'].abs()
+
+        pv = pd.pivot_table(data=correlations, values='r', index='feature1', columns='feature2').reindex(args['counts'].index, axis=0).reindex(args['counts'].index, axis=1)
+        pv = pv.fillna(0) + pv.fillna(0).T
+        for c in pv.columns:
+            pv.loc[c, c] = 1
+        pv.index.name = method
+
+        return {'correlations': correlations, 'r': pv}
+
+    def post_cache(cache_results):
+        G = nx.from_pandas_edgelist(cache_results['results']['correlations'], 'feature1', 'feature2', ['r'])
+        G_wanted = None
+        # descendingly iterate through absolute correlation values until graph has enough members to form comp_minnumber components of min_comp_size nodes each
+        for i, corr_thresh in enumerate(cache_results['results']['correlations']['abs_r'].sort_values(ascending=False).unique()):
+            # print(i, corr_thresh)
+            G_sub = nx.Graph()
+            G_sub.add_weighted_edges_from([(edge[0], edge[1], G[edge[0]][edge[1]]['r']) for edge in G.edges if abs(G[edge[0]][edge[1]]['r']) >= corr_thresh])
+
+            if sum([1 for comp in nx.connected_components(G_sub) if len(comp) >= comp_mincompsize]) > comp_minnumber:
+                break
+            G_wanted = G_sub.copy()
+
+        # remove components with less than comp_mincompsize nodes
+        nodes_to_remove = set()
+        for comp in nx.connected_components(G_wanted):
+            if len(comp) < comp_mincompsize:
+                nodes_to_remove |= comp
+        G_wanted.remove_nodes_from(nodes_to_remove)
+
+
+        # draw graph
+        # create node colors
+        node_color_map = dict()
+        for i, comp in enumerate(nx.connected_components(G_wanted)):
+            for n in comp:
+                node_color_map[n] = sns.color_palette()[i % len(sns.color_palette())]
+            display(cache_results['results']['r'].loc[comp, comp])
+
+        edges, weights = zip(*nx.get_edge_attributes(G_wanted, 'weight').items())
+
+        pos = nx.spring_layout(G_wanted, weight='r', k=0.3)
+
+        nx.draw(G_wanted,
+                pos=pos,
+                with_labels=True,
+                node_color=[node_color_map[node] for node in G_wanted.nodes],
+                edgelist=edges,
+                edge_color=weights,
+                edge_cmap=plt.cm.PuOr,
+                width=5.0
+               )
+        cache_results['results']['graph'] = G_wanted
+
+        return cache_results
+
+    return _executor('scnic',
+                     {'counts': counts,
+                      'method': method,
+                      'min_reads_per_feature': min_reads_per_feature,
+                      'min_mean_abundance_per_feature': min_mean_abundance_per_feature,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache=post_cache,
+                     ppn=ppn,
+                     environment='qiime2-2019.10',
+                     array=1,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -3668,7 +3837,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             if array > 1:
                 exp_finish_suffix = str(int(i+1))
             if (array == 1) and (settings.GRIDNAME == 'JLU'):
-                exp_finish_suffix = 'undefined'
+                if use_grid:
+                    exp_finish_suffix = 'undefined'
+                else:
+                    exp_finish_suffix = '1'
             if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
                 all_finished = False
                 break
