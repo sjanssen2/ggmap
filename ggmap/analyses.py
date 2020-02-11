@@ -1956,6 +1956,7 @@ def compare_categories(beta_dm, metadata,
                      pre_execute,
                      commands,
                      post_execute,
+                     environment=settings.QIIME_ENV,
                      ppn=1,
                      array=len(range(0, metadata.shape[1])),
                      **executor_args)
@@ -2341,7 +2342,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         # escape values that Qiime2 might identify as numeric
         for c in args['cols_cat']:
             args['meta'][c] = args['meta'][c].apply(
-                lambda x: '_%s' % x if not str(x).startswith('_') else x)
+                lambda x: '_%s' % x if not x.startswith('_') else x)
         # write metadata into file
         args['meta'].to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
@@ -2396,6 +2397,9 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                  '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
                     settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
             for method in METHODS_ALPHA:
+                if (len(set(args['meta'].columns) - set(args['cols_cat']) - set(args['cols_alldiff'])) <= 0):
+                    # skip pearson analysis, if none of the metadata columns are non-categorial, i.e. not numeric
+                    continue
                 commands.append(
                     ('if [ $%s -eq 1 ]; then '
                      'qiime diversity alpha-correlation '
@@ -2586,7 +2590,8 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                       'cols_cat': sorted(list(set(categorial) -
                                               set(cols_alldiff) -
                                               set(cols_onevalue))),
-                      'cols_onevalue': sorted(cols_onevalue)},
+                      'cols_onevalue': sorted(cols_onevalue),
+                      'cols_alldiff': sorted(cols_alldiff)},
                      pre_execute,
                      commands,
                      post_execute,
