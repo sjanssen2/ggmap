@@ -3668,7 +3668,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             if array > 1:
                 exp_finish_suffix = str(int(i+1))
             if (array == 1) and (settings.GRIDNAME == 'JLU'):
-                exp_finish_suffix = 'undefined'
+                if use_grid:
+                    exp_finish_suffix = 'undefined'
+                else:
+                    exp_finish_suffix = '1'
             if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
                 all_finished = False
                 break
