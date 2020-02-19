@@ -1956,7 +1956,6 @@ def compare_categories(beta_dm, metadata,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=settings.QIIME_ENV,
                      ppn=1,
                      array=len(range(0, metadata.shape[1])),
                      **executor_args)
@@ -2332,90 +2331,91 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                               ' in categorial or nonCategorial!'))
 
         # write alpha diversity values into files
-        for metric in args['alpha'].keys():
-            args['alpha'][metric].to_frame().to_csv(
-                '%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
-        # write beta diversity matrices into files
-        for metric in args['beta'].keys():
-            args['beta'][metric].write(
-                '%s/beta_%s.tsv' % (workdir, metric))
+        if args['alpha'] is not None:
+            for metric in args['alpha'].keys():
+                args['alpha'][metric].to_frame().to_csv(
+                    '%s/alpha_%s.tsv' % (workdir, metric), sep="\t")
+        if args['beta'] is not None:
+            # write beta diversity matrices into files
+            for metric in args['beta'].keys():
+                args['beta'][metric].write(
+                    '%s/beta_%s.tsv' % (workdir, metric))
         # escape values that Qiime2 might identify as numeric
         for c in args['cols_cat']:
             args['meta'][c] = args['meta'][c].apply(
-                lambda x: '_%s' % x if not x.startswith('_') else x)
+                lambda x: '_%s' % x if not str(x).startswith('_') else x)
         # write metadata into file
         args['meta'].to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
 
         # import beta distance matrix into Qiime2 artifacts
         dry = executor_args['dry'] if 'dry' in executor_args else True
-        for metric in args['beta'].keys():
-            cluster_run([
-                ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
-                 ' %s/beta_%s.qza --type "DistanceMatrix"') % (
-                    workdir, metric, workdir, metric)],
-                jobname='import_dm',
-                result="%s/beta_%s.qza" % (workdir, metric),
-                ppn=1, pmem='8GB', walltime='1:00:00',
-                environment=settings.QIIME2_ENV,
-                dry=dry,
-                wait=True, use_grid=False)
-
-        # write a file that can provide metric, column and method values for
-        # an array job
-        with open('%s/fields.txt' % workdir, 'w') as f:
-            f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
+        if args['beta'] is not None:
             for metric in args['beta'].keys():
-                for column in args['cols_cat']:
-                    for method in METHODS_BETA:
-                        f.write('\t'.join([metric, column, method])+'\n')
+                cluster_run([
+                    ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
+                     ' %s/beta_%s.qza --type "DistanceMatrix"') % (
+                        workdir, metric, workdir, metric)],
+                    jobname='import_dm',
+                    result="%s/beta_%s.qza" % (workdir, metric),
+                    ppn=1, pmem='8GB', walltime='1:00:00',
+                    environment=settings.QIIME2_ENV,
+                    dry=dry,
+                    wait=True, use_grid=False)
+
+            # write a file that can provide metric, column and method values for
+            # an array job
+            with open('%s/fields.txt' % workdir, 'w') as f:
+                f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
+                for metric in args['beta'].keys():
+                    for column in args['cols_cat']:
+                        for method in METHODS_BETA:
+                            f.write('\t'.join([metric, column, method])+'\n')
 
     def commands(workdir, ppn, args):
         commands = []
 
         # store alpha diversities as Qiime2 artifacts
-        for metric in args['alpha'].keys():
-            commands.append(
-                ('if [ $%s -eq 1 ]; then '
-                 'qiime tools import '
-                 '--input-path %s/alpha_%s.tsv '
-                 '--output-path %s/alpha_%s.qza '
-                 '--type "SampleData[AlphaDiversity]"; fi') % (
-                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
-            commands.append(
-                ('if [ $%s -eq 1 ]; then '
-                 'qiime diversity alpha-group-significance '
-                 '--i-alpha-diversity %s/alpha_%s.qza '
-                 '--m-metadata-file %s/meta.tsv '
-                 '--output-dir %s/alpha-group-significance_%s/; fi') % (
-                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, workdir, metric))
-            commands.append(
-                ('if [ $%s -eq 1 ]; then '
-                 'qiime tools export '
-                 '--input-path %s/alpha-group-significance_%s/'
-                 'visualization.qzv '
-                 '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
-                    settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
-            for method in METHODS_ALPHA:
-                if (len(set(args['meta'].columns) - set(args['cols_cat']) - set(args['cols_alldiff'])) <= 0):
-                    # skip pearson analysis, if none of the metadata columns are non-categorial, i.e. not numeric
-                    continue
+        if args['alpha'] is not None:
+            for metric in args['alpha'].keys():
                 commands.append(
                     ('if [ $%s -eq 1 ]; then '
-                     'qiime diversity alpha-correlation '
+                     'qiime tools import '
+                     '--input-path %s/alpha_%s.tsv '
+                     '--output-path %s/alpha_%s.qza '
+                     '--type "SampleData[AlphaDiversity]"; fi') % (
+                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
+                commands.append(
+                    ('if [ $%s -eq 1 ]; then '
+                     'qiime diversity alpha-group-significance '
                      '--i-alpha-diversity %s/alpha_%s.qza '
                      '--m-metadata-file %s/meta.tsv '
-                     '--p-method %s '
-                     '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, method,
-                        workdir, metric, method))
+                     '--output-dir %s/alpha-group-significance_%s/; fi') % (
+                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, workdir, metric))
                 commands.append(
                     ('if [ $%s -eq 1 ]; then '
                      'qiime tools export '
-                     '--input-path %s/alpha-correlation_%s_%s/'
+                     '--input-path %s/alpha-group-significance_%s/'
                      'visualization.qzv '
-                     '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, method, workdir, metric, method))
+                     '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
+                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
+                for method in METHODS_ALPHA:
+                    commands.append(
+                        ('if [ $%s -eq 1 ]; then '
+                         'qiime diversity alpha-correlation '
+                         '--i-alpha-diversity %s/alpha_%s.qza '
+                         '--m-metadata-file %s/meta.tsv '
+                         '--p-method %s '
+                         '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
+                            settings.VARNAME_PBSARRAY, workdir, metric, workdir, method,
+                            workdir, metric, method))
+                    commands.append(
+                        ('if [ $%s -eq 1 ]; then '
+                         'qiime tools export '
+                         '--input-path %s/alpha-correlation_%s_%s/'
+                         'visualization.qzv '
+                         '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
+                            settings.VARNAME_PBSARRAY, workdir, metric, method, workdir, metric, method))
 
         commands.append(('var_METRIC=`head -n $%s %s/fields.txt | '
                          'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir))
@@ -2443,59 +2443,60 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
 
     def post_execute(workdir, args):
         results = []
-        for metric in args['alpha'].keys():
-            fp_asig = '%s/alpha-group-significance_%s/raw/' % (workdir, metric)
-            for _, _, files in os.walk(fp_asig):
-                for file in files:
-                    if file.startswith('column-') and file.endswith('.jsonp'):
-                        column = '.'.join(("-".join(
-                            file.split('-')[1:])).split('.')[:-1])
-                        with open('%s/%s' % (fp_asig, file), 'r') as f:
-                            content = "\n".join(f.readlines())
-                            results.append({'div': 'alpha',
-                                            'type': 'group-significance',
-                                            'metric': metric,
-                                            'column': column,
-                                            'test-statistic':
-                                            re.findall(r'"H":\s+(\d*\.\d+)',
-                                                       content)[0],
-                                            'test statistic name': 'H',
-                                            'p-value':
-                                            re.findall(r'"p":\s+(\d*\.\d+)',
-                                                       content)[0],
-                                            'test':
-                                            'Kruskal-Wallis (all groups)'})
-                break
-
-            regexAt = r'"testStat":\s+"?(-?\d*\.\d+|nan)"?'
-            regexAp = r'"pVal":\s+"?(\d*\.\d+)"?'
-            regexAs = r'"sampleSize":\s+"?(\d+)"?'
-            for method in ['pearson', 'spearman']:
-                fp_acorr = '%s/alpha-correlation_%s_%s/raw/' % (
-                    workdir, metric, method)
-                for _, _, files in os.walk(fp_acorr):
+        if args['alpha'] is not None:
+            for metric in args['alpha'].keys():
+                fp_asig = '%s/alpha-group-significance_%s/raw/' % (workdir, metric)
+                for _, _, files in os.walk(fp_asig):
                     for file in files:
-                        if file.startswith('column-') and \
-                                file.endswith('.jsonp'):
+                        if file.startswith('column-') and file.endswith('.jsonp'):
                             column = '.'.join(("-".join(
                                 file.split('-')[1:])).split('.')[:-1])
-                            with open('%s/%s' % (fp_acorr, file), 'r') as f:
+                            with open('%s/%s' % (fp_asig, file), 'r') as f:
                                 content = "\n".join(f.readlines())
                                 results.append({'div': 'alpha',
-                                                'type': 'correlation',
+                                                'type': 'group-significance',
                                                 'metric': metric,
                                                 'column': column,
                                                 'test-statistic':
-                                                re.findall(regexAt,
+                                                re.findall(r'"H":\s+(\d*\.\d+)',
                                                            content)[0],
+                                                'test statistic name': 'H',
                                                 'p-value':
-                                                re.findall(regexAp,
+                                                re.findall(r'"p":\s+(\d*\.\d+)',
                                                            content)[0],
-                                                'sampleSize':
-                                                re.findall(regexAs,
-                                                           content)[0],
-                                                'test': method})
-                break
+                                                'test':
+                                                'Kruskal-Wallis (all groups)'})
+                    break
+
+                regexAt = r'"testStat":\s+"?(-?\d*\.\d+|nan)"?'
+                regexAp = r'"pVal":\s+"?(\d*\.\d+)"?'
+                regexAs = r'"sampleSize":\s+"?(\d+)"?'
+                for method in ['pearson', 'spearman']:
+                    fp_acorr = '%s/alpha-correlation_%s_%s/raw/' % (
+                        workdir, metric, method)
+                    for _, _, files in os.walk(fp_acorr):
+                        for file in files:
+                            if file.startswith('column-') and \
+                                    file.endswith('.jsonp'):
+                                column = '.'.join(("-".join(
+                                    file.split('-')[1:])).split('.')[:-1])
+                                with open('%s/%s' % (fp_acorr, file), 'r') as f:
+                                    content = "\n".join(f.readlines())
+                                    results.append({'div': 'alpha',
+                                                    'type': 'correlation',
+                                                    'metric': metric,
+                                                    'column': column,
+                                                    'test-statistic':
+                                                    re.findall(regexAt,
+                                                               content)[0],
+                                                    'p-value':
+                                                    re.findall(regexAp,
+                                                               content)[0],
+                                                    'sampleSize':
+                                                    re.findall(regexAs,
+                                                               content)[0],
+                                                    'test': method})
+                    break
 
         regexBtn = r'<th>test statistic name</th>\s*<td>(.+?)</td>'
         regexBss = r'<th>sample size</th>\s*<td>(.+?)</td>'
@@ -2503,44 +2504,45 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         regexBpv = r'<th>p-value</th>\s*<td>(.+?)</td>'
         regexBnp = r'<th>number of permutations</th>\s*<td>(.+?)</td>'
         regexBng = r'<th>number of groups</th>\s*<td>(.+?)</td>'
-        for metric in args['beta'].keys():
-            for method in ['permanova', 'anosim']:
-                for _, dirs, _ in os.walk(workdir):
-                    for dir in dirs:
-                        if dir.startswith(
-                                'beta-group-significance_%s' % metric) and \
-                                dir.endswith(method):
-                            column = dir[
-                                len('beta-group-significance_%s' % metric) +
-                                1: -1 * (len(method)+1)]
-                            with open('%s/%s/raw/index.html' % (
-                                    workdir, dir), 'r') as f:
-                                content = ("".join(f.readlines()).replace(
-                                    '\n', ''))
-                                results.append({'div': 'beta',
-                                                'type': 'group-significance',
-                                                'metric': metric,
-                                                'column': column,
-                                                'test statistic name':
-                                                re.findall(regexBtn,
-                                                           content)[0],
-                                                'sampleSize':
-                                                re.findall(regexBss,
-                                                           content)[0],
-                                                'test-statistic':
-                                                re.findall(regexBts,
-                                                           content)[0],
-                                                'p-value':
-                                                re.findall(regexBpv,
-                                                           content)[0],
-                                                'number of permutations':
-                                                re.findall(regexBnp,
-                                                           content)[0],
-                                                'number of groups':
-                                                re.findall(regexBng,
-                                                           content)[0],
-                                                'test': method})
-                    break
+        if args['beta'] is not None:
+            for metric in args['beta'].keys():
+                for method in ['permanova', 'anosim']:
+                    for _, dirs, _ in os.walk(workdir):
+                        for dir in dirs:
+                            if dir.startswith(
+                                    'beta-group-significance_%s' % metric) and \
+                                    dir.endswith(method):
+                                column = dir[
+                                    len('beta-group-significance_%s' % metric) +
+                                    1: -1 * (len(method)+1)]
+                                with open('%s/%s/raw/index.html' % (
+                                        workdir, dir), 'r') as f:
+                                    content = ("".join(f.readlines()).replace(
+                                        '\n', ''))
+                                    results.append({'div': 'beta',
+                                                    'type': 'group-significance',
+                                                    'metric': metric,
+                                                    'column': column,
+                                                    'test statistic name':
+                                                    re.findall(regexBtn,
+                                                               content)[0],
+                                                    'sampleSize':
+                                                    re.findall(regexBss,
+                                                               content)[0],
+                                                    'test-statistic':
+                                                    re.findall(regexBts,
+                                                               content)[0],
+                                                    'p-value':
+                                                    re.findall(regexBpv,
+                                                               content)[0],
+                                                    'number of permutations':
+                                                    re.findall(regexBnp,
+                                                               content)[0],
+                                                    'number of groups':
+                                                    re.findall(regexBng,
+                                                               content)[0],
+                                                    'test': method})
+                        break
 
         # add information about those columns of the metadata that have not
         # been tested because all their values were the same.
@@ -2559,11 +2561,12 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
     # synchronize samples across metadata, alpha and beta diversity to the
     # smallest shared group
     idx_samples = set(metadata.index)
-    idx_samples &= set(alpha_diversities.index)
+    if alpha_diversities is not None:
+        idx_samples &= set(alpha_diversities.index)
     for metric in beta_diversities.keys():
         idx_samples &= set(beta_diversities[metric].ids)
     if (len(idx_samples) < metadata.shape[0]) |\
-            (len(idx_samples) < alpha_diversities.shape[0]) |\
+            ((alpha_diversities is not None) and (len(idx_samples) < alpha_diversities.shape[0])) |\
             any([len(idx_samples) < m.shape[0]
                  for m in beta_diversities.values()]):
         sys.stderr.write(
@@ -2580,7 +2583,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                     metadata.loc[idx_samples, col].shape[0]]
 
     return _executor('corr-divmeta',
-                     {'alpha': alpha_diversities.loc[idx_samples, :],
+                     {'alpha': alpha_diversities.loc[idx_samples, :] if alpha_diversities is not None else None,
                       'beta': {k: m.filter(idx_samples)
                                for k, m in beta_diversities.items()},
                       'meta': metadata.loc[idx_samples,
@@ -2590,8 +2593,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                       'cols_cat': sorted(list(set(categorial) -
                                               set(cols_alldiff) -
                                               set(cols_onevalue))),
-                      'cols_onevalue': sorted(cols_onevalue),
-                      'cols_alldiff': sorted(cols_alldiff)},
+                      'cols_onevalue': sorted(cols_onevalue)},
                      pre_execute,
                      commands,
                      post_execute,
