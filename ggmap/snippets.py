@@ -2769,8 +2769,8 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series,
                     color="white" if cm[i, j]-cm.min() > thresh else "black")
 
     ax.grid(b=False, which='both', axis='both')
-    ax.set_ylim((-0.5,1.5))
-    ax.set_xlim((-0.5,1.5))
+    ax.set_ylim((-0.5, cm.shape[1]-0.5))
+    ax.set_xlim((-0.5, cm.shape[0]-0.5))
 
     for loc in ax.spines.keys():
         ax.spines[loc].set_color('0') # ['bottom'].set_color('0')
@@ -3511,6 +3511,7 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
 
     ax = axes[0]
     chosen_iteration = results.sort_values(by='accurracy').index[int(results.shape[0]/2)]
+    
     plot_confusion_matrix(results.loc[chosen_iteration, 'test'],
                           results.loc[chosen_iteration, 'prediction'],
                           title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().iteritems()]),
