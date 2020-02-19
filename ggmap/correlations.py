@@ -565,7 +565,10 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
             if title is not None:
                 ttl = '%s\n%s' % (ttl, title)
             axes.set_title(ttl)
-            cache_results['results']['figure'] = axes
+            if ax is None:
+                cache_results['results']['figure'] = fig
+            else:
+                cache_results['results']['figure'] = axes
         else:
             sys.stderr.write('No significant findings.\n')
         return cache_results
