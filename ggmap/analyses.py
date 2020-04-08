@@ -3857,9 +3857,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         if verbose:
             verbose.write(
                 ('Found %i temporary working directories, but non of '
-                 'them have finished. If no job is currently running,'
+                 'them have finished (missing "finished.info%s" file). If no job is currently running,'
                  ' you might want to delete these directories and res'
-                 'tart:\n  %s\n') % (len(pot_workdirs),
+                 'tart:\n  %s\n') % (len(pot_workdirs), exp_finish_suffix,
                                      "\n  ".join(pot_workdirs)))
         return results
     if len(finished_workdirs) > 0:
