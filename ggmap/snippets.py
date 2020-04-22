@@ -1169,14 +1169,14 @@ def cluster_run(cmds, jobname, result, environment=None,
     env_present = None
     if environment is not None:
         # check if environment exists
-        with subprocess.Popen("conda env list | grep %s -c" % environment,
+        with subprocess.Popen("%s/condabin/conda env list | grep %s -c" % (settings.DIR_CONDA, environment),
                               shell=True,
                               stdout=subprocess.PIPE) as env_present:
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (
-            settings.DIR_CONDA, environment)
+        cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
+            settings.DIR_CONDA, settings.DIR_CONDA, environment)
 
     slurm = False
     if use_grid is False:
@@ -3511,7 +3511,7 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
 
     ax = axes[0]
     chosen_iteration = results.sort_values(by='accurracy').index[int(results.shape[0]/2)]
-    
+
     plot_confusion_matrix(results.loc[chosen_iteration, 'test'],
                           results.loc[chosen_iteration, 'prediction'],
                           title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().iteritems()]),
