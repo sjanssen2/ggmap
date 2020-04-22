@@ -257,7 +257,7 @@ def get_great_circle_distance(p1, p2):
 
 def drawMap(points, basemap=None, ax=None, no_legend=False,
             color_fill_land='lightgreen', color_border_land='gray',
-            color_water='lightblue'):
+            color_water='lightblue', draw_country_borders=False):
     """ Plots coordinates of metadata to a worldmap.
 
     Parameters
@@ -288,6 +288,13 @@ def drawMap(points, basemap=None, ax=None, no_legend=False,
         which shall be drawn.
     no_legend : bool
         Default is False. Set to True to suppress drawing a legend.
+    draw_country_borders: bool
+        Default: False.
+    draw_latitudes: False
+        Default: False.
+        If True, for every point a "horizontal" line for this latitude is drawn.
+        Place for improvement: if many points are plotted this will surely crowed the map.
+        Would be better to provide a list of latitudes?!
 
     Returns
     -------
@@ -312,6 +319,11 @@ def drawMap(points, basemap=None, ax=None, no_legend=False,
     # Fill the continents with the land color
     map.fillcontinents(color=color_fill_land, lake_color=color_water, zorder=1)
     map.drawcoastlines(color=color_border_land, zorder=1)
+
+    if draw_country_borders:
+        map.drawcountries(color=color_border_land)
+    if draw_latitudes:
+        map.drawparallels(list({lat for p in points for lat in p['coords']['latitude'].values}), zorder=1, color=color_border_land)
 
     l_patches = []
     for z, set_of_points in enumerate(points):
@@ -1221,7 +1233,12 @@ def cluster_run(cmds, jobname, result, environment=None,
             resources = " -l walltime=%s,nodes=%i%s:ppn=%i,mem=%s " % (
                 walltime, nodes, highmem, ppn, pmem)
             if settings.GRIDNAME == 'JLU':
-                resources = " -l virtual_free=%s -pe multislot %i " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, ppn)
+                # further differentiate between old and new 18.04 cluster (08.04.2020)
+                arg_multislot = " -pe multislot %i " % ppn
+                if settings.GRIDENGINE_BINDIR == '/vol/gridengine/current/bin/lx-amd64/':
+                    # according to Burkhard, the "new cluster" doesn't have multislots yet
+                    arg_multislot = ""
+                resources = " -l virtual_free=%s %s " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, arg_multislot)
             ge_cmd = (
                 ("%s/qsub %s %s -V %s -N cr_%s %s %s -r y") %
                 (gebin,
@@ -1262,7 +1279,10 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         if use_grid is True:
             with subprocess.Popen(
-                    cmd_list, shell=True, stdout=subprocess.PIPE) as task_qsub:
+                    cmd_list, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as task_qsub:
+                err_msg = task_qsub.stderr.read()
+                if err_msg != b"":
+                    raise ValueError("Error in submitting job via qsub:\n%s" % err_msg.decode('ascii'))
                 qid = task_qsub.stdout.read().decode('ascii').rstrip()
                 if settings.GRIDNAME == 'JLU':
                     qid = qid.split(" ")[2]
@@ -1741,7 +1761,8 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
 def plotGroup_permanovas(beta, groupings,
                          network, n_per_group, min_group_size,
                          num_permutations, metric_name, group_name, fct_name,
-                         ax=None, horizontal=False, edgelabel_decimals=2):
+                         ax=None, horizontal=False, edgelabel_decimals=2,
+                         print_sample_numbers=False, colors_boxplot=None):
     """
     Parameters
     ----------
@@ -1751,6 +1772,12 @@ def plotGroup_permanovas(beta, groupings,
     edgelabel_decimals : int
         Default: 2
         Number of digits p-values are printed with.
+    print_sample_numbers : bool
+        Default: False.
+        If True, adds " (n=xx)" to ticklabels.
+    colors_boxplot : dict(metadata_field: RGB)
+        Default: None
+        Set color schema for boxplots in "sample rel. abundance" plot.
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1795,13 +1822,20 @@ def plotGroup_permanovas(beta, groupings,
             if a in network[b]:
                 nw = network[b][a]
 
+        # add n=xx information to group labels
+        names = dict()
+        for name in [a,b]:
+            names[name] = name
+            if print_sample_numbers:
+                names[name] += " (n=%i)" % n_per_group.loc[name]
+
         edgename = '%s%s\np: %.*f\n%s%s' % (
             label_left,
-            a,
+            names[a],
             max(_getfirstsigdigit(nw['p-value']), edgelabel_decimals),
             nw['p-value'],
             label_right,
-            b)
+            names[b])
         dists = dict()
         # intra group distances
         dists[name_left] = [beta[x, y]
@@ -1829,14 +1863,19 @@ def plotGroup_permanovas(beta, groupings,
                 data.append({'edge': edgename, '_type': _type, metric_name: d,
                              'group': grp_name})
 
-    colors = ["green", "cyan", "lightblue", "dusty purple", "greyish", ]
+    colors = sns.xkcd_palette(["green", "cyan", "lightblue", "dusty purple", "greyish", ])
+    if colors_boxplot is not None:
+        missing_colors = set([name_left, name_inter, name_right]) - set(colors_boxplot.keys())
+        if len(missing_colors) > 0:
+            raise ValueError("Not all group conditions have defined colors! %s" % ",".join(missing_colors))
+        colors = colors_boxplot
     sns.boxplot(data=pd.DataFrame(data),
                 x=x_axis,
                 y=y_axis,
                 hue='_type',
                 hue_order=[name_left, name_inter, name_right],
                 ax=ax,
-                palette=sns.xkcd_palette(colors))
+                palette=colors)
     if horizontal:
         ax.legend_.remove()
         ax.yaxis.tick_right()
@@ -2209,8 +2248,8 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
                                  _map_values[a],
                                  _map_values[b],
                                  fdr_method='dsfdr', method=method)
-        out.write("  % 4i taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
-                  % (ediff.feature_metadata.shape[0], a, ns[a], b, ns[b]))
+        out.write("  % 4i (of % 4i) taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
+                  % (ediff.feature_metadata.shape[0], e.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
             if (a, b) not in diffTaxa:
                 diffTaxa[(a, b)] = dict()
@@ -2366,7 +2405,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                    taxonomy=None,
                    min_mean_abundance=0.01, max_x_relabundance=None,
                    num_ranks=2, title=None, scale_height=0.7,
-                   feature_color_map=None):
+                   feature_color_map=None, topXfeatures=None, colors_boxplot=None, color_barplot=None):
     """Plots relative abundance and fold change for taxa.
 
     Parameters
@@ -2407,6 +2446,15 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
     feature_color_map : pd.Series
         Colores for tick label plotting of features.
         Black if no value is mentioned.
+    topXfeatures : int
+        Default: None
+        If set to a positive number, only the top X features will be plotted.
+    colors_boxplot : dict(metadata_field: RGB)
+        Default: None
+        Set color schema for boxplots in "sample rel. abundance" plot.
+    color_barplot : RGB
+        Default: None
+        Defines color of barplots for "mean abundance shift" and "mean fold change".
 
     Returns
     -------
@@ -2419,7 +2467,13 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
     relabund = counts / counts.sum()
     comparisons = sorted(map(sorted, diffTaxa.keys()))
     num_drawn_taxa = []
-    grp_colors = {k: sns.color_palette()[i] for i, k in enumerate({s for k in diffTaxa.keys() for s in k})}
+    if colors_boxplot is not None:
+        missing_colors = {s for k in diffTaxa.keys() for s in k} - set(colors_boxplot.keys())
+        if len(missing_colors) > 0:
+            raise ValueError("Not all group conditions have defined colors! %s" % ",".join(missing_colors))
+        grp_colors = colors_boxplot
+    else:
+        grp_colors = {k: sns.color_palette()[i] for i, k in enumerate({s for k in diffTaxa.keys() for s in k})}
     for i, (meta_value_a, meta_value_b) in enumerate(comparisons):
         # only consider taxa given in the diffTaxa object...
         taxa = list(diffTaxa[(meta_value_a, meta_value_b)])
@@ -2441,6 +2495,8 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
             relabund.reindex(index=taxa, columns=samples_b).mean(axis=1)], axis=1, sort=False).rename(columns={0: meta_value_a, 1: meta_value_b})
         meanrealabund = meanrealabund[(meanrealabund >= min_mean_abundance).any(axis=1)]
         taxa = meanrealabund.max(axis=1).sort_values(ascending=False).index
+        if topXfeatures is not None:
+            taxa = taxa[:topXfeatures]
         # taxa = sorted(list(
         #     set([idx
         #          for idx, meanabund
@@ -2524,7 +2580,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                             y='feature',
                             x=0,
                             ax=curr_ax,
-                            color=sns.xkcd_rgb["denim blue"])
+                            color=color_barplot if color_barplot is not None else sns.xkcd_rgb["denim blue"])
             g.yaxis.set_ticklabels([])
             g.set_ylabel('')
             g.set_xlabel('<-- more in %s     |      more in %s -->' %
@@ -2544,7 +2600,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                             y='feature',
                             x=0,
                             ax=curr_ax,
-                            color=sns.xkcd_rgb["denim blue"])
+                            color=color_barplot if color_barplot is not None else sns.xkcd_rgb["denim blue"])
             g.set_ylabel('')
             g.set_title("mean fold change")
 
@@ -3511,7 +3567,7 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
 
     ax = axes[0]
     chosen_iteration = results.sort_values(by='accurracy').index[int(results.shape[0]/2)]
-    
+
     plot_confusion_matrix(results.loc[chosen_iteration, 'test'],
                           results.loc[chosen_iteration, 'prediction'],
                           title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().iteritems()]),
