@@ -1187,8 +1187,12 @@ def cluster_run(cmds, jobname, result, environment=None,
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
-            settings.DIR_CONDA, settings.DIR_CONDA, environment)
+        if settings.GRIDNAME == 'JLU':
+            # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
+            cmd_conda = "conda activate %s; " % environment
+        else:
+            cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
+                settings.DIR_CONDA, settings.DIR_CONDA, environment)
 
     slurm = False
     if use_grid is False:
