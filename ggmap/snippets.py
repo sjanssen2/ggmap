@@ -1347,6 +1347,9 @@ def cluster_run(cmds, jobname, result, environment=None,
                     err.write("Now wait until %s job finishes.\n" % qid)
                 return qid
         else:
+            if settings.GRIDNAME == 'JLU':
+                cmd_list = 'source ~/.profile && ' + cmd_list
+            print("HIER", cmd_list)
             with subprocess.Popen(cmd_list,
                                   shell=True,
                                   stdout=subprocess.PIPE,
