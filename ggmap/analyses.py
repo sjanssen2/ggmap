@@ -352,7 +352,7 @@ def rarefaction_curves(counts,
                     result="%s/reference_tree.qza" % workdir,
                     ppn=1, pmem='8GB', walltime='1:00:00',
                     dry=dry,
-                    wait=True, use_grid=False)
+                    wait=True, use_grid=True)
 
     def commands(workdir, ppn, args):
         commands = [
@@ -2306,7 +2306,7 @@ def bugbase(counts, **executor_args):
                      commands,
                      post_execute,
                      ppn=1,
-                     environment='bugbase',
+                     environment=settings.BUGBASE_ENV,
                      **executor_args)
 
 
