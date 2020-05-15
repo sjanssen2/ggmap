@@ -14,6 +14,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                  'variable_name': 'PICRUST_ENV'},
             'condaenv_picrust2': {'default': 'ggmap_picrust2',
                                  'variable_name': 'PICRUST2_ENV'},
+            'condaenv_bugbase': {'default': 'ggmap_bugbase',
+                                 'variable_name': 'BUGBASE_ENV'},
             'condaenv_feast': {'default': 'ggmap_feast',
                                  'variable_name': 'FEAST_ENV'},
             'condaenv_pldist': {'default': 'ggmap_pldist',
@@ -76,6 +78,8 @@ def init(err=sys.stderr):
     PICRUST_ENV = config['condaenv_picrust']
     global PICRUST2_ENV
     PICRUST2_ENV = config['condaenv_picrust2']
+    global BUGBASE_ENV
+    BUGBASE_ENV = config['condaenv_bugbase']
     global FEAST_ENV
     FEAST_ENV = config['condaenv_feast']
     global PLDIST_ENV
@@ -117,7 +121,7 @@ def init(err=sys.stderr):
     elif '.computational.bio.uni-giessen.de' in hostname:
         GRIDNAME = 'JLU'
         VARNAME_PBSARRAY = 'SGE_TASK_ID'
-        GRIDENGINE_BINDIR = '/usr/bin'
+        GRIDENGINE_BINDIR = '/usr/bin/'
     else:
         GRIDNAME = 'LOCAL'
         VARNAME_PBSARRAY = 'NOGRID'
