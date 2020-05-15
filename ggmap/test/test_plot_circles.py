@@ -6,7 +6,7 @@ from skbio.util import get_data_path
 from ggmap.snippets import plot_circles
 
 
-class SeppTests(TestCase):
+class PlotCirclesTests(TestCase):
     def setUp(self):
         self.meta = pd.read_csv(get_data_path('meta_cyto.csv'), sep="\t", index_col=0)
         self.meta_cno = pd.read_csv(get_data_path('meta_cno.csv'), sep="\t", index_col=0)
