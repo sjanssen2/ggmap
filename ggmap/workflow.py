@@ -72,7 +72,7 @@ def process_study(metadata: pd.DataFrame,
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
     plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, set(counts.columns) - control_samples].sum(axis=0)
     if plant_ratio.min() < 0.95:
-        verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n')
+        verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if tree_insert is None:
         tree_insert = TreeNode.read(fp_insertiontree)
@@ -127,5 +127,6 @@ def process_study(metadata: pd.DataFrame,
         else:
             raise ValueError("Be patient and wait/poll for picrust results!")
 
-    #res_bugbase = bugbase(biom2pandas('FromQiita/67822.otu_table.biom'), dry=False, wait=True, use_grid=False)
+        results['bugbase'] = dict()
+        results['bugbase']['counts'] = bugbase(biom2pandas(fp_closedref_biom), dry=False, wait=False, use_grid=use_grid)
     return results
