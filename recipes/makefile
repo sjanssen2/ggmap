@@ -16,6 +16,9 @@ package-metalonda:
 package-dada2_pacbio:
 	conda build dada2_pacbio -c conda-forge -c bioconda
 
+package-sourcetracker2:
+	conda build sourcetracker2 -c conda-forge -c biocore
+
 package-pldist:
 	conda build pldist -c conda-forge -c bioconda -c r
 
