@@ -1717,7 +1717,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                 linewidth=LINEWIDTH_SIG,
                 color=edge_color_sig if edge_color_sig is not None else 'gray')
         ax.plot([0], [0], 'gray',
-                label='p ≥ %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
+                label='p >= %0.*f' % (_getfirstsigdigit(pthresh), pthresh),
                 linewidth=LINEWIDTH_NONSIG)
         ax.legend(title='FDR corrected')
 
@@ -2471,7 +2471,12 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
                            figsize=(3*5, 5*len(diffTaxa)))
     meanrealabund = pd.DataFrame()
     counts.index.name = 'feature'
+    counts.columns.name = 'sample_name'
+    metadata_field.index.name = 'sample_name'
     relabund = counts / counts.sum()
+    relabund.index.name = counts.index.name
+    relabund.columns.name = counts.columns.name
+
     comparisons = sorted(map(sorted, diffTaxa.keys()))
     num_drawn_taxa = []
     if colors_boxplot is not None:
@@ -2518,7 +2523,6 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
         if len(taxa) <= 0:
             print("Warnings: no taxa left!")
         num_drawn_taxa.append(len(taxa))
-
         relabund_field = []
         for (samples, grpname) in [(samples_a, meta_value_a),
                                    (samples_b, meta_value_b)]:
@@ -2536,7 +2540,7 @@ def plot_diff_taxa(counts, metadata_field, diffTaxa, onlyusetaxa=None,
             grpsby = 'level_1'
             if counts.columns.name is not None:
                 grpsby = counts.columns.name
-            if relabund_field.groupby(grpsby)['relative abundance'].sum().max() > 1:
+            if relabund_field.groupby('sample_name')['relative abundance'].sum().max() > 1:
                 raise ValueError("If we add up all relative abundances, we have more than 100%. This is impossible! Please check if you provided the full count table, or errounously subsetted it to e.g. specific features. If this is the case, correct and use parameter 'onlyusetaxa'!")
             g = sns.boxplot(data=relabund_field,
                             x='relative abundance',
@@ -3633,33 +3637,51 @@ def check_column_presents(metadata: pd.DataFrame, column_names: [str]):
 
 # https://stackoverflow.com/questions/5300938/calculating-the-position-of-points-in-a-circle
 # https://math.stackexchange.com/questions/12166/numbers-of-circles-around-a-circle
-def _make_circles(items: [str], center=(0,0), level=1, width=6):
+def _make_circles(items: [str], center=(0,0), level=1, width=6, squared=False):
+    squared_circs_per_row = np.ceil(np.sqrt(len(items)))
+
     circles = dict()
     if len(items) > 2:
         r = math.sin(math.pi/len(items)) / (1-math.sin(math.pi/len(items)))
         zoom = width/(4*r + 2)
-        inner_radius = r*zoom
+        if squared:
+            inner_radius = (width / squared_circs_per_row) / 2
+        else:
+            inner_radius = r*zoom
         outer_radius = (r+1)*zoom
     else:
         inner_radius = width/2/len(items)
         outer_radius = inner_radius
     if len(items) > 1:
-        for i, item in enumerate(items):
+        for i, item in enumerate(reversed(sorted(items))):
             degree = i * (360 / len(items))
-            inner_center = (
-                center[0] + outer_radius * np.cos(i * (2*math.pi / len(items))),
-                center[1] + outer_radius * np.sin(i * (2*math.pi / len(items))))
-            label_position = (
-                center[0] + (outer_radius+inner_radius*1.25) * np.cos(i * (2*math.pi / len(items))),
-                center[1] + (outer_radius+inner_radius*1.25) * np.sin(i * (2*math.pi / len(items))))
+            if squared:
+                inner_center = (((i %  squared_circs_per_row)+0.5) * (width / squared_circs_per_row) - (width/2),
+                                (((i // squared_circs_per_row)+0.5) * (width / squared_circs_per_row) - (width/2)) * -1)
+            else:
+                inner_center = (
+                    center[0] + outer_radius * np.cos(i * (2*math.pi / len(items))),
+                    center[1] + outer_radius * np.sin(i * (2*math.pi / len(items))))
+            if squared:
+                label_position = (
+                    inner_center[0],
+                    inner_center[1]+inner_radius*0.8)
+            else:
+                label_position = (
+                    center[0] + (outer_radius+inner_radius*1.25) * np.cos(i * (2*math.pi / len(items))),
+                    center[1] + (outer_radius+inner_radius*1.25) * np.sin(i * (2*math.pi / len(items))))
             link_angle = random.random()*2*math.pi
             link_position = (
                 inner_center[0] + (inner_radius*0.5) * np.cos(link_angle),
                 inner_center[1] + (inner_radius*0.5) * np.sin(link_angle))
+            if squared:
+                label_horizontalalignment = 'center'
+            else:
+                label_horizontalalignment = 'center' if (degree == 90 or degree == 270) else 'right' if (90 < degree < 270) else 'left'
             circles[item] = {'center': inner_center, 'radius': inner_radius, 'level': level,
                              'label_position': label_position,
                              'link_position': link_position,
-                             'label_horizontalalignment': 'center' if (degree == 90 or degree == 270) else 'right' if (90 < degree < 270) else 'left'}
+                             'label_horizontalalignment': label_horizontalalignment}
     else:
         circles[items[0]] = {'center': center, 'radius': inner_radius, 'level': level,
                              'label_position': center,
@@ -3669,13 +3691,15 @@ def _make_circles(items: [str], center=(0,0), level=1, width=6):
     return circles
 
 
-def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dict[str, Dict[str, str]]=None, ax: plt.axis=None, width: float=6, links=[]):
+def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dict[str, Dict[str, str]]=None, ax: plt.axis=None, width: float=6, links=[], print_labels: bool=True, space_for_missing_entries: bool=False, squared=False):
     """
     Parameters
     ----------
     meta : pd.DataFrame
         Metadata with multi-index.
+        That is all that's needed - number of levels decides about number of circle levels.
     cols_grps : dict(str: str)
+        For coloring:
         Dict: keys = multi-index level, values = column in meta providing state for color code.
     colors : dict(str: dict(str: str))
         Dict of Dicts. First level key refers to multi-index level, second key to color state and value is RGB color for drawing.
@@ -3688,22 +3712,36 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dic
     links : [(idx, idx, field]
         List of tuples of indices: Links between objects.
         "field" is optional and is used to color the link. Works only if colors["links"] is provided!
+    print_labels : bool
+        Default: True
+    space_for_missing_entries : bool
+        Default: False
     Returns
     -------
 
     """
     circles = ()
-    level_names = list(map(lambda x: x.name, meta.index.levels))
+    if type(meta.index) == pd.core.indexes.base.Index:
+        level_names = [meta.index.name]
+    else:
+        level_names = list(map(lambda x: x.name, meta.index.levels))
+
+    meta['__blank'] = False
+    if space_for_missing_entries:
+        blanks = pd.DataFrame(index=set(pd.MultiIndex.from_product(meta.index.levels)) - set(meta.index))
+        blanks['__blank'] = True
+        meta = pd.concat([meta, blanks], sort=False)
+
     for i in range(len(level_names)):
         if i == 0:
-            circles = _make_circles(meta.index.get_level_values(i).unique(), level=level_names[i])
+            circles = _make_circles(meta.index.get_level_values(i).unique(), level=level_names[i], squared=squared)
         else:
             for idx, g in meta.groupby(level_names[:i]):
                 circles.update(_make_circles(list(set(map(lambda x: x[:i+1], g.index))),
-                                            center=circles[idx]['center'],
-                                            level=level_names[i],
-                                            width=circles[idx]['radius']*(2-(0.1*(i+1)))))
-
+                                             center=circles[idx]['center'],
+                                             level=level_names[i],
+                                             width=circles[idx]['radius']*(2-(0.1*(i+1)))))
+    #return circles
     if ax is None:
         fig, ax = plt.subplots()
     # plot circles
@@ -3717,16 +3755,24 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dic
                     return data.iloc[0]
             value = None
             if cols_grps[c['level']] in meta.index.names:
-                value = _get_uniq_value(meta.loc[[idx], :].reset_index().loc[:, cols_grps[c['level']]])
+                selection = meta.xs(idx, drop_level=False)
+                if type(selection) == pd.core.series.Series:
+                    selection = selection.to_frame().T
+                    selection.index.names = meta.index.names
+                value = _get_uniq_value(selection.reset_index().loc[:, cols_grps[c['level']]])
             else:
                 value = _get_uniq_value(meta.loc[idx, cols_grps[c['level']]])
             color = colors.get(c['level'], {None: 'black'}).get(value, 'black')
+        if meta.loc[idx, '__blank'].all():
+            color="white"
         ax.add_artist(plt.Circle(c['center'], c['radius'], color=color,
-                                 fill=c['level'] == meta.index.levels[-1].name))
-        if (c['level'] == level_names[0]):
-            ax.text(*c['label_position'], idx if type(idx) != tuple else idx[-1], horizontalalignment=c['label_horizontalalignment'], verticalalignment='center')
-        if (c['level'] == level_names[-1]):
-            ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=12*(width/10))
+                                 fill=c['level'] == level_names[-1]))
+        if print_labels:
+            if len(level_names) > 1:
+                if (c['level'] == level_names[0]):
+                    ax.text(*c['label_position'], idx if type(idx) != tuple else idx[-1], horizontalalignment=c['label_horizontalalignment'], verticalalignment='center')
+            if (c['level'] == level_names[-1]):
+                ax.text(*c['center'], idx if type(idx) != tuple else idx[-1], horizontalalignment='center', verticalalignment='center', fontsize=12*(width/10))
 
     # plot links
     AVIAL_LINESTYLES = ['--', '-.', ':', '-']
@@ -3761,7 +3807,7 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dic
                     label=value, facecolor=color))
         if ('links' in colors) and (len(links) > 0):
             for value, color in colors['links'].items():
-                legend_elements.append(Line2D([0],[0], label=value, color=color, ls=links_ls[value]))
+                legend_elements.append(Line2D([0],[0], label=value, color=color, ls=links_ls.get(value, '-')))
     if len(legend_elements) > 0:
         ax.legend(handles=legend_elements, bbox_to_anchor=(1.41, 1))
     ax.axis('off')
