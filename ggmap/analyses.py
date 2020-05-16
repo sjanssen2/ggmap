@@ -971,9 +971,7 @@ def sepp(counts, chunksize=10000,
             # user	31m3.906s
             # sys	3m49.602s
             cluster_run([
-                ('$HOME/miniconda3/envs/%s/lib/python3.5/site-packages/'
-                 'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
-                 'bundled/Linux/guppy-64 tog -o '
+                ('$HOME/miniconda3/envs/%s/bin/guppy tog -o '
                  '%s/all_tree.nwk '
                  '%s/all_placements.json') % (environment,  workdir, workdir)],
                 environment=environment,
