@@ -30,15 +30,13 @@ requirements:
     - seaborn
 
 test:
-#  files:
-#    - test_counts.txt
-#    - test_16s_normalized_otus.txt
-#    - test_contributing_otus.txt
+  files:
+    - test_counts.biom
+    - test_meta_1.tsv
   commands:
     - sourcetracker2 gibbs --help
-#    - run.bugbase.r -i test_counts.txt -a -o test_results
-#    - diff test_contributing_otus.txt test_results/otu_contributions/contributing_otus.txt
-#    - diff test_16s_normalized_otus.txt test_results/normalized_otus/16s_normalized_otus.txt
+    - sourcetracker2 --table_fp test_counts.biom --mapping_fp test_meta_1.tsv --output_dir ./test_results --jobs 7 --source_rarefaction_depth 0 --sink_rarefaction_depth 0 --burnin 2
+    - test `cat test_results/mixing_proportions.txt | tr "\t" "\n" | wc -l` -eq 42
 
 about:
   home: https://github.com/biota/sourcetracker2
