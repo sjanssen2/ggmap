@@ -25,7 +25,8 @@ def process_study(metadata: pd.DataFrame,
                   ppn: int=20,
                   emperor_infix: str="",
                   emperor_fp: str=None,
-                  beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"]):
+                  beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
+                  deblur_remove_features_lessthanXreads: int=10):
     """
     parameters
     ----------
@@ -33,7 +34,13 @@ def process_study(metadata: pd.DataFrame,
         Default: None, i.e. no metagenomic predictions will be computed.
         Filepath to a feature-table, produced by closed reference picking.
         Used for PICRUSt1, Bugbase (future work) predictions.
+    deblur_remove_features_lessthanXreads : int
+        For Deblur only: As a first step, filter out features with less than X
+        reads in all samples combined.
     """
+    dupl_meta_cols = pd.Series(metadata.columns).value_counts()
+    if dupl_meta_cols.max() > 1:
+        raise ValueError("Your metadata contains duplicate columns:\n%s" % dupl_meta_cols[dupl_meta_cols > 1])
 
     for (_type, fp) in [('Deblur table', fp_deblur_biom),
                         ('Insertion tree', fp_insertiontree),
@@ -43,7 +50,14 @@ def process_study(metadata: pd.DataFrame,
             raise ValueError('The given file path "%s" for the %s does not exist!' % (fp, _type))
 
     # load deblur biom table
-    counts = biom2pandas(fp_deblur_biom)
+    counts = biom2pandas(fp_deblur_biom).fillna(0)
+    if pd.Series(counts.columns).value_counts().max() > 1:
+        raise ValueError("Your Deblur biom table has at least one sample duplicate!")
+
+    if deblur_remove_features_lessthanXreads > 0:
+        num_features_original = counts.shape[0]
+        counts = counts[counts.sum(axis=1) >= deblur_remove_features_lessthanXreads]
+        verbose.write('Information: %i of %i features have been removed from your Deblur table, since they have less than %i read counts in all samples combined.\n' % (num_features_original - counts.shape[0], num_features_original, deblur_remove_features_lessthanXreads))
 
     # check if most deblur features are actually starting with TACG, as expected from V4 regions
     if is_v4_region and (pd.Series(list(map(lambda x: x[:4], counts.index))).value_counts().idxmax() != 'TACG'):
@@ -82,9 +96,10 @@ def process_study(metadata: pd.DataFrame,
     # remove features assigned taxonomy to chloroplasts / mitochondria,
     # report min, max removal
     # remove features not inserted into tree
+    results = dict()
+    results['counts_plantsStillIn'] = counts
     counts = counts.loc[sorted((set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
 
-    results = dict()
     results['taxonomy'] = {'RDP': res_taxonomy}
     results['counts_plantsremoved'] = counts
 
@@ -114,8 +129,11 @@ def process_study(metadata: pd.DataFrame,
 
     # run: picrust
     if fp_closedref_biom is not None:
+        counts_closedref = biom2pandas(fp_closedref_biom)
+        if pd.Series(counts_closedref.columns).value_counts().max() > 1:
+            raise ValueError("Your ClosedRef biom table has at least one sample duplicate!")
         results['picrust'] = dict()
-        results['picrust']['counts'] = picrust(biom2pandas(fp_closedref_biom), dry=dry, wait=False, use_grid=use_grid)
+        results['picrust']['counts'] = picrust(counts_closedref, dry=dry, wait=False, use_grid=use_grid)
         if results['picrust']['counts']['results'] is not None:
             results['picrust']['diversity'] = dict()
             for db in results['picrust']['counts']['results'].keys():
@@ -128,5 +146,5 @@ def process_study(metadata: pd.DataFrame,
             raise ValueError("Be patient and wait/poll for picrust results!")
 
         results['bugbase'] = dict()
-        results['bugbase']['counts'] = bugbase(biom2pandas(fp_closedref_biom), dry=False, wait=False, use_grid=use_grid)
+        results['bugbase']['counts'] = bugbase(counts_closedref, dry=False, wait=False, use_grid=use_grid)
     return results

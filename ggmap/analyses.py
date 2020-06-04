@@ -971,9 +971,7 @@ def sepp(counts, chunksize=10000,
             # user	31m3.906s
             # sys	3m49.602s
             cluster_run([
-                ('$HOME/miniconda3/envs/%s/lib/python3.5/site-packages/'
-                 'q2_fragment_insertion/assets/sepp-package/sepp/tools/'
-                 'bundled/Linux/guppy-64 tog -o '
+                ('$HOME/miniconda3/envs/%s/bin/guppy tog -o '
                  '%s/all_tree.nwk '
                  '%s/all_placements.json') % (environment,  workdir, workdir)],
                 environment=environment,
@@ -3397,6 +3395,104 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
                      #post_cache=post_cache,
                      environment=settings.FEAST_ENV,
                      array=metadata[metadata[col_type] == 'Sink'].shape[0],
+                     ppn=ppn,
+                     pmem=pmem,
+                     **executor_args)
+
+
+def sourcetracker2(counts: pd.DataFrame, metadata: pd.DataFrame,
+          col_envname, col_type, samples_per_job: int=4,
+          #col_envID=None,
+          ppn=4, pmem='4GB', **executor_args):
+    """SourceTracker2 for microbial source tracking.
+
+    Paramaters
+    ----------
+    counts : Pandas.DataFrame
+        feature-table
+    metadata : Pandas.DataFrame
+        metadata for samples of feature-table.
+        Need to contain columns for "envname", "type" and "envID".
+    col_envname : str
+        column name in metadata specifying the environment _name_. Like "infant",
+        "adult gut", "soil", ...
+    col_type : str
+        column name in metadata specifiying if sample is either "Sink" or "Source".
+    samples_per_job : int
+        Default: 4.
+        To parallelize execution, sink samples are split into multiple metadata files (each also holding ALL sources)
+        and are executed separately. This variable defined how many sink samples shall be at most in one run.
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+
+    Returns
+    -------
+    pd.DataFrame: feature-table, with cols for samples and rows for source environment contribution.
+    """
+    # general sanity checks
+    (counts, metadata) = sync_counts_metadata(counts, metadata)
+    check_column_presents(metadata, [col_envname, col_type])
+    def _fix_sourcesink(value):
+        if value.lower() == 'sink':
+            return 'Sink'
+        elif value.lower() == 'source':
+            return 'Source'
+        return value
+    metadata[col_type] = metadata[col_type].apply(_fix_sourcesink)
+    metadata[col_envname] = metadata[col_envname].fillna('unnamed Environment')
+    metadata[col_envname] = metadata[col_envname].apply(lambda x: x.replace(' ', '_'))
+
+    def pre_execute(workdir, args):
+        #  check logic of column values
+        sinksource = args['metadata'][args['col_type']].value_counts()
+        if len(set(sinksource.index) & set(['Sink', 'Source'])) != 2:
+            display(sinksource)
+            raise ValueError("Column '%s' needs to define for each sample to be either 'Sink' or 'Source' (case sensitive)." % (col_type))
+
+        pandas2biom('%s/counts.biom' % workdir, args['counts'])
+        idx_sources = list(args['metadata'][args['metadata'][args['col_type']] == 'Source'].index)
+        idx_sinks = list(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].index)
+        for i, chunk in enumerate(range(0, len(idx_sinks), samples_per_job)):
+            args['metadata'].loc[idx_sources + idx_sinks[chunk:chunk+samples_per_job], [args['col_type'], args['col_envname']]].to_csv('%s/meta_%i.tsv' % (workdir, (i+1)), sep="\t")
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        arr_var = '${%s}' % settings.VARNAME_PBSARRAY if args['metadata'][args['metadata'][args['col_type']] == 'Sink'].shape[0] > 1 else '1'
+        commands.append((
+            " sourcetracker2 "
+            "--table_fp %s/counts.biom "
+            "--mapping_fp %s/meta_%s.tsv "
+            "--output_dir %s/result_%s "
+            "--jobs %i "
+            "--source_rarefaction_depth 0 "
+            "--sink_rarefaction_depth 0 "
+            "--source_sink_column \"%s\" "
+            "--source_column_value \"Source\" "
+            "--sink_column_value \"Sink\"") % (workdir, workdir, arr_var, workdir, arr_var, ppn, args['col_type']))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = []
+        for i in range(1, int(np.ceil(args['metadata'][args['metadata'][args['col_type']] == 'Sink'].shape[0] / samples_per_job))+1):
+            results.append(pd.read_csv('%s/result_%i/mixing_proportions.txt' % (workdir, i), sep="\t", index_col=0))
+        results = pd.concat(results, axis=1, sort=False)
+        results.index.name = 'Source'
+        results.columns.name = 'Sink'
+        return results
+
+    return _executor('sourcetracker2',
+                     {'counts': counts,
+                      'metadata': metadata,
+                      'col_envname': col_envname,
+                      'col_type': col_type,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.SOURCETRACKER2_ENV,
+                     array=int(np.ceil(metadata[metadata[col_type] == 'Sink'].shape[0] / samples_per_job)),
                      ppn=ppn,
                      pmem=pmem,
                      **executor_args)
