@@ -1,0 +1,44 @@
+package:
+  name: sourcetracker2
+  version: "2.0.1"
+
+#source:
+#  git_url: https://github.com/biota/sourcetracker2.git
+
+build:
+  number: 1
+
+requirements:
+  build:
+    - python =3.5
+    - numpy
+    - scipy
+    - scikit-bio
+    - biom-format
+    - h5py
+    - hdf5
+    - seaborn
+
+  run:
+    - python =3.5
+    - numpy
+    - scipy
+    - scikit-bio
+    - biom-format
+    - h5py
+    - hdf5
+    - seaborn
+
+test:
+  files:
+    - test_counts.biom
+    - test_meta_1.tsv
+  commands:
+    - sourcetracker2 gibbs --help
+    - sourcetracker2 --table_fp test_counts.biom --mapping_fp test_meta_1.tsv --output_dir ./test_results --jobs 7 --source_rarefaction_depth 0 --sink_rarefaction_depth 0 --burnin 2
+    - test `cat test_results/mixing_proportions.txt | tr "\t" "\n" | wc -l` -eq 42
+
+about:
+  home: https://github.com/biota/sourcetracker2
+  summary: 'SourceTracker is designed to predict the source of microbial communities in a set of input samples (i.e., the sink samples)'
+  description: |
