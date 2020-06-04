@@ -3460,16 +3460,17 @@ def sourcetracker2(counts: pd.DataFrame, metadata: pd.DataFrame,
 
         arr_var = '${%s}' % settings.VARNAME_PBSARRAY if args['metadata'][args['metadata'][args['col_type']] == 'Sink'].shape[0] > 1 else '1'
         commands.append((
-            " sourcetracker2 "
-            "--table_fp %s/counts.biom "
-            "--mapping_fp %s/meta_%s.tsv "
-            "--output_dir %s/result_%s "
-            "--jobs %i "
-            "--source_rarefaction_depth 0 "
-            "--sink_rarefaction_depth 0 "
-            "--source_sink_column \"%s\" "
-            "--source_column_value \"Source\" "
-            "--sink_column_value \"Sink\"") % (workdir, workdir, arr_var, workdir, arr_var, ppn, args['col_type']))
+            'sourcetracker2 '
+            '--table_fp %s/counts.biom '
+            '--mapping_fp %s/meta_%s.tsv '
+            '--output_dir %s/result_%s '
+            '--jobs %i '
+            '--source_rarefaction_depth 0 '
+            '--sink_rarefaction_depth 0 '
+            '--source_sink_column "%s" '
+            '--source_category_column "%s" '
+            '--source_column_value "Source" '
+            '--sink_column_value "Sink"') % (workdir, workdir, arr_var, workdir, arr_var, ppn, args['col_type'], args['col_envname']))
 
         return commands
 
@@ -3860,8 +3861,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                'qid': None,
                'file_cache': None,
                'timing': None,
-               'cache_version': 20170817,
+               'cache_version': 20200604,
                'created_on': None,
+               'conda_env': 'unknown',
                'jobname': jobname}
 
     # create an ID function if no post_cache function is supplied
@@ -3991,6 +3993,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             timing=timing,
             file_timing=results['workdir']+('/timing${%s}.txt' % settings.VARNAME_PBSARRAY),
             array=array, use_grid=use_grid)
+        results['conda_env'] = environment
         if dry:
             return results
         if wait is False:
