@@ -2790,7 +2790,7 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series,
             title = 'Confusion matrix, without normalization'
 
     # Only use the labels that appear in the data
-    classes = set(y_true.unique()) & set(y_pred.unique())
+    classes = set(y_true.unique()) | set(y_pred.unique())
 
     # Compute confusion matrix
     cm = confusion_matrix(y_true, y_pred, sorted(classes))
