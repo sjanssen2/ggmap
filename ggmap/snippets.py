@@ -2967,7 +2967,9 @@ def ganttChart(metadata: pd.DataFrame,
 
     for col in [COL_DEATH, COL_GROUP]:
         assert(col not in metadata.columns)
-    cols_dates = [
+    # list(set(xxx)) to make operations on date columns only once,
+    # even tough they might be define multiply in multiple phases
+    cols_dates = list(set([
         col
         for col
         in [col_birth, col_events, col_death] +
@@ -2975,7 +2977,7 @@ def ganttChart(metadata: pd.DataFrame,
             for col
             in (col_phases_start + col_phases_end)
             if col is not None]
-        if col in metadata.columns]
+        if col in metadata.columns]))
 
     meta = metadata.copy()
     if col_entities is not None:
@@ -3037,7 +3039,7 @@ def ganttChart(metadata: pd.DataFrame,
     # a DataFrame holding information about entities
     cols = [col_entities, col_birth, COL_DEATH, COL_GROUP, COL_ENTITY_COLOR]
     for col in col_phases_start + col_phases_end:
-        if col is not None:
+        if col is not None and col not in cols:
             cols.append(col)
     plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
     plot_entities = plot_entities.reset_index().set_index(col_entities)
@@ -3072,6 +3074,7 @@ def ganttChart(metadata: pd.DataFrame,
                 width=plot_entities[COL_DEATH if end is None else end] -
                 plot_entities[start],
                 height=1,
+                linewidth=0,
                 left=plot_entities[start],
                 color=colors_phases[start],
             )
@@ -3084,6 +3087,7 @@ def ganttChart(metadata: pd.DataFrame,
         height=0.6,
         left=plot_entities[col_birth],
         tick_label=plot_entities.index,
+        linewidth=0,
         color=plot_entities[COL_ENTITY_COLOR].apply(
             lambda x: colors_entities.get(x, 'black')),
     )
