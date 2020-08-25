@@ -6,11 +6,11 @@ package:
 #  git_url: https://github.com/biota/sourcetracker2.git
 
 build:
-  number: 1
+  number: 2
 
 requirements:
   build:
-    - python =3.5
+    - python =3.6
     - numpy
     - scipy
     - scikit-bio
@@ -18,9 +18,13 @@ requirements:
     - h5py
     - hdf5
     - seaborn
+    - IPython >=4.0.0
+    - notebook
+    - matplotlib
+    - pandas
 
   run:
-    - python =3.5
+    - python =3.6
     - numpy
     - scipy
     - scikit-bio
@@ -28,6 +32,10 @@ requirements:
     - h5py
     - hdf5
     - seaborn
+    - IPython >=4.0.0
+    - notebook
+    - matplotlib
+    - pandas
 
 test:
   files:
