@@ -20,6 +20,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                  'variable_name': 'FEAST_ENV'},
             'condaenv_pldist': {'default': 'ggmap_pldist',
                                  'variable_name': 'PLDIST_ENV'},
+            'condaenv_dada2_pacbio': {'default': 'ggmap_dada2_pacbio',
+                                 'variable_name': 'DADA2PACBIO_ENV'},
             'condaenv_sourcetracker2': {'default': 'ggmap_sourcetracker2',
                                         'variable_name': 'SOURCETRACKER2_ENV'},
             # since condas init magic, activating an environment failes if
@@ -39,6 +41,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                              'variable_name': 'GRID_ACCOUNT'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
+            'fp_reference_sepp': {'default': None,
+                                  'variable_name': 'FILE_REFERENCE_SEPP'},
             'fp_reference_taxonomy': {
                 'default': ('/projects/emp/03-otus/reference/'
                             '97_otu_taxonomy.txt'),
@@ -86,10 +90,14 @@ def init(err=sys.stderr):
     FEAST_ENV = config['condaenv_feast']
     global PLDIST_ENV
     PLDIST_ENV = config['condaenv_pldist']
+    global DADA2PACBIO_ENV
+    DADA2PACBIO_ENV = config['condaenv_dada2_pacbio']
     global SOURCETRACKER2_ENV
     SOURCETRACKER2_ENV = config['condaenv_sourcetracker2']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
+    global FILE_REFERENCE_SEPP
+    FILE_REFERENCE_SEPP = config['fp_reference_sepp']
     global FILE_REFERENCE_TAXONOMY
     FILE_REFERENCE_TAXONOMY = config['fp_reference_taxonomy']
     global EXEC_TIME
