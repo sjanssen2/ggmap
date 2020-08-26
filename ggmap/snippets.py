@@ -1079,8 +1079,8 @@ def _add_timing_cmds(commands, file_timing):
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
                 gebin=settings.GRIDENGINE_BINDIR, dry=True, wait=False,
-                file_qid=None, out=sys.stdout, err=sys.stderr,
-                timing=False, file_timing=None, array=1,
+                file_qid=None, file_condaenvinfo=None, out=sys.stdout,
+                err=sys.stderr, timing=False, file_timing=None, array=1,
                 use_grid=settings.USE_GRID,
                 force_slurm=False):
     """ Submits a job to the cluster.
@@ -1118,6 +1118,10 @@ def cluster_run(cmds, jobname, result, environment=None,
     file_qid : str
         Default None. Create a file containing the qid of the submitted job.
         This will ease identification of TMP working directories.
+    file_condaenvinfo : str
+        Default: None.
+        If specified, AND environment is not None,
+        the result of "conda list --name X" is written to this file.
     out : StringIO
         Buffer onto which messages should be printed. Default is sys.stdout.
     err : StringIO
@@ -1180,8 +1184,12 @@ def cluster_run(cmds, jobname, result, environment=None,
     cmd_conda = ""
     env_present = None
     if environment is not None:
+        if file_condaenvinfo is None:
+            file_condaenvinfo = ""
+        else:
+            file_condaenvinfo = " > %s" % file_condaenvinfo
         # check if environment exists
-        with subprocess.Popen("%s/condabin/conda env list | grep %s -c" % (settings.DIR_CONDA, environment),
+        with subprocess.Popen("%s/condabin/conda list -n %s %s" % (settings.DIR_CONDA, environment, file_condaenvinfo),
                               shell=True,
                               stdout=subprocess.PIPE) as env_present:
             if (env_present.wait() != 0):
@@ -1349,7 +1357,6 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             if settings.GRIDNAME == 'JLU':
                 cmd_list = 'source ~/.profile && ' + cmd_list
-            print("HIER", cmd_list)
             with subprocess.Popen(cmd_list,
                                   shell=True,
                                   stdout=subprocess.PIPE,
@@ -2207,7 +2214,7 @@ def _map_metadata_calout(metadata, calour_experiment, field):
 
 
 def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
-                            out=sys.stdout, method='meandiff'):
+                            out=sys.stdout, method='meandiff', random_seed=None):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata field.
 
@@ -2254,7 +2261,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
         ediff = e.diff_abundance(field,
                                  _map_values[a],
                                  _map_values[b],
-                                 fdr_method='dsfdr', method=method)
+                                 fdr_method='dsfdr', method=method, random_seed=random_seed)
         out.write("  % 4i (of % 4i) taxa different between '%s' (n=%i) vs. '%s' (n=%i)\n"
                   % (ediff.feature_metadata.shape[0], e.feature_metadata.shape[0], a, ns[a], b, ns[b]))
         if ediff.feature_metadata.shape[0] > 0:
@@ -2271,7 +2278,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
 def _find_diff_taxa_singlelevel(calour_experiment, metadata,
                                 groups, diffTaxa=None,
                                 out=sys.stdout,
-                                method='meandiff'):
+                                method='meandiff', random_seed=None):
     """Finds differentially abundant taxa in a calour experiment for the given
        metadata group of fields, i.e. samples are controlled for the first :-1
        fields and abundance is checked for the latest field.
@@ -2331,22 +2338,23 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
                 if value in _map_values:
                     e_filtered = e_filtered.filter_samples(
                         field, [_map_values[value]], inplace=False)
-
             diffTaxa = _find_diff_taxa_runpfdr(e_filtered,
                                                metadata,
                                                groups[-1],
-                                               diffTaxa, method=method)
+                                               diffTaxa, method=method,
+                                               random_seed=random_seed)
     else:
         out.write("'%s'" % groups[0])
         out.write("  (n=%i)\n" % metadata.shape[0])
         diffTaxa = _find_diff_taxa_runpfdr(
-            calour_experiment, metadata, groups[0], diffTaxa)
+            calour_experiment, metadata, groups[0], diffTaxa,
+            random_seed=random_seed)
 
     return diffTaxa
 
 
 def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
-                   out=sys.stdout, method='meandiff'):
+                   out=sys.stdout, method='meandiff', random_seed=None):
     # TODO: rephrase docstring
     # TODO: unit tests for all three functions
     # TODO: include calour in requirements
@@ -2379,6 +2387,7 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
         'stdmeandiff' : (mean(A)-mean(B))/(std(A)+std(B)) (binary)
         function : use this function to calculate the t-statistic
         (input is data,labels, output is array of float)
+    random_seed : set random seed
 
     Returns
     -------
@@ -2392,7 +2401,8 @@ def find_diff_taxa(calour_experiment, metadata, groups, diffTaxa=None,
     for i in range(len(groups)):
         sub_groups = groups[len(groups)-i-1:]
         diffTaxa = _find_diff_taxa_singlelevel(
-            calour_experiment, metadata, sub_groups, diffTaxa, method=method)
+            calour_experiment, metadata, sub_groups, diffTaxa, method=method,
+            random_seed=random_seed)
         out.write("\n")
 
     merged_diffTaxa = dict()
@@ -2967,7 +2977,7 @@ def ganttChart(metadata: pd.DataFrame,
 
     for col in [COL_DEATH, COL_GROUP]:
         assert(col not in metadata.columns)
-    cols_dates = [
+    cols_dates = list(set([
         col
         for col
         in [col_birth, col_events, col_death] +
@@ -2975,7 +2985,7 @@ def ganttChart(metadata: pd.DataFrame,
             for col
             in (col_phases_start + col_phases_end)
             if col is not None]
-        if col in metadata.columns]
+        if col in metadata.columns]))
 
     meta = metadata.copy()
     if col_entities is not None:
@@ -3037,7 +3047,7 @@ def ganttChart(metadata: pd.DataFrame,
     # a DataFrame holding information about entities
     cols = [col_entities, col_birth, COL_DEATH, COL_GROUP, COL_ENTITY_COLOR]
     for col in col_phases_start + col_phases_end:
-        if col is not None:
+        if col is not None and col not in cols:
             cols.append(col)
     plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
     plot_entities = plot_entities.reset_index().set_index(col_entities)
@@ -3072,6 +3082,7 @@ def ganttChart(metadata: pd.DataFrame,
                 width=plot_entities[COL_DEATH if end is None else end] -
                 plot_entities[start],
                 height=1,
+                linewidth=0,
                 left=plot_entities[start],
                 color=colors_phases[start],
             )
@@ -3084,6 +3095,7 @@ def ganttChart(metadata: pd.DataFrame,
         height=0.6,
         left=plot_entities[col_birth],
         tick_label=plot_entities.index,
+        linewidth=0,
         color=plot_entities[COL_ENTITY_COLOR].apply(
             lambda x: colors_entities.get(x, 'black')),
     )
@@ -3595,7 +3607,7 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
     if title is not None:
         fig.suptitle(title)
 
-    return fig, results.loc[chosen_iteration, 'clf']
+    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy']
 
 
 def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, verbose=sys.stderr):
