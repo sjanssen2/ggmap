@@ -406,8 +406,6 @@ def rarefaction_curves(counts,
         return cache_results
 
 
-    if reference_tree is not None:
-        reference_tree = os.path.abspath(reference_tree)
     return _executor('rare',
                      {'counts': counts.fillna(0.0),
                       'metrics': metrics,
@@ -620,8 +618,6 @@ def alpha_diversity(counts, rarefaction_depth,
             args['num_iterations'], args['rarefaction_depth'])
         return result
 
-    if reference_tree is not None:
-        reference_tree = os.path.abspath(reference_tree)
     return _executor('adiv',
                      {'counts': counts.fillna(0.0),
                       'metrics': metrics,
@@ -768,8 +764,6 @@ def beta_diversity(counts,
                     _update_metric_beta(metric)))
         return results
 
-    if reference_tree is not None:
-        reference_tree = os.path.abspath(reference_tree)
     return _executor('bdiv',
                      {'counts': counts.fillna(0.0),
                       'metrics': metrics,
@@ -781,9 +775,9 @@ def beta_diversity(counts,
                      **executor_args)
 
 
-def sepp(counts, chunksize=10000,
-         reference_phylogeny=None, reference_alignment=None,
-         reference_taxonomy=None, reference_info=None,
+def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEPP,
+         #reference_phylogeny=None, reference_alignment=None,
+         #reference_taxonomy=None, #reference_info=None,
          alignment_subset_size=None, placement_subset_size=None,
          ppn=20, pmem='8GB', walltime='12:00:00',
          environment=settings.QIIME2_ENV, **executor_args):
@@ -795,22 +789,9 @@ def sepp(counts, chunksize=10000,
         a) OTU counts in form of a Pandas.DataFrame.
         b) If providing a Pandas.Series, we expect the index to be a fasta
            headers and the colum the fasta sequences.
-    reference_phylogeny : str
-        Default: None.
-        Filepath to a qza "Phylogeny[Rooted]" artifact, holding an alternative
-        reference phylogeny for SEPP.
-    reference_alignment : str
-        Default: None.
-        Filepath to a qza "FeatureData[AlignedSequence]" artifact, holding an
-        alternative reference alignment for SEPP.
-    reference_taxonomy : str
-        Default: None.
-        Filepath to a qza "FeatureData[Taxonomy]" artifact, holding an
-        alternative reference taxonomy for SEPP.
-    reference_info : str
-        Default: None.
-        Filepath to a RAxML info file storing model information about reference
-        phylogeny constructed from alignment.
+    reference_database : str
+        Package holding reference phylogeny+alignment+taxonomy+info for SEPP.
+        Should point by default to Greengenes 13.8 99% tree.
     alignment_subset_size : int
         Default: None, i.e. 1000
         Each placement subset is further broken into
@@ -840,6 +821,10 @@ def sepp(counts, chunksize=10000,
     -------
     ???"""
     def pre_execute(workdir, args):
+        if (reference_database is None) or (reference_database == ""):
+            raise ValueError("Reference database is not given!")
+        if (not os.path.exists(reference_database)):
+            raise ValueError("Reference database cannot be found at '%s'" % reference_database)
         chunks = range(0, seqs.shape[0], args['chunksize'])
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
@@ -861,18 +846,6 @@ def sepp(counts, chunksize=10000,
              '--type "FeatureData[Sequence]"') %
             (workdir + ('/sequences${%s}.mfa' % settings.VARNAME_PBSARRAY), workdir, settings.VARNAME_PBSARRAY))
 
-        ref_phylogeny = ""
-        if reference_phylogeny is not None:
-            ref_phylogeny = ' --i-reference-phylogeny %s ' % (
-                reference_phylogeny)
-        ref_alignment = ""
-        if reference_alignment is not None:
-            ref_alignment = ' --i-reference-alignment %s ' % (
-                reference_alignment)
-        ref_info = ""
-        if reference_info is not None:
-            ref_info = ' --i-reference-info %s ' % (
-                reference_info)
         ss_alignment = ""
         if args['alignment_subset_size'] is not None:
             ss_alignment = ' --p-alignment-subset-size %s ' % (
@@ -885,10 +858,11 @@ def sepp(counts, chunksize=10000,
         commands.append(
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${%s}.qza '
+             '--i-reference-database %s '
              '--p-threads %i '
-             '%s%s%s%s%s'
+             '%s%s'
              '--output-dir %s/res_${%s}') %
-            (workdir, settings.VARNAME_PBSARRAY, ppn, ref_phylogeny, ref_alignment, ref_info,
+            (workdir, settings.VARNAME_PBSARRAY, reference_database, ppn,
              ss_alignment, ss_placement, workdir, settings.VARNAME_PBSARRAY))
 
         # export the placements
@@ -905,32 +879,33 @@ def sepp(counts, chunksize=10000,
              '--output-path %s/res_${%s}/') %
             (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
-        # compute taxonomy from resulting tree and placements
-        ref_taxonomy = ""
-        if args['reference_taxonomy'] is not None:
-            ref_taxonomy = \
-                " --i-reference-taxonomy %s " % args['reference_taxonomy']
-        commands.append(
-            ('qiime fragment-insertion classify-otus-experimental '
-             '--i-representative-sequences %s/rep-seqs${%s}.qza '
-             '--i-tree %s/res_${%s}/tree.qza '
-             '%s'
-             '--o-classification %s/res_taxonomy_${%s}') %
-            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY, ref_taxonomy, workdir, settings.VARNAME_PBSARRAY))
+        if False:  # disabled with 2020.2 since we would need to have taxonomy archive available + RDP returns better results!
+            # compute taxonomy from resulting tree and placements
+            ref_taxonomy = ""
+            if args['reference_taxonomy'] is not None:
+                ref_taxonomy = \
+                    " --i-reference-taxonomy %s " % args['reference_taxonomy']
+                commands.append(
+                    ('qiime fragment-insertion classify-otus-experimental '
+                     '--i-representative-sequences %s/rep-seqs${%s}.qza '
+                     '--i-tree %s/res_${%s}/tree.qza '
+                     '--i-reference-taxonomy %s/taxonomy.qza '
+                     '--o-classification %s/res_taxonomy_${%s}') %
+                    (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY, workdir, workdir, settings.VARNAME_PBSARRAY))
 
-        # export taxonomy to tsv file
-        commands.append(
-            ('qiime tools export '
-             '--input-path %s/res_taxonomy_${%s}.qza '
-             '--output-path %s/res_taxonomy_${%s}/') %
-            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
+            # export taxonomy to tsv file
+            commands.append(
+                ('qiime tools export '
+                 '--input-path %s/res_taxonomy_${%s}.qza '
+                 '--output-path %s/res_taxonomy_${%s}/') %
+                (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
-        # move taxonomy tsv to basedir
-        commands.append(
-            ('mv '
-             '%s/res_taxonomy_${%s}/taxonomy.tsv '
-             '%s/taxonomy_${%s}.tsv') %
-            (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
+            # move taxonomy tsv to basedir
+            commands.append(
+                ('mv '
+                 '%s/res_taxonomy_${%s}/taxonomy.tsv '
+                 '%s/taxonomy_${%s}.tsv') %
+                (workdir, settings.VARNAME_PBSARRAY, workdir, settings.VARNAME_PBSARRAY))
 
         return commands
 
@@ -987,24 +962,25 @@ def sepp(counts, chunksize=10000,
                         '%s/all_tree.nwk' % workdir)
             sys.stderr.write(' done.\n')
 
-        sys.stderr.write("step 3) merge taxonomy: ")
-        taxonomies = []
-        for file_taxonomy in next(os.walk(workdir))[2]:
-            if file_taxonomy.startswith('taxonomy_') and \
-               file_taxonomy.endswith('.tsv'):
-                taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
-                                  sep="\t", index_col=0))
-        if len(taxonomies) > 0:
-            taxonomy = pd.concat(taxonomies)
-        else:
-            taxonomy = pd.DataFrame()
-        sys.stderr.write(' done.\n')
+        if False:
+            sys.stderr.write("step 3) merge taxonomy: ")
+            taxonomies = []
+            for file_taxonomy in next(os.walk(workdir))[2]:
+                if file_taxonomy.startswith('taxonomy_') and \
+                   file_taxonomy.endswith('.tsv'):
+                    taxonomies.append(pd.read_csv(workdir + '/' + file_taxonomy,
+                                      sep="\t", index_col=0))
+            if len(taxonomies) > 0:
+                taxonomy = pd.concat(taxonomies)
+            else:
+                taxonomy = pd.DataFrame()
+            sys.stderr.write(' done.\n')
 
         f = open("%s/all_tree.nwk" % workdir, 'r')
         tree = f.readlines()[0].strip()
         f.close()
 
-        return {'taxonomy': taxonomy,
+        return {#'taxonomy': taxonomy,
                 'tree': tree}
 
     inp = sorted(counts.index)
@@ -1017,19 +993,11 @@ def sepp(counts, chunksize=10000,
     seqs = inp
     if type(inp) != pd.Series:
         seqs = pd.Series(inp, index=inp).sort_index()
-    if reference_alignment is not None:
-        reference_alignment = os.path.abspath(reference_alignment)
-    if reference_phylogeny is not None:
-        reference_phylogeny = os.path.abspath(reference_phylogeny)
-    if reference_taxonomy is not None:
-        reference_taxonomy = os.path.abspath(reference_taxonomy)
-    if reference_info is not None:
-        reference_info = os.path.abspath(reference_info)
     args = {'seqs': seqs,
-            'reference_alignment': reference_alignment,
-            'reference_phylogeny': reference_phylogeny,
-            'reference_taxonomy': reference_taxonomy,
-            'reference_info': reference_info,
+            'reference_database': reference_database,
+            #'reference_phylogeny': reference_phylogeny,
+            #'reference_taxonomy': reference_taxonomy,
+            #'reference_info': reference_info,
             'alignment_subset_size': alignment_subset_size,
             'placement_subset_size': placement_subset_size,
             'chunksize': chunksize}
@@ -1212,8 +1180,6 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
     seqs = inp
     if type(inp) != pd.Series:
         seqs = pd.Series(inp, index=inp).sort_index()
-    if reference is not None:
-        reference = os.path.abspath(reference)
     args = {'seqs': seqs,
             'reference': reference,
             'chunksize': chunksize}
@@ -1560,10 +1526,6 @@ def sortmerna(sequences,
     # core dump with 8GB with 10 nodes, 4h
     # trying 20GB with 10 nodes ..., 4h (long wait for scheduler)
     # trying 20GB with 5 nodes, 2h ...
-    if sortmerna_db is not None:
-        sortmerna_db = os.path.abspath(sortmerna_db)
-    if reference is not None:
-        reference = os.path.abspath(reference)
     return _executor('sortmerna',
                      {'seqs': sequences.drop_duplicates().sort_index(),
                       'reference': reference,
@@ -1948,8 +1910,7 @@ def compare_categories(beta_dm, metadata,
 
     return _executor('cmpcat',
                      {'beta_dm': beta_dm,
-                      'metadata':
-                      metadata[sorted(metadata.columns)].sort_index(),
+                      'metadata': metadata,
                       'num_permutations': num_permutations,
                       'methods': sorted(methods)},
                      pre_execute,
@@ -2809,8 +2770,6 @@ def taxonomy_RDP(counts, fp_classifier, **executor_args):
                                index_col=0)
         return taxonomy
 
-    if fp_classifier is not None:
-        fp_classifier = os.path.abspath(fp_classifier)
     return _executor('taxRDP',
                      {'features': sorted(list(counts.index)),
                       'fp_classifier': fp_classifier},
@@ -3073,7 +3032,7 @@ def dada2_pacbio(demux: pd.DataFrame, fp_fastqprefix: str=None, seq_primer_fwd: 
                      ppn=ppn,
                      pmem=pmem,
                      walltime=walltime,
-                     environment="dada2_pacbio",
+                     environment=settings.DADA2PACBIO_ENV,
                      **executor_args)
 
 
@@ -3270,7 +3229,7 @@ def metalonda(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, col_entit
 
 
     return _executor('metalonda',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'meta': meta,
                       'col_time': col_time,
                       'col_entities': col_entities,
@@ -3382,8 +3341,8 @@ def feast(counts: pd.DataFrame, metadata: pd.DataFrame,
         return results  # _env.T
 
     return _executor('feast',
-                     {'counts': counts,
-                      'metadata': metadata,
+                     {'counts': counts.fillna(0.0),
+                      'metadata': metadata[[col_envname,col_type]],
                       'col_envname': col_envname,
                       'col_type': col_type,
                       #'col_envID': col_envID,
@@ -3484,8 +3443,8 @@ def sourcetracker2(counts: pd.DataFrame, metadata: pd.DataFrame,
         return results
 
     return _executor('sourcetracker2',
-                     {'counts': counts,
-                      'metadata': metadata,
+                     {'counts': counts.fillna(0.0),
+                      'metadata': metadata[[col_envname,col_type]],
                       'col_envname': col_envname,
                       'col_type': col_type,
                       },
@@ -3582,7 +3541,7 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: TreeNode, c
         return {'beta': pldist_dms, 'meta_entities': meta_entities}
 
     return _executor('pldist',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'meta': meta,
                       'reference_tree': reference_tree,
                       'col_time': col_time,
@@ -3750,7 +3709,7 @@ def scnic(counts: pd.DataFrame,
         return cache_results
 
     return _executor('scnic',
-                     {'counts': counts,
+                     {'counts': counts.fillna(0.0),
                       'method': method,
                       'min_reads_per_feature': min_reads_per_feature,
                       'min_mean_abundance_per_feature': min_mean_abundance_per_feature,
@@ -3788,6 +3747,15 @@ def _parse_timing(workdir, jobname):
         # stop after reading first found file, since there should only be one
         break
     return None
+
+
+def _md5(filepath):
+    """Returns md5sum of file path"""
+    hash_md5 = hashlib.md5()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
@@ -3860,8 +3828,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                'workdir': None,
                'qid': None,
                'file_cache': None,
+               'cached_inputs': dict(),
                'timing': None,
-               'cache_version': 20200604,
+               'cache_version': 20200826,
                'created_on': None,
                'conda_env': 'unknown',
                'jobname': jobname}
@@ -3897,6 +3866,18 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             cache_arguments[arg] = cache_arguments[arg].loc[
                 sorted(cache_arguments[arg].index),
                 sorted(cache_arguments[arg].columns)]
+        if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
+            # if argument can be used as a file path and the file actually exists...
+            # ... than use the md5sum of the file instead of the filepath for cache fingerprint
+            # Thus, moving the file will not affect the cache fingerprint
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = _md5(cache_arguments[arg])
+
+        # for better debugging, write hash sum for each input argument in result object
+        if cache_arguments[arg] is None:
+            results['cached_inputs'][arg] = None
+        else:
+             results['cached_inputs'][arg] = hashlib.md5(str(cache_arguments[arg]).encode()).hexdigest()
 
     _input = collections.OrderedDict(sorted(cache_arguments.items()))
     results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
@@ -3971,8 +3952,8 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         prefix = 'ana_%s_' % jobname
         results['workdir'] = tempfile.mkdtemp(prefix=prefix, dir=dir_tmp)
         if verbose:
-            verbose.write("Working directory is '%s'. " %
-                          results['workdir'])
+            verbose.write("Working directory is '%s', cachefile is '%s'. " %
+                          (results['workdir'], results['file_cache']))
         # leave an empty file in workdir with cache file name to later
         # parse results from tmp dir
         f = open("%s/%s" % (results['workdir'],
@@ -3990,10 +3971,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             environment, ppn=ppn, wait=wait, dry=dry,
             pmem=pmem, walltime=walltime,
             file_qid=results['workdir']+'/cluster_job_id.txt',
+            file_condaenvinfo=results['workdir']+'/conda_info.txt',
             timing=timing,
             file_timing=results['workdir']+('/timing${%s}.txt' % settings.VARNAME_PBSARRAY),
             array=array, use_grid=use_grid)
-        results['conda_env'] = environment
         if dry:
             return results
         if wait is False:
@@ -4003,6 +3984,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                                       cache_arguments)
     results['created_on'] = datetime.datetime.fromtimestamp(
         time.time()).strftime('%Y-%m-%d %H:%M:%S')
+
+    results['conda_env'] = environment
+    with open(results['workdir']+'/conda_info.txt', 'r') as f:
+        results['conda_list'] = f.readlines()
 
     results['timing'] = []
     for timingfile in next(os.walk(results['workdir']))[2]:
