@@ -125,9 +125,18 @@ def _parse_alpha_div_collated(workdir, samplenames):
     for dir_alpha in next(os.walk(workdir))[1]:
         parts = dir_alpha.split('_')
         depth, iteration, metric = parts[1], parts[2], '_'.join(parts[3:])
+        # we get parse errors if sample names are only numeric
+        # pandas tries to convert to float and migh than map two samples
+        # to the same string due to rounding issues
+        #alphas = pd.read_csv(
+        #    '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
+        #    sep="\t", index_col=0)
         alphas = pd.read_csv(
             '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
-            sep="\t", index_col=0)
+            sep="\t", dtype=str
+        )
+        alphas = alphas.set_index(alphas.columns[0])
+        alphas = alphas.astype(float)
         alphas = alphas.reindex(index=samplenames).reset_index()
         alphas.columns = ['sample_name', 'value']
         alphas['iteration'] = iteration
@@ -2304,6 +2313,11 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         for c in args['cols_cat']:
             args['meta'][c] = args['meta'][c].apply(
                 lambda x: '_%s' % x if not str(x).startswith('_') else x)
+        # escape chars like /
+        for c in args['cols_cat']:
+            args['meta'][c] = args['meta'][c].apply(
+                lambda x: x.replace('/', '_'))
+
         # write metadata into file
         args['meta'].to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
