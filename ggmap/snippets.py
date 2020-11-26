@@ -2,7 +2,6 @@ from typing import Dict
 import pandas as pd
 import biom
 from biom.util import biom_open
-from mpl_toolkits.basemap import Basemap
 from itertools import repeat, chain
 import numpy as np
 import matplotlib.patches as mpatches
@@ -33,6 +32,10 @@ from matplotlib.patches import Patch
 import math
 from skbio.sequence import DNA
 from skbio.tree import TreeNode
+
+if 'PROJ_LIB' not in os.environ:
+    os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
+from mpl_toolkits.basemap import Basemap
 
 settings.init()
 plt.rcParams['svg.fonttype'] = 'none'
