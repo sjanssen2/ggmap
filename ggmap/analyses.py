@@ -345,13 +345,14 @@ def rarefaction_curves(counts,
              # '--source-format BIOMV210Format '
              '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
-        commands.append(
-            ('qiime tools import '
-             '--input-path %s '
-             '--output-path %s '
-             '--type "Phylogeny[Rooted]"') %
-            (workdir+'/reference.tree',
-             workdir+'/reference_tree.qza'))
+        if args['reference_tree'] is not None:
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--output-path %s '
+                 '--type "Phylogeny[Rooted]"') %
+                (workdir+'/reference.tree',
+                 workdir+'/reference_tree.qza'))
 
         # use_grid = executor_args['use_grid'] \
         #     if 'use_grid' in executor_args else True
@@ -616,8 +617,19 @@ def alpha_diversity(counts, rarefaction_depth,
                     results_alpha[metric] = []
                 file_alpha = '%s/%s/%s/alpha-diversity.tsv' % (
                     dir_plain, iteration, metric)
-                results_alpha[metric].append(
-                    pd.read_csv(file_alpha, sep="\t", index_col=0))
+                alpha_results = pd.read_csv(file_alpha, sep="\t", dtype=str)
+                alpha_results = alpha_results.set_index(alpha_results.columns[0])
+                alpha_results = alpha_results.astype(float)
+                results_alpha[metric].append(alpha_results)
+#alphas = pd.read_csv(
+#    '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
+#    sep="\t", dtype=str
+#)
+#alphas = alphas.set_index(alphas.columns[0])
+#alphas = alphas.astype(float)
+#alphas = alphas.reindex(index=samplenames).reset_index()
+
+
         for metric in results_alpha.keys():
             results_alpha[metric] = pd.concat(
                 results_alpha[metric], axis=1).mean(axis=1)
@@ -2292,6 +2304,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
     """
     METHODS_ALPHA = ['pearson', 'spearman']
     METHODS_BETA = ['permanova', 'anosim']
+    FAKE_COL = '__fake_qiime2_numcol'
 
     def pre_execute(workdir, args):
         # basic tests
@@ -2319,7 +2332,12 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                 lambda x: x.replace('/', '_'))
 
         # write metadata into file
-        args['meta'].to_csv(
+        # add one numeric fake column to make q2 visualizer operate correctly
+        if FAKE_COL in args['meta'].columns:
+            raise ValueError("Column name clash!")
+        m = args['meta']
+        m[FAKE_COL] = list(range(m.shape[0]))
+        m.to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
 
         # import beta distance matrix into Qiime2 artifacts
@@ -2530,6 +2548,10 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         pd_results = pd.DataFrame(results)
         pd_results['p-value'] = pd_results['p-value'].apply(
             lambda x: np.nan if x == 'nan' else x).astype(float)
+
+        if FAKE_COL in pd_results.columns:
+            del pd_results[FAKE_COL]
+        
         return pd_results
 
     # synchronize samples across metadata, alpha and beta diversity to the
@@ -3568,6 +3590,75 @@ def pldist(counts: pd.DataFrame, meta: pd.DataFrame, reference_tree: TreeNode, c
                      walltime="00:59:00",
                      environment=settings.PLDIST_ENV,
                      **executor_args)
+
+
+def taxonomy(metadata : pd.DataFrame, counts : pd.DataFrame, taxonomy : pd.Series,
+             fp_results, infix="", ppn=1, **executor_args):
+    """"""
+
+    # general sanity checks
+    (counts, metadata) = sync_counts_metadata(counts, metadata)
+    def pre_execute(workdir, args):
+        # store counts as a biom file
+        pandas2biom(workdir+'/input.biom', args['counts'])
+
+        # write metadata to tmp file
+        args['metadata'].to_csv(
+            workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+
+        # store taxonomy
+        if (len(set(args['counts'].index) - set(args['taxonomy'].index)) > 0):
+            raise ValueError("Not all features in your count table are covered by your taxonomy!")
+        args['taxonomy'].name = 'Taxon'
+        args['taxonomy'].loc[set(args['counts'].index) & set(args['taxonomy'].index)].to_frame().to_csv(
+            workdir+'/taxonomy.tsv', sep="\t", index_label='Feature ID')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append((
+            'qiime tools import '
+            '--input-path %s/input.biom '
+            '--output-path %s/counts '
+            '--type "FeatureTable[Frequency]"') % (workdir, workdir))
+        commands.append((
+            'qiime tools import '
+            '--input-path %s/taxonomy.tsv '
+            '--output-path %s/taxonomy.qza '
+            '--type "FeatureData[Taxonomy]"') % (workdir, workdir))
+        commands.append((
+            'qiime taxa barplot '
+            '--i-table %s/counts.qza '
+            '--i-taxonomy %s/taxonomy.qza '
+            '--m-metadata-file %s/metadata.tsv '
+            '--o-visualization %s/taxa_barplot.qzv ') % (
+            workdir, workdir, workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        os.makedirs(fp_results, exist_ok=True)
+        fp = os.path.join(fp_results, 'taxa_barplot%s.qzv' % infix)
+        shutil.move("%s/taxa_barplot.qzv" % workdir, fp)
+        sys.stdout.write("Resulting file moved to %s" % fp)
+        return {'filepath': fp}
+
+    return _executor('taxonomy',
+                     {'counts': counts.fillna(0.0),
+                      'metadata': metadata,
+                      'taxonomy': taxonomy},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     ppn=ppn,
+                     environment=settings.QIIME2_ENV,
+                     **executor_args)
+
+
+def _update_metric_alpha(metric):
+    if metric == 'PD_whole_tree':
+        return 'faith_pd'
+    return metric
 
 
 def scnic(counts: pd.DataFrame,
