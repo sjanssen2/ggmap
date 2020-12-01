@@ -260,7 +260,8 @@ def get_great_circle_distance(p1, p2):
 
 def drawMap(points, basemap=None, ax=None, no_legend=False,
             color_fill_land='lightgreen', color_border_land='gray',
-            color_water='lightblue', draw_country_borders=False):
+            color_water='lightblue', draw_country_borders=False,
+            draw_latitudes=False):
     """ Plots coordinates of metadata to a worldmap.
 
     Parameters
