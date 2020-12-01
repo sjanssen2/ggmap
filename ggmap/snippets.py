@@ -3257,16 +3257,19 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
         group_tests = pd.DataFrame()
 
     # print sample sizes on top x axis
-    group_sizes = pd.concat(group_sizes, axis=1).fillna(0).astype(int)
+    group_sizes = pd.concat(group_sizes, axis=1, sort=False).fillna(0).astype(int)
     ax_numsamples = ax.twiny()
     ax_numsamples.set_xticks(list(ax.get_xticks()) + [ax.get_xlim()[1]])
     ax_numsamples.set_xlim(ax.get_xlim())
 
     xlabels = []
+    # x tick labels must not always be floats, e.g. generation descriptions
+    if group_sizes.reindex(ax.get_xticks()).unstack().dropna().shape[0] > 0:
+        group_sizes = group_sizes.reindex(ax.get_xticks())
     if print_samplesizes:
-        xlabels.append(group_sizes.reindex(ax.get_xticks()).applymap(lambda x: "" if pd.isna(x) else str(x)))
+        xlabels.append(group_sizes.applymap(lambda x: "" if pd.isna(x) else str(x)))
     if test_groups:
-        xlabels.append(group_tests.reindex(ax.get_xticks()).applymap(lambda x: 'p=%.2f' % x if x < pthreshold else ''))
+        xlabels.append(group_tests.applymap(lambda x: 'p=%.2f' % x if x < pthreshold else ''))
     if len(xlabels) > 0:
         xlabels = pd.concat(xlabels, axis=1).apply(lambda x: '\n'.join(x), axis=1)
         xlabels.loc[ax.get_xlim()[1]] = '\n'.join((['\n'.join(map(lambda x: 'n: %s' % x, group_sizes.columns))] if print_samplesizes else []) + \
