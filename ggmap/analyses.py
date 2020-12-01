@@ -216,7 +216,10 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
         FuncFormatter(lambda x, p: format(int(x), ',')))
     lostHalf = abs(x['remaining'] - x['lost'])
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
-    ax.set_xlim(0, lostHalf * 1.1)
+    maxX = lostHalf * 1.1
+    if maxX < data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].mean():
+        maxX = data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].max() * 1.1
+    ax.set_xlim(0, maxX)
     # p = ax.set_xscale("log", nonposx='clip')
 
     for i, metric in enumerate(sorted(data['metrics'].keys())):
@@ -227,7 +230,7 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
                 gsorted[gsorted.columns[-1]])
         axes[i+2].set_ylabel(gsorted.columns[-1])
         axes[i+2].set_xlabel('rarefaction depth')
-        axes[i+2].set_xlim(0, lostHalf * 1.1)
+        axes[i+2].set_xlim(0, maxX)
         axes[i+2].get_xaxis().set_major_formatter(
             FuncFormatter(lambda x, p: format(int(x), ',')))
 
@@ -275,8 +278,8 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_otus"],
                        num_steps=20, reference_tree=None, max_depth=None,
-                       num_iterations=10, control_sample_names=[],
-                       fix_zero_len_branches=False,
+                       min_depth=1000, num_iterations=10,
+                       control_sample_names=[], fix_zero_len_branches=False,
                        **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
@@ -296,6 +299,8 @@ def rarefaction_curves(counts,
     max_depth : int
         Maximal rarefaction depth. By default counts.sum().describe()['75%'] is
         used.
+    min_depth : int
+        Minimal rarefaction depth. By default: 1000.
     num_iterations : int
         Default: 10.
         Number of iterations to rarefy the input table.
@@ -329,7 +334,7 @@ def rarefaction_curves(counts,
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
         f = open("%s/commands.txt" % workdir, "w")
-        for depth in np.linspace(max(1000, args['counts'].sum().min()),
+        for depth in np.linspace(max(args['min_depth'], args['counts'].sum().min()),
                                  max_rare_depth,
                                  args['num_steps'], endpoint=True):
             for iteration in range(args['num_iterations']):
@@ -362,7 +367,7 @@ def rarefaction_curves(counts,
                     result="%s/reference_tree.qza" % workdir,
                     ppn=1, pmem='8GB', walltime='1:00:00',
                     dry=dry,
-                    wait=True, use_grid=True)
+                    wait=True, use_grid=executor_args.get('use_grid', True))
 
     def commands(workdir, ppn, args):
         commands = [
@@ -421,6 +426,7 @@ def rarefaction_curves(counts,
                       'metrics': metrics,
                       'num_steps': num_steps,
                       'max_depth': max_depth,
+                      'min_depth': min_depth,
                       'num_iterations': num_iterations,
                       'reference_tree': reference_tree},
                      pre_execute,
@@ -2551,7 +2557,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
 
         if FAKE_COL in pd_results.columns:
             del pd_results[FAKE_COL]
-        
+
         return pd_results
 
     # synchronize samples across metadata, alpha and beta diversity to the
