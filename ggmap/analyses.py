@@ -2661,11 +2661,36 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                 os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
                 args['other_beta_diversities'][metric].filter(samples).write(
                     '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
+        with open("%s/commands.txt" % workdir, "w") as f:
+            for metric in args['beta_diversities'].keys():
+                f.write(metric+"\n")
 
     def commands(workdir, ppn, args):
-        commands = []
+        commands = [
+            ('var_metric=`head -n ${%s} %s/commands.txt | tail -n 1`') % (
+                settings.VARNAME_PBSARRAY, workdir)]
 
-        for metric in args['beta_diversities'].keys():
+        #for metric in args['beta_diversities'].keys():
+        # import diversity matrix as qiime2 artifact
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "DistanceMatrix" '
+             # '--source-format DistanceMatrixDirectoryFormat '
+             '--output-path %s ') %
+            ('%s/${var_metric}' % workdir,
+             # " % Properties([\"phylogenetic\"])"
+             # if 'unifrac' in metric else '',
+             '%s/beta_${var_metric}.qza' % workdir))
+        # compute PcoA
+        commands.append(
+            ('qiime diversity pcoa '
+             '--i-distance-matrix %s '
+             '--o-pcoa %s ') %
+            ('%s/beta_${var_metric}.qza' % workdir,
+             '%s/pcoa_${var_metric}' % workdir)
+        )
+        if args['other_beta_diversities'] is not None:
             # import diversity matrix as qiime2 artifact
             commands.append(
                 ('qiime tools import '
@@ -2673,61 +2698,41 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                  '--type "DistanceMatrix" '
                  # '--source-format DistanceMatrixDirectoryFormat '
                  '--output-path %s ') %
-                ('%s/%s' % (workdir, metric),
+                ('%s/other_${var_metric}' % workdir,
                  # " % Properties([\"phylogenetic\"])"
                  # if 'unifrac' in metric else '',
-                 '%s/beta_%s.qza' % (workdir, metric)))
+                 '%s/other_beta_${var_metric}.qza' % workdir))
             # compute PcoA
             commands.append(
                 ('qiime diversity pcoa '
                  '--i-distance-matrix %s '
                  '--o-pcoa %s ') %
-                ('%s/beta_%s.qza' % (workdir, metric),
-                 '%s/pcoa_%s' % (workdir, metric))
+                ('%s/other_beta_${var_metric}.qza' % workdir,
+                 '%s/other_pcoa_${var_metric}' % workdir)
             )
-            if args['other_beta_diversities'] is not None:
-                # import diversity matrix as qiime2 artifact
-                commands.append(
-                    ('qiime tools import '
-                     '--input-path %s '
-                     '--type "DistanceMatrix" '
-                     # '--source-format DistanceMatrixDirectoryFormat '
-                     '--output-path %s ') %
-                    ('%s/other_%s' % (workdir, metric),
-                     # " % Properties([\"phylogenetic\"])"
-                     # if 'unifrac' in metric else '',
-                     '%s/other_beta_%s.qza' % (workdir, metric)))
-                # compute PcoA
-                commands.append(
-                    ('qiime diversity pcoa '
-                     '--i-distance-matrix %s '
-                     '--o-pcoa %s ') %
-                    ('%s/other_beta_%s.qza' % (workdir, metric),
-                     '%s/other_pcoa_%s' % (workdir, metric))
-                )
-                # generate procrustes emperor plot
-                commands.append(
-                    ('qiime emperor procrustes-plot '
-                     '--i-reference-pcoa %s '
-                     '--i-other-pcoa %s '
-                     '--m-metadata-file %s '
-                     '--o-visualization %s ') %
-                    ('%s/pcoa_%s.qza' % (workdir, metric),
-                     '%s/other_pcoa_%s.qza' % (workdir, metric),
-                     '%s/metadata.tsv' % workdir,
-                     '%s/emperor-procrustes_%s.qzv' % (workdir, metric))
-                )
-            else:
-                # generate emperor plot
-                commands.append(
-                    ('qiime emperor plot '
-                     '--i-pcoa %s '
-                     '--m-metadata-file %s '
-                     '--o-visualization %s ') %
-                    ('%s/pcoa_%s.qza' % (workdir, metric),
-                     '%s/metadata.tsv' % workdir,
-                     '%s/emperor_%s.qzv' % (workdir, metric))
-                )
+            # generate procrustes emperor plot
+            commands.append(
+                ('qiime emperor procrustes-plot '
+                 '--i-reference-pcoa %s '
+                 '--i-other-pcoa %s '
+                 '--m-metadata-file %s '
+                 '--o-visualization %s ') %
+                ('%s/pcoa_${var_metric}.qza' % workdir,
+                 '%s/other_pcoa_${var_metric}.qza' % workdir,
+                 '%s/metadata.tsv' % workdir,
+                 '%s/emperor-procrustes_${var_metric}.qzv' % workdir)
+            )
+        else:
+            # generate emperor plot
+            commands.append(
+                ('qiime emperor plot '
+                 '--i-pcoa %s '
+                 '--m-metadata-file %s '
+                 '--o-visualization %s ') %
+                ('%s/pcoa_${var_metric}.qza' % workdir,
+                 '%s/metadata.tsv' % workdir,
+                 '%s/emperor_${var_metric}.qzv' % workdir)
+            )
 
         return commands
 
@@ -2754,6 +2759,7 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                      post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
+                     array=len(beta_diversities.keys()),
                      **executor_args)
 
 
