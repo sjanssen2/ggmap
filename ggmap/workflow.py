@@ -25,6 +25,7 @@ def process_study(metadata: pd.DataFrame,
                   ppn: int=20,
                   emperor_infix: str="",
                   emperor_fp: str=None,
+                  alpha_metrics=["PD_whole_tree", "shannon", "observed_otus"],
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
                   deblur_remove_features_lessthanXreads: int=10):
     """
@@ -113,7 +114,7 @@ def process_study(metadata: pd.DataFrame,
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
