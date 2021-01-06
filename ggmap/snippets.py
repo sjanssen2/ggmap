@@ -1369,7 +1369,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
-                                  executable="/usr/bin/bash") as call_x:
+                                  executable="bash") as call_x:
                 if (call_x.wait() != 0):
                     out, err = call_x.communicate()
                     raise ValueError((
