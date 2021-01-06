@@ -855,7 +855,13 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
         chunks = range(0, seqs.shape[0], args['chunksize'])
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
-            file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
+            chunkname = chunk + 1
+            if ('use_grid' in executor_args) and \
+               (executor_args['use_grid'] is True) and \
+               (settings.GRIDNAME == 'JLU') and \
+               (len(chunks) == 1):
+               chunkname = 'undefined'
+            file_fragments = workdir + '/sequences%s.mfa' % chunkname
             f = open(file_fragments, 'w')
             chunk_seqs = seqs.iloc[i:i + args['chunksize']]
             for header, sequence in chunk_seqs.iteritems():
@@ -984,9 +990,11 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                 wait=True, use_grid=use_grid)
             sys.stderr.write(' done.\n')
         else:
-            sys.stderr.write("step 1+2) extracting newick tree: ")
-            shutil.move('%s/res_1/tree.nwk' % workdir,
+            sys.stderr.write("step 1+2) extracting newick tree and placements: ")
+            shutil.copy('%s/res_1/tree.nwk' % workdir,
                         '%s/all_tree.nwk' % workdir)
+            shutil.copy('%s/res_1/placements.json' % workdir,
+                        '%s/all_placements.json' % workdir)
             sys.stderr.write(' done.\n')
 
         if False:
@@ -1007,8 +1015,12 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
         tree = f.readlines()[0].strip()
         f.close()
 
+        with open('%s/all_placements.json' % workdir) as json_file:
+            plt_content = json.load(json_file)
+
         return {#'taxonomy': taxonomy,
-                'tree': tree}
+                'tree': tree,
+                'placements': plt_content['placements']}
 
     inp = sorted(counts.index)
     if type(counts) == pd.Series:
@@ -2760,6 +2772,141 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
                      array=len(beta_diversities.keys()),
+                     **executor_args)
+
+
+def empress(metadata: pd.DataFrame, beta_diversities, counts: pd.DataFrame, reference_tree: str, fp_results: str, fix_zero_len_branches=False, infix="", ppn=1, **executor_args):
+    """Empress Plot
+
+    Parameters
+    ----------
+    metadata : Pandas.DataFrame
+        The metadata about samples to be plotted. Samples not included in
+        metadata will be omitted from ordination and plotting!
+    counts : Pandas.DataFrame
+
+    beta_diversities : dict(str: DistanceMatrix)
+        Dictionary of (multiple) beta diversity distance metrices.
+    reference_tree : str
+        Filepath to insertion tree
+    fp_results : str
+        Filepath to directory where to store generated emperor plot qzvs.
+    infix : str
+        Output filenames have pattern: "emperor%s_%s.gzv" % (infix, metric)
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
+
+    Returns
+    -------
+    ?"""
+    # general sanity checks
+    (counts, metadata) = sync_counts_metadata(counts, metadata)
+    def pre_execute(workdir, args):
+        samples = set(args['metadata'].index)
+        for metric in args['beta_diversities'].keys():
+            samples &= set(args['beta_diversities'][metric].ids)
+
+        if (args['metadata'].shape[0] != len(samples)):
+            sys.stderr.write(
+                'Info: reducing number of samples for Emperor plot to %i\n' %
+                len(samples))
+
+        # write metadata to tmp file
+        args['metadata'].loc[samples, :].to_csv(
+            workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
+
+        # write distance metrices to tmp files
+        for metric in args['beta_diversities'].keys():
+            os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
+            args['beta_diversities'][metric].filter(samples).write(
+                '%s/%s/distance-matrix.tsv' % (workdir, metric))
+
+        pandas2biom('%s/input.biom' % workdir, args['counts'])
+
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+        writeReferenceTree(args['reference_tree'], workdir,
+                           fix_zero_len_branches, verbose=verbose,
+                           name_analysis='empress')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append((
+            'qiime tools import '
+            '--input-path %s/input.biom '
+            '--output-path %s/counts '
+            '--type "FeatureTable[Frequency]"') % (workdir, workdir))
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--output-path %s '
+             '--type "Phylogeny[Rooted]"') %
+            (workdir+'/reference.tree',
+             workdir+'/reference_tree.qza'))
+
+        # import diversity matrix as qiime2 artifact
+        for metric in args['beta_diversities'].keys():
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "DistanceMatrix" '
+                 # '--source-format DistanceMatrixDirectoryFormat '
+                 '--output-path %s ') %
+                ('%s/%s' % (workdir, metric),
+                 # " % Properties([\"phylogenetic\"])"
+                 # if 'unifrac' in metric else '',
+                 '%s/beta_%s.qza' % (workdir, metric)))
+            # compute PcoA
+            commands.append(
+                ('qiime diversity pcoa '
+                 '--i-distance-matrix %s '
+                 '--o-pcoa %s ') %
+                ('%s/beta_%s.qza' % (workdir, metric),
+                 '%s/pcoa_%s' % (workdir, metric))
+            )
+            # create empress plot
+            commands.append(
+                ('qiime empress community-plot '
+                 '--i-tree %s '
+                 '--i-feature-table %s '
+                 '--i-pcoa %s '
+                 '--m-sample-metadata-file %s '
+                 '--o-visualization %s') %
+                ('%s/reference_tree.qza' % workdir,
+                 '%s/counts.qza' % workdir,
+                 '%s/pcoa_%s.qza' % (workdir, metric),
+                 '%s/metadata.tsv' % workdir,
+                 '%s/empress_%s.qzv' % (workdir, metric),
+                 )
+            )
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        os.makedirs(fp_results, exist_ok=True)
+        for metric in args['beta_diversities']:
+            results[metric] = os.path.join(
+                fp_results, 'empress%s_%s.qzv' % (infix, metric))
+            shutil.move(
+                "%s/empress_%s.qzv" % (workdir, metric),
+                results[metric])
+        return results
+
+    return _executor('empress',
+                     {'metadata': metadata,
+                      'counts': counts,
+                      'reference_tree': reference_tree,
+                      'beta_diversities': beta_diversities},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment="qiime2-2020.11",
+                     ppn=ppn,
+                     array=1,
                      **executor_args)
 
 
