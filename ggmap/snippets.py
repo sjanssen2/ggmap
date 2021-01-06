@@ -1201,7 +1201,10 @@ def cluster_run(cmds, jobname, result, environment=None,
                                  environment)
         if settings.GRIDNAME == 'JLU':
             # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
-            cmd_conda = "conda activate %s; " % environment
+            if use_grid is False:
+                cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
+            else:
+                cmd_conda = "conda activate %s; " % (environment)
         else:
             cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
                 settings.DIR_CONDA, settings.DIR_CONDA, environment)
@@ -1251,10 +1254,11 @@ def cluster_run(cmds, jobname, result, environment=None,
             if settings.GRIDNAME == 'JLU':
                 # further differentiate between old and new 18.04 cluster (08.04.2020)
                 arg_multislot = " -pe multislot %i " % ppn
-                if settings.GRIDENGINE_BINDIR == '/vol/gridengine/current/bin/lx-amd64/':
+                #if settings.GRIDENGINE_BINDIR == '/usr/bin/':
                     # according to Burkhard, the "new cluster" doesn't have multislots yet
-                    arg_multislot = ""
-                resources = " -l virtual_free=%s %s " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, arg_multislot)
+                    # UPDATE: 2021-01-06: "das PE ist da, sollte auch funktionieren"
+                #    arg_multislot = ""
+                resources = " -l virtual_free=%s %s -S /bin/bash " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, arg_multislot)
             ge_cmd = (
                 ("%s/qsub %s %s -V %s -N cr_%s %s %s -r y") %
                 (gebin,
@@ -1359,8 +1363,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                     err.write("Now wait until %s job finishes.\n" % qid)
                 return qid
         else:
-            if settings.GRIDNAME == 'JLU':
-                cmd_list = 'source ~/.profile && ' + cmd_list
+            #if settings.GRIDNAME == 'JLU':
+            #    cmd_list = 'source ~/.profile && ' + cmd_list
             with subprocess.Popen(cmd_list,
                                   shell=True,
                                   stdout=subprocess.PIPE,
@@ -3204,7 +3208,7 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
     group_sizes = []
     if colors_groups is None:
         colors_groups = dict()
-    for group in meta.groupby(cols_groups).size().index.get_values():
+    for group in meta.groupby(cols_groups).size().index.to_numpy():
         if group not in colors_groups:
             colors_groups[group] = sns.color_palette()[len(colors_groups)]
         # plot lines
