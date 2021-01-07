@@ -856,8 +856,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
             chunkname = chunk + 1
-            if ('use_grid' in executor_args) and \
-               (executor_args['use_grid'] is True) and \
+            if (('use_grid' not in executor_args) or (executor_args['use_grid'] is True)) and \
                (settings.GRIDNAME == 'JLU') and \
                (len(chunks) == 1):
                chunkname = 'undefined'
