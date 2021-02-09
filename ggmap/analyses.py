@@ -276,7 +276,7 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
 
 
 def rarefaction_curves(counts,
-                       metrics=["PD_whole_tree", "shannon", "observed_otus"],
+                       metrics=["PD_whole_tree", "shannon", "observed_features"],
                        num_steps=20, reference_tree=None, max_depth=None,
                        min_depth=1000, num_iterations=10,
                        control_sample_names=[], fix_zero_len_branches=False,
@@ -289,7 +289,7 @@ def rarefaction_curves(counts,
         The raw read counts. Columns are samples, rows are features.
     metrics : [str]
         List of alpha diversity metrics to use.
-        Default is ["PD_whole_tree", "shannon", "observed_otus"]
+        Default is ["PD_whole_tree", "shannon", "observed_features"]
     num_steps : int
         Number of different rarefaction steps to test. The higher the slower.
         Default is 20.
@@ -504,7 +504,7 @@ def _update_metric_alpha(metric):
 
 
 def alpha_diversity(counts, rarefaction_depth,
-                    metrics=["PD_whole_tree", "shannon", "observed_otus"],
+                    metrics=["PD_whole_tree", "shannon", "observed_features"],
                     num_iterations=10, reference_tree=None,
                     fix_zero_len_branches=False,
                     **executor_args):
