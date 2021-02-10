@@ -3836,3 +3836,15 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dic
     ax.axis('off')
 
     return circles
+
+
+def adjust_saturation(color, amount=0.5):
+    # copied from https://stackoverflow.com/questions/37765197/darken-or-lighten-a-color-in-matplotlib
+    import matplotlib.colors as mc
+    import colorsys
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], amount, amount)
