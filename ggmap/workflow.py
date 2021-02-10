@@ -15,6 +15,8 @@ def process_study(metadata: pd.DataFrame,
                   fp_insertiontree: str,
                   fp_closedref_biom: str=None,
                   rarefaction_depth=None,
+                  rarefaction_max_depth=None,
+                  rarefaction_sample_grouping:pd.Series=None,
                   fp_taxonomy_trained_classifier: str='/home/sjanssen/GreenGenes/gg-13-8-99-515-806-nb-classifier.qza',
                   tree_insert: TreeNode=None,
                   verbose=sys.stderr,
@@ -106,7 +108,7 @@ def process_study(metadata: pd.DataFrame,
 
     #return results
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
     if rarefaction_depth is None:
         return results
 
