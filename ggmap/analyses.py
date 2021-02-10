@@ -24,7 +24,7 @@ from sklearn.ensemble import RandomForestClassifier
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation)
 from ggmap import settings
 import seaborn as sns
 import networkx as nx
@@ -79,27 +79,35 @@ def _get_ref_phylogeny(file_tree=None, env=settings.QIIME_ENV):
     return settings.FILE_REFERENCE_TREE
 
 
-def _getremaining(counts_sums):
+def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
     """Compute number of samples that have at least X read counts.
 
     Parameters
     ----------
     counts_sum : Pandas.Series
         Reads per sample.
+    sample_grouping : pd.Series
+        Default: None
+        Group samples according to this series.
 
     Returns
     -------
-    Pandas.Series:
+    Pandas.DataFrame:
         Index = sequencing depths,
         Values = number samples with at least this sequencing depth.
     """
-    d = dict()
-    remaining = counts_sums.shape[0]
-    numdepths = counts_sums.value_counts().sort_index()
-    for depth, numsamples in numdepths.iteritems():
-        d[depth] = remaining
-        remaining -= numsamples
-    return pd.Series(data=d, name='remaining').to_frame()
+    sums = pd.concat([counts_sums, sample_grouping], axis=1, sort=False).dropna()
+    if sample_grouping is not None:
+        grps = sums.groupby(sample_grouping.name)[0]
+    else:
+        grps = [('remaining', sums[0])]
+
+    remainings = []
+    for grp, g in grps:
+        rem = g.shape[0]+1 - g.value_counts().sort_index().cumsum()
+        rem.name = grp
+        remainings.append(rem)
+    return pd.concat(remainings, axis=1).fillna(method='ffill').fillna(method='bfill').astype(int)
 
 
 def _parse_alpha_div_collated(workdir, samplenames):
@@ -160,7 +168,8 @@ def _parse_alpha_div_collated(workdir, samplenames):
 
 
 def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
-                             control_sample_names=[]):
+                             control_sample_names=[],
+                             sample_grouping:pd.Series=None):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -180,6 +189,15 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
     -------
     Matplotlib figure
     """
+    grp_colors = None
+    if sample_grouping is not None:
+        # check if sample IDs correspond to grouping names
+        if len(set(data['readcounts'].index) - set(sample_grouping.index)) > 0:
+            raise ValueError("Not all samples in rarefaction grouping got a value!")
+        grp_colors = {grp: col
+                      for grp, col
+                      in zip(sample_grouping.unique(), sns.color_palette() * (int(len(sample_grouping.unique()) / 10)+1))}
+
     fig, axes = plt.subplots(2+len(data['metrics']),
                              1,
                              figsize=(5, (2+len(data['metrics']))*5),
@@ -199,40 +217,57 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
 
     # loosing samples
     ax = axes[1]
+    lost = data['remaining'].max().sum() - data['remaining'].sum(axis=1)
     for control in control_sample_names:
         # plot a vertical gray line to indicate one control sample.
         if control in data['readcounts']:
             ax.axvline(x=data['readcounts'].loc[control], color='lightgray')
-    x = data['remaining']
-    x['lost'] = data['readcounts'].shape[0] - x['remaining']
-    x.index.name = 'readcounts'
-    ax.plot(x.index, x['remaining'], label='remaining')
-    ax.plot(x.index, x['lost'], label='lost')
+
+    for grp, g in data['remaining'].T.iterrows():
+        color = None
+        if sample_grouping is not None:
+            color = grp_colors[grp]
+        ax.plot(g.index, g, label=grp, color=color)
+    if sample_grouping is not None:
+        ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
+    else:
+        ax.plot(lost.index, lost, label='lost')
+
     ax.set_xlabel("rarefaction depth")
     ax.set_ylabel("# samples")
     ax.set_title('How many of the %i samples do we loose?' %
                  data['readcounts'].shape[0])
     ax.get_xaxis().set_major_formatter(
         FuncFormatter(lambda x, p: format(int(x), ',')))
-    lostHalf = abs(x['remaining'] - x['lost'])
+
+    lostHalf = abs(data['remaining'].sum(axis=1) - lost)
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
     maxX = lostHalf * 1.1
     if maxX < data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].mean():
         maxX = data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].max() * 1.1
     ax.set_xlim(0, maxX)
-    # p = ax.set_xscale("log", nonposx='clip')
 
     for i, metric in enumerate(sorted(data['metrics'].keys())):
-        for sample, g in data['metrics'][metric].groupby('sample_name'):
-            gsorted = g.sort_values('rarefaction depth')
-            axes[i+2].errorbar(
-                gsorted['rarefaction depth'],
-                gsorted[gsorted.columns[-1]])
-        axes[i+2].set_ylabel(gsorted.columns[-1])
+        # using different drawing methods for normal grouping by sample name and alternative grouping due to speed
+        if sample_grouping is None:
+            for sample, g in data['metrics'][metric].groupby('sample_name'):
+                gsorted = g.sort_values('rarefaction depth')
+                axes[i+2].errorbar(
+                    gsorted['rarefaction depth'],
+                    gsorted[gsorted.columns[-1]])
+        else:
+            grps = data['metrics'][metric].merge(sample_grouping, left_on='sample_name', right_index=True).groupby(sample_grouping.name)
+            for grp, g in grps:
+                d = g.groupby('rarefaction depth')[metric].describe()
+                axes[i+2].errorbar(d.index, d['mean'], yerr=d['std'], label=grp, color=grp_colors[grp], ecolor=adjust_saturation(grp_colors[grp], 0.9))
+            if i == 0:
+                axes[i+2].legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
+        axes[i+2].set_ylabel(metric)
         axes[i+2].set_xlabel('rarefaction depth')
         axes[i+2].set_xlim(0, maxX)
         axes[i+2].get_xaxis().set_major_formatter(
             FuncFormatter(lambda x, p: format(int(x), ',')))
+
 
     return fig
 
@@ -280,6 +315,7 @@ def rarefaction_curves(counts,
                        num_steps=20, reference_tree=None, max_depth=None,
                        min_depth=1000, num_iterations=10,
                        control_sample_names=[], fix_zero_len_branches=False,
+                       sample_grouping:pd.Series=None,
                        **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
@@ -410,14 +446,15 @@ def rarefaction_curves(counts,
         sums = args['counts'].sum()
         results = {'metrics':
                    _parse_alpha_div_collated(workdir, args['counts'].columns),
-                   'remaining': _getremaining(sums),
                    'readcounts': sums}
         return results
 
     def post_cache(cache_results):
+        cache_results['results']['remaining'] = _getremaining(cache_results['results']['readcounts'], sample_grouping)
         cache_results['results'] = \
             _plot_rarefaction_curves(cache_results['results'],
-                                     control_sample_names=control_sample_names)
+                                     control_sample_names=control_sample_names,
+                                     sample_grouping=sample_grouping)
         return cache_results
 
 
