@@ -316,7 +316,7 @@ def rarefaction_curves(counts,
                        min_depth=1000, num_iterations=10,
                        control_sample_names=[], fix_zero_len_branches=False,
                        sample_grouping:pd.Series=None,
-                       **executor_args):
+                       pmem='8GB', **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
@@ -401,7 +401,9 @@ def rarefaction_curves(counts,
         cluster_run(commands, environment=settings.QIIME2_ENV,
                     jobname='prep_rarecurves',
                     result="%s/reference_tree.qza" % workdir,
-                    ppn=1, pmem='8GB', walltime='1:00:00',
+                    ppn=1,
+                    pmem=pmem,
+                    walltime='1:00:00',
                     dry=dry,
                     wait=True, use_grid=executor_args.get('use_grid', True))
 
@@ -802,7 +804,7 @@ def beta_diversity(counts,
                  '--i-table %s '
                  '--i-phylogeny %s '
                  '--p-metric %s '
-                 '--p-n-jobs %i '
+                 '--p-threads %i '
                  '--o-distance-matrix %s%s ') %
                 (workdir+'/input.qza', workdir+'/reference_tree.qza',
                  metric,
@@ -2715,8 +2717,9 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
 
     def commands(workdir, ppn, args):
         commands = [
-            ('var_metric=`head -n ${%s} %s/commands.txt | tail -n 1`') % (
-                settings.VARNAME_PBSARRAY, workdir)]
+            # ensure VARNAME_PBSARRAY variable falls back to 1 if run on cluster AND we are not having an array job since beta_distances has only one metric
+            ('var_metric=`(head -n ${%s} %s/commands.txt || head -n 1 %s/commands.txt) | tail -n 1`') % (
+                settings.VARNAME_PBSARRAY, workdir, workdir)]
 
         #for metric in args['beta_diversities'].keys():
         # import diversity matrix as qiime2 artifact
