@@ -25,9 +25,10 @@ def process_study(metadata: pd.DataFrame,
                   dry: bool=True,
                   use_grid: bool=True,
                   ppn: int=20,
+                  pmem=None,
                   emperor_infix: str="",
                   emperor_fp: str=None,
-                  alpha_metrics=["PD_whole_tree", "shannon", "observed_otus"],
+                  alpha_metrics=["PD_whole_tree", "shannon", "observed_features"],
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
                   deblur_remove_features_lessthanXreads: int=10):
     """
@@ -91,10 +92,14 @@ def process_study(metadata: pd.DataFrame,
     if plant_ratio.min() < 0.95:
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
-    if tree_insert is None:
+    if (tree_insert is None) and (fp_insertiontree is not None):
         tree_insert = TreeNode.read(fp_insertiontree)
     # collect tips actually inserted into tree
-    features_inserted = {node.name for node in tree_insert.tips()}
+    if (tree_insert is not None):
+        features_inserted = {node.name for node in tree_insert.tips()}
+    else:
+        # default to all features of the counts table, if no insertion tree has been provided
+        features_inserted = set(counts.index)
 
     # remove features assigned taxonomy to chloroplasts / mitochondria,
     # report min, max removal
@@ -108,7 +113,8 @@ def process_study(metadata: pd.DataFrame,
 
     #return results
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches,
+        pmem=pmem, metrics=alpha_metrics)
     if rarefaction_depth is None:
         return results
 
@@ -143,7 +149,7 @@ def process_study(metadata: pd.DataFrame,
                 results['picrust']['diversity'][db] = dict()
                 for level in results['picrust']['counts']['results'][db].keys():
                     results['picrust']['diversity'][db][level] = dict()
-                    results['picrust']['diversity'][db][level]['alpha'] = alpha_diversity(results['picrust']['counts']['results'][db][level], rarefaction_depth=None, metrics=['shannon', 'observed_otus'], dry=dry, wait=False, use_grid=use_grid)
+                    results['picrust']['diversity'][db][level]['alpha'] = alpha_diversity(results['picrust']['counts']['results'][db][level], rarefaction_depth=None, metrics=['shannon', 'observed_features'], dry=dry, wait=False, use_grid=use_grid)
                     results['picrust']['diversity'][db][level]['beta'] = beta_diversity(results['picrust']['counts']['results'][db][level], metrics=['bray_curtis'], dry=dry, wait=False, use_grid=use_grid)
         else:
             raise ValueError("Be patient and wait/poll for picrust results!")
