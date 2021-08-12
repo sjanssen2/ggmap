@@ -748,6 +748,10 @@ def beta_diversity(counts,
     if counts.shape[1] <= 1:
         raise ValueError("Your feature table has less than two samples!")
 
+    for sample in counts.columns:
+        if ',' in sample:
+            raise ValueError("You sample names contain ',' character. This will hurt skbio. You need to remove/replace ','!")
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
