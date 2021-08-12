@@ -125,7 +125,10 @@ def _clear_metadata(metadata,
         elif type(date) == pd.Timestamp:
             return time.mktime(date.timetuple())
         else:
-            return time.mktime(datetime.strptime(date, frmt).timetuple())
+            try:
+                return time.mktime(datetime.strptime(date, frmt).timetuple())
+            except ValueError:
+                return pd.NaT
     for column in dates.keys():
         meta[column] = meta[column].apply(lambda x: _convdate(x, dates[column]))
             #lambda x: time.mktime(datetime.strptime(
