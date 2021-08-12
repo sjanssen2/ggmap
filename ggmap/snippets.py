@@ -153,7 +153,8 @@ def pandas2biom(file_biom, table, taxonomy=None, err=sys.stderr):
                 # fill missing rank annotations with rank__
                 orig_lineage = {annot[0].lower(): annot
                                 for annot
-                                in (map(str.strip, linstr.split(';')))}
+                                in (map(str.strip, linstr.split(';')))
+                                if annot != ""}
                 lineage = []
                 for rank in settings.RANKS:
                     rank_char = rank[0].lower()
