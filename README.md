@@ -8,7 +8,9 @@ ggmap is coded in Python 3.x
 ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
 
 ## Install
-`conda install -c sjanssen2 ggmap`
+ 1. Clone github repo via: `git clone https://github.com/sjanssen2/ggmap.git`
+ 2. cd into the new directory `cd ggmap`
+ 3. install modules from sources `python setup.py develop`
 
 ## Use
 Open the jupyter notebook convert_profiles.ipynb and execute all cells. It will convert the six MetaPhlAn profiles from the "examples" directory and converts them into one OTU table with the 97% GreenGenes OTU clusters.
