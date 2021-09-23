@@ -11,6 +11,8 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
  1. Clone github repo via: `git clone https://github.com/sjanssen2/ggmap.git`
  2. cd into the new directory `cd ggmap`
  3. install modules from sources `python setup.py develop --user`
+    
+    a. should the above command fail, you can alternatively try to install dependencies via conda like `conda install -c conda-forge nose pep8 flake8 scikit-bio click pandas biom-format basemap matplotlib seaborn numpy xlrd pillow networkx basemap basemap-data-hires yaml pyyaml scikit-learn h5py` and thereafter repeat the command of step 3. 
 
 ## Use
 Open the jupyter notebook convert_profiles.ipynb and execute all cells. It will convert the six MetaPhlAn profiles from the "examples" directory and converts them into one OTU table with the 97% GreenGenes OTU clusters.
