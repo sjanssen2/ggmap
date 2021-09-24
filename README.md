@@ -59,4 +59,24 @@ As above, but now we want to distribute computation as a cluster job via `res = 
 
 Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`.
 
+11. You might encounter issues with conda environment activation if the job runs through the SGE cluster. This is likely due to the fact that an SGE job does **not** load information from your `~/.bashrc`. You can try to copy all conda relevant lines in your `~/.bashrc` file (I will show mine below) and paste those into a new file names `~/.bash_profile`:
+
+```
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/homes/sjanssen/miniconda3/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/homes/sjanssen/miniconda3/etc/profile.d/conda.sh" ]; then
+        . "/homes/sjanssen/miniconda3/etc/profile.d/conda.sh"
+    else
+        export PATH="/homes/sjanssen/miniconda3/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+# <<< conda initialize <<<
+```
+(carefull: you are not `sjanssen` and your conda installation might be located in `/homes/YOURNAME/no_backup/miniconda3` or somewhere else)
+
 *Good luck!*
