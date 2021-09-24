@@ -26,6 +26,7 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
  
  8. I assume you already installed qiime2 (https://docs.qiime2.org/2021.8/install/), edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
  9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP` 
+ 10. ggmap needs to know the location of your miniconda3 prefix. This is typically located in $HOME/miniconda3. However, in the BCF system, we encuraged people to install it in the prefix $HOME/no_backup/miniconda3 (to avoid flooding our backup with millions of unimportant files). You need to adapt the `dir_conda: ` entry in your `~/.ggmaprc` file accordingly.
  
 ### Tests
 #### Challenge 1: load python code
