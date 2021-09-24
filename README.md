@@ -27,7 +27,8 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
  8. I assume you already installed qiime2 (https://docs.qiime2.org/2021.8/install/), edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
  9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP` 
  
-### Test
+### Tests
+#### Challenge 1: load python code
 Create a new jupyter notebook with the ggmap kernel and type the following two lines in a cell:
 ```
    from ggmap.snippets import *
@@ -40,7 +41,20 @@ If the cell produces output in a red box like, you managed to successfully load 
 ggmap is custome code from Stefan Janssen, download at https://github.com/sjanssen2/ggmap
 Reading settings file '/homes/sjanssen/.ggmaprc'
 ```
+#### Challenge 2: locally execute wrapped Qiime2 code
+Create a dummy feature table like
+```
+counts = pd.DataFrame([{'sample': "sample.A", 'bact1': 10, 'bact2': 7, 'bact3': 0}, 
+                       {'sample': "sample.B", 'bact1':  5, 'bact2': 3, 'bact3': 8},
+                       {'sample': "sample.C", 'bact1': 10, 'bact2': 0, 'bact3': 1}]).set_index('sample').T
+```                       
+Use this feature table to compute beta diversity distances through one of the wrapper functions of ggmap that internally call qiime2 methods:
+`res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=False)`
+Should it run through, you should "see" a result like the following when executing `res['results']['jaccard']` in a new cell:
+![image](https://user-images.githubusercontent.com/11960616/134654180-17892128-8258-45a4-b6c3-7d51fc933bee.png)
 
+#### Challenge 3: use SGE/Slurm to execute wrapped Qiime2 code
+As above, but now we want to distribute computation as a cluster job via `res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=True, nocache=True)`
 
 ## Use
 Open the jupyter notebook convert_profiles.ipynb and execute all cells. It will convert the six MetaPhlAn profiles from the "examples" directory and converts them into one OTU table with the 97% GreenGenes OTU clusters.
