@@ -57,11 +57,6 @@ Should it run through, you should "see" a result like the following when executi
 #### Challenge 3: use SGE/Slurm to execute wrapped Qiime2 code
 As above, but now we want to distribute computation as a cluster job via `res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=True, nocache=True)`
 
-## Use
-Open the jupyter notebook convert_profiles.ipynb and execute all cells. It will convert the six MetaPhlAn profiles from the "examples" directory and converts them into one OTU table with the 97% GreenGenes OTU clusters.
+Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`.
 
-## use in JupyterHub@BCF
- 1. Create a new conda environment (say `notebookServer`) and install ggmap in this environment
- 2. activate environment: `conda activate notebookServer`
- 3. register environment kernel to jupyter: `python -m ipykernel install --user --name notebookServer --display-name "notebookServer"
- 4. for qsub: create a file `~/.bash_profile` into which you copy and paste the conda init lines from your `~/.bashrc` file.
+*Good luck!*
