@@ -4218,6 +4218,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     for _dir in next(os.walk(dir_tmp))[1]:
         # a potential working directory needs to have the matching job name
         if _dir.startswith('ana_%s_' % results['jobname']):
+            # for shared computers, make sure you have permission to read dir contents
+            if not os.access('ana_%s_' % results['jobname'], os.R_OK):
+                continue
             potwd = os.path.join(dir_tmp, _dir)
             # and a matching cache file signature
             if results['file_cache'].split('/')[-1] in next(os.walk(potwd))[2]:
