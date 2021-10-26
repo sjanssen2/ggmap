@@ -1206,6 +1206,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                 cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
             else:
                 cmd_conda = "conda activate %s; " % (environment)
+        elif settings.GRIDNAME == 'JLU_SLURM':
+            cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
         else:
             cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
                 settings.DIR_CONDA, settings.DIR_CONDA, environment)
@@ -1217,7 +1219,7 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
-        if settings.GRIDNAME == 'USF':
+        if (settings.GRIDNAME == 'USF') or (settings.PREFER_SLURM):
             slurm = True
         else:
             slurm = False
@@ -1272,7 +1274,7 @@ def cluster_run(cmds, jobname, result, environment=None,
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
             slurm_script += '#SBATCH --output=%s/%%A.log\n' % pwd
-            slurm_script += '#SBATCH --partition=hii02\n'
+            slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
             slurm_script += '#SBATCH --ntasks=1\n'
             slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
             slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
@@ -1282,6 +1284,7 @@ def cluster_run(cmds, jobname, result, environment=None,
             slurm_script += '#SBATCH --mail-type=END,FAIL\n'
             slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
             slurm_script += 'srun uname -a\n'
+
             for cmd in cmds:
                 slurm_script += 'srun %s\n' % cmd.replace(
                     '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}')
@@ -1289,7 +1292,12 @@ def cluster_run(cmds, jobname, result, environment=None,
             f = open(file_script, 'w')
             f.write(slurm_script)
             f.close()
-            cmd_list += 'sbatch %s' % file_script
+            # if on jupyterlab from BCF@JLU, some slurm vars are predefined for the
+            # spawner process of the jupyterlab. We need to unset this specific
+            # variable to avoid slurm complaining about other resource requests.
+            if settings.GRIDNAME == 'JLU_SLURM':
+                cmd_list += 'unset SLURM_MEM_PER_NODE && '
+            cmd_list += '%s %ssbatch %s' % (cmd_conda, settings.GRIDENGINE_BINDIR, file_script)
 
     if dry is True:
         if use_grid and slurm:
@@ -1300,7 +1308,7 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         if use_grid is True:
             with subprocess.Popen(
-                    cmd_list, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as task_qsub:
+                    cmd_list, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
                 err_msg = task_qsub.stderr.read()
                 if err_msg != b"":
                     raise ValueError("Error in submitting job via qsub:\n%s" % err_msg.decode('ascii'))
@@ -1317,7 +1325,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 job_ever_seen = False
                 if wait:
                     err.write(
-                        "\nWaiting for cluster job %s to complete: " % qid)
+                        "\nWaiting for %s-cluster job %s to complete: " % ('slurm' if slurm else 'sge', qid))
                     while True:
                         if slurm:
                             with subprocess.Popen(
