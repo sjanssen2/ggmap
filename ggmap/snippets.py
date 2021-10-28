@@ -1273,7 +1273,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
-            slurm_script += '#SBATCH --output=%s/%%A.log\n' % pwd
+            slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a.log\n' % pwd
             slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
             slurm_script += '#SBATCH --ntasks=1\n'
             slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
@@ -1286,8 +1286,8 @@ def cluster_run(cmds, jobname, result, environment=None,
             slurm_script += 'srun uname -a\n'
 
             for cmd in cmds:
-                slurm_script += 'srun %s\n' % cmd.replace(
-                    '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}')
+                slurm_script += '%s\n' % (cmd.replace(
+                    '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}'))
             _, file_script = mkstemp(suffix='.slurm.sh')
             f = open(file_script, 'w')
             f.write(slurm_script)
