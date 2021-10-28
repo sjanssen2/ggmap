@@ -14,7 +14,7 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
  3. clone github repo via: `git clone https://github.com/sjanssen2/ggmap.git`
  4. cd into the new directory `cd ggmap`
  5. install modules from sources `python setup.py develop --user`
-     * should the above command fail, you can alternatively try to install dependencies via conda like ``conda install -c conda-forge `cat ci/conda_requirements.txt | cut -d ">" -f 1 | xargs` `` and thereafter repeat the command of step 3. 
+     * should the above command fail, you can alternatively try to install dependencies via conda like ``conda install -c conda-forge `cat ci/conda_requirements.txt | cut -d ">" -f 1 | xargs` `` and thereafter repeat the command of step 5. 
      * only for BCF System: you probably have to set the proxy to enable conda to speak to the internet: `export ftp_proxy="http://proxy.computational.bio.uni-giessen.de:3128" && export http_proxy="http://proxy.computational.bio.uni-giessen.de:3128" && export https_proxy="http://proxy.computational.bio.uni-giessen.de:3128"`
 
 ### Install for JupyterHub (skip if you install on your local machine)
@@ -24,7 +24,7 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
 ### Configure
  After the first use, ggmap will create a file called `.ggmaprc` in your home directory, (look at the content via `cat $HOME/.ggmaprc`). Through this file, you can set some default to save typing in the python function calls like conda environment names.
  
- 8. I assume you already installed qiime2 (https://docs.qiime2.org/2021.8/install/), edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
+ 8. I assume you already installed qiime2 through miniconda (https://docs.qiime2.org/2021.8/install/). Edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
  9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP` 
  10. ggmap needs to know the location of your miniconda3 prefix. This is typically located in $HOME/miniconda3. However, in the BCF system, we encuraged people to install it in the prefix $HOME/no_backup/miniconda3 (to avoid flooding our backup with millions of unimportant files). You need to adapt the `dir_conda: ` entry in your `~/.ggmaprc` file accordingly.
  
