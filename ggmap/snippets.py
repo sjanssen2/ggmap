@@ -1273,7 +1273,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             slurm_script = "#!/bin/bash\n\n"
             slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
-            slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a.log\n' % pwd
+            slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a.log\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)))
             slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
             slurm_script += '#SBATCH --ntasks=1\n'
             slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
@@ -1288,7 +1288,10 @@ def cluster_run(cmds, jobname, result, environment=None,
             for cmd in cmds:
                 slurm_script += '%s\n' % (cmd.replace(
                     '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}'))
-            _, file_script = mkstemp(suffix='.slurm.sh')
+            if file_qid is not None:
+                file_script = os.path.dirname(file_qid) + '/slurm_script.sh'
+            else:
+                _, file_script = mkstemp(suffix='.slurm.sh')
             f = open(file_script, 'w')
             f.write(slurm_script)
             f.close()
@@ -1317,7 +1320,8 @@ def cluster_run(cmds, jobname, result, environment=None,
                     qid = qid.split(" ")[2]
                 if slurm:
                     qid = qid.split()[-1]
-                    os.remove(file_script)
+                    if file_qid is not None:
+                        os.remove(file_script)
                 if file_qid is not None:
                     f = open(file_qid, 'w')
                     f.write('Cluster job ID is:\n%s\n' % qid)
