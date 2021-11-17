@@ -35,6 +35,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             # is no longer necessary.
             'use_grid': {'default': True,
                          'variable_name': 'USE_GRID'},
+            # in systems with both: SGE and slurm, prefer slurm over SGE
+            'prefer_slurm': {'default': True, 'variable_name': 'PREFER_SLURM'},
             # some grids, like HPC@HHU "bill" compute time to projects
             # we have to specify with -A for qsub which project should be used.
             'grid_account': {'default': '',
@@ -108,6 +110,8 @@ def init(err=sys.stderr):
     DIR_CONDA = config['dir_conda']
     global USE_GRID
     USE_GRID = config['use_grid']
+    global PREFER_SLURM
+    PREFER_SLURM = config['prefer_slurm']
     global R_MODULE
     R_MODULE = config['R_module']
     global GRID_ACCOUNT
@@ -133,6 +137,10 @@ def init(err=sys.stderr):
     elif '.computational.bio.uni-giessen.de' in hostname:
         GRIDNAME = 'JLU'
         VARNAME_PBSARRAY = 'SGE_TASK_ID'
+        GRIDENGINE_BINDIR = '/usr/bin/'
+    elif hostname.endswith('.intra'):
+        GRIDNAME = 'JLU_SLURM'
+        VARNAME_PBSARRAY = 'SLURM_ARRAY_TASK_ID'
         GRIDENGINE_BINDIR = '/usr/bin/'
     else:
         GRIDNAME = 'LOCAL'
