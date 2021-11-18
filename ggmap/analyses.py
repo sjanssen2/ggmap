@@ -228,6 +228,8 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
         if sample_grouping is not None:
             color = grp_colors[grp]
         ax.plot(g.index, g, label=grp, color=color)
+        # add an horizontal line for the left region where no samples are lost, since no sample has that little reads
+        ax.plot([0, g.index[0]], [g.iloc[0], g.iloc[0]], color=color, lw=2)
     if sample_grouping is not None:
         ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
     else:
