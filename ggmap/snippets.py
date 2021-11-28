@@ -1261,7 +1261,12 @@ def cluster_run(cmds, jobname, result, environment=None,
                     # according to Burkhard, the "new cluster" doesn't have multislots yet
                     # UPDATE: 2021-01-06: "das PE ist da, sollte auch funktionieren"
                 #    arg_multislot = ""
-                resources = " -l virtual_free=%s %s -S /bin/bash " % (pmem[:-1] if pmem.upper().endswith('B') else pmem, arg_multislot)
+                pmem_value = pmem
+                if pmem is None:
+                    pmem_value = '8GB'
+                else:
+                    pmem_value = pmem[:-1] if pmem.upper().endswith('B') else pmem
+                resources = " -l virtual_free=%s %s -S /bin/bash " % (pmem_value, arg_multislot)
             ge_cmd = (
                 ("%s/qsub %s %s -V %s -N cr_%s %s %s -r y") %
                 (gebin,
@@ -1277,7 +1282,7 @@ def cluster_run(cmds, jobname, result, environment=None,
             slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
             slurm_script += '#SBATCH --ntasks=1\n'
             slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
-            slurm_script += '#SBATCH --mem-per-cpu=%s\n' % pmem.upper()
+            slurm_script += '#SBATCH --mem-per-cpu=%s\n' % (pmem.upper() if pmem is not None else '8GB')
             slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(
                 walltime)
             slurm_script += '#SBATCH --array=1-%i\n' % array
