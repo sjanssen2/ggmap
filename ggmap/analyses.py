@@ -2955,7 +2955,7 @@ def empress(metadata: pd.DataFrame, beta_diversities, counts: pd.DataFrame, refe
                      **executor_args)
 
 
-def taxonomy_RDP(counts, fp_classifier, **executor_args):
+def taxonomy_RDP(counts, fp_classifier, ppn=4, **executor_args):
     """Uses q2-feature-classifier to obtain taxonomic lineages for features
        in counts table.
 
@@ -3017,7 +3017,7 @@ def taxonomy_RDP(counts, fp_classifier, **executor_args):
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=20,
+                     ppn=ppn,
                      **executor_args)
 
 
