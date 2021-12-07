@@ -14,9 +14,7 @@ from ggmap.correlations import *
 
 JLU_PROXY = 'http://proxy.computational.bio.uni-giessen.de:3128'
 
-def init_project(pi, name, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Projects/', verbose=sys.stderr, force=False):
-    prj_data = dict()
-
+def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Projects/', verbose=sys.stderr, force=False):
     if (pi is None) or (pi.strip() == ""):
         raise ValueError("Abort: No Principle Investigator last name given!")
     if (name is None) or (name.strip() == ""):
@@ -26,7 +24,7 @@ def init_project(pi, name, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Proj
         if text[0][0].upper() != text[0][0]:
             raise ValueError("Abort: Please let '%s' start with a capital letter." % text[1])
 
-    fp_path_project = os.path.join(project_dir_prefix, '%s_%s' % (pi.capitalize(), name.capitalize()))
+    fp_path_project = os.path.join(project_dir_prefix, '%s_%s' % (pi[0].upper() + pi[1:], name[0].upper() + name[1:]))
     prj_data['paths'] = dict()
     if force is False:
         if os.path.exists(fp_path_project):
@@ -34,12 +32,12 @@ def init_project(pi, name, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Proj
 
         if verbose:
             print('Creating project directory structure:', file=verbose)
-        for subdir in ['', 'Incoming', 'Outgoing', 'FromQiita', 'tmp_workdir', os.path.join('Generated', 'Emperor'), 'Figures']:
-            fp_subdir = os.path.join(fp_path_project, subdir)
-            prj_data['paths']['root' if subdir == '' else subdir] = os.path.abspath(fp_subdir)
-            if force is False:
-                os.makedirs(fp_subdir, exist_ok=True)
-                print('  %s' % fp_subdir, file=verbose)
+    for subdir in ['', 'Incoming', 'Outgoing', 'FromQiita', 'tmp_workdir', os.path.join('Generated', 'Emperor'), 'Figures']:
+        fp_subdir = os.path.join(fp_path_project, subdir)
+        prj_data['paths']['root' if subdir == '' else subdir] = os.path.abspath(fp_subdir)
+        if force is False:
+            os.makedirs(fp_subdir, exist_ok=True)
+            print('  %s' % fp_subdir, file=verbose)
 
     # set proxy to reach internet within slurm@lummerland cluster
     for protocol in ['ftp','http','https']:
@@ -56,7 +54,8 @@ def init_project(pi, name, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Proj
             ["cd %s && git remote add origin 'https://github.com/jlab/%s.git'" % (fp_path_project, prj_data['git_name'])], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task:
             res = task.stdout.read().decode('ascii')
     else:
-        raise ValueError("Git repository already initialized. If you want to continue, switch 'force' to True.")
+        if force is False:
+            raise ValueError("Git repository already initialized. If you want to continue, switch 'force' to True.")
     # check if project repo already exists in jlab
     r = requests.get('https://github.com/jlab/%s' % prj_data['git_name'], proxies={'https': JLU_PROXY})
     if force is False:
