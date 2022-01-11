@@ -50,12 +50,13 @@ counts = pd.DataFrame([{'sample': "sample.A", 'bact1': 10, 'bact2': 7, 'bact3': 
                        {'sample': "sample.C", 'bact1': 10, 'bact2': 0, 'bact3': 1}]).set_index('sample').T
 ```                       
 Use this feature table to compute beta diversity distances through one of the wrapper functions of ggmap that internally call qiime2 methods:
-`res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=False)`
+`res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=False, ppn=1)`
 Should it run through, you should "see" a result like the following when executing `res['results']['jaccard']` in a new cell:
 ![image](https://user-images.githubusercontent.com/11960616/134654180-17892128-8258-45a4-b6c3-7d51fc933bee.png)
+(Note that `ppn=1` will cause the system to only use one CPU-core for the computation. For real data with more than three samples, you might want to increase this number.)
 
 #### Challenge 3: use SGE/Slurm to execute wrapped Qiime2 code
-As above, but now we want to distribute computation as a cluster job via `res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=True, nocache=True)`
+As above, but now we want to distribute computation as a cluster job via `res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=True, nocache=True, ppn=1)`
 
 Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`. Don't forget to draw the results by repeating the second command from Challenge 2, i.e. `res['results']['jaccard']`.
 
