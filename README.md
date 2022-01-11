@@ -57,7 +57,7 @@ Should it run through, you should "see" a result like the following when executi
 #### Challenge 3: use SGE/Slurm to execute wrapped Qiime2 code
 As above, but now we want to distribute computation as a cluster job via `res = beta_diversity(counts, metrics=['jaccard'], dry=False, use_grid=True, nocache=True)`
 
-Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`.
+Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`. Don't forget to draw the results by repeating the second command from Challenge 2, i.e. `res['results']['jaccard']`.
 
 11. You might encounter issues with conda environment activation if the job runs through the SGE cluster. This is likely due to the fact that an SGE job does **not** load information from your `~/.bashrc`. You can try to copy all conda relevant lines in your `~/.bashrc` file (I will show mine below) and paste those into a new file names `~/.bash_profile`:
 
