@@ -24,7 +24,7 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
 ### Configure
  After the first use, ggmap will create a file called `.ggmaprc` in your home directory, (look at the content via `cat $HOME/.ggmaprc`). Through this file, you can set some default to save typing in the python function calls like conda environment names.
  
- 8. I assume you already installed qiime2 through miniconda (https://docs.qiime2.org/2021.8/install/). Edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
+ 8. I assume you already installed qiime2 through miniconda (https://docs.qiime2.org/2021.8/install/). A `~/.ggmaprc` file will be generated the first time you load ggmap code in your python program / jupyter notebook. To do so, execute Challenge 1 below. Then come back and edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
  9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP` 
  10. ggmap needs to know the location of your miniconda3 prefix. This is typically located in $HOME/miniconda3. However, in the BCF system, we encuraged people to install it in the prefix $HOME/no_backup/miniconda3 (to avoid flooding our backup with millions of unimportant files). You need to adapt the `dir_conda: ` entry in your `~/.ggmaprc` file accordingly.
  
