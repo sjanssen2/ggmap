@@ -2664,7 +2664,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
-def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", ppn=1, **executor_args):
+def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", run_tsne_umap=False, ppn=1, **executor_args):
     """Generates Emperor plots as qzv. Or procrustes if two distance metrics are given.
 
     Parameters
@@ -2682,12 +2682,17 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         distances for procrustes plots.
     infix : str
         Output filenames have pattern: "emperor%s_%s.gzv" % (infix, metric)
+    run_tsne_umap : bool
+        Default: False.
+        Besides PCoA, also compute ordinations via t-SNE and UMAP.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
     ?"""
+
+    ORDINATIONS = ['pcoa']
     def pre_execute(workdir, args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
@@ -2720,6 +2725,8 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         with open("%s/commands.txt" % workdir, "w") as f:
             for metric in args['beta_diversities'].keys():
                 f.write(metric+"\n")
+        if run_tsne_umap:
+            ORDINATIONS.extend(['tsne', 'umap'])
 
     def commands(workdir, ppn, args):
         commands = [
@@ -2739,14 +2746,15 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
              # " % Properties([\"phylogenetic\"])"
              # if 'unifrac' in metric else '',
              '%s/beta_${var_metric}.qza' % workdir))
-        # compute PcoA
-        commands.append(
-            ('qiime diversity pcoa '
-             '--i-distance-matrix %s '
-             '--o-pcoa %s ') %
-            ('%s/beta_${var_metric}.qza' % workdir,
-             '%s/pcoa_${var_metric}' % workdir)
-        )
+        # compute ordination
+        for ordname in ORDINATIONS:
+            commands.append(
+                ('qiime diversity %s '
+                 '--i-distance-matrix %s '
+                 '--o-%s %s ') %
+                (ordname, '%s/beta_${var_metric}.qza' % workdir,
+                 ordname, '%s/%s_${var_metric}' % (workdir, ordname))
+            )
         if args['other_beta_diversities'] is not None:
             # import diversity matrix as qiime2 artifact
             commands.append(
@@ -2759,37 +2767,39 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                  # " % Properties([\"phylogenetic\"])"
                  # if 'unifrac' in metric else '',
                  '%s/other_beta_${var_metric}.qza' % workdir))
-            # compute PcoA
-            commands.append(
-                ('qiime diversity pcoa '
-                 '--i-distance-matrix %s '
-                 '--o-pcoa %s ') %
-                ('%s/other_beta_${var_metric}.qza' % workdir,
-                 '%s/other_pcoa_${var_metric}' % workdir)
-            )
-            # generate procrustes emperor plot
-            commands.append(
-                ('qiime emperor procrustes-plot '
-                 '--i-reference-pcoa %s '
-                 '--i-other-pcoa %s '
-                 '--m-metadata-file %s '
-                 '--o-visualization %s ') %
-                ('%s/pcoa_${var_metric}.qza' % workdir,
-                 '%s/other_pcoa_${var_metric}.qza' % workdir,
-                 '%s/metadata.tsv' % workdir,
-                 '%s/emperor-procrustes_${var_metric}.qzv' % workdir)
-            )
+            # compute other ordination
+            for ordname in ORDINATIONS:
+                commands.append(
+                    ('qiime diversity %s '
+                     '--i-distance-matrix %s '
+                     '--o-%s %s ') %
+                    (ordname, '%s/other_beta_${var_metric}.qza' % workdir,
+                     ordname, '%s/other_%s_${var_metric}' % (workdir, ordname))
+                )
+                # generate procrustes emperor plot
+                commands.append(
+                    ('qiime emperor procrustes-plot '
+                     '--i-reference-pcoa %s '
+                     '--i-other-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/other_%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor-%s-procrustes_${var_metric}.qzv' % (workdir, ordname))
+                )
         else:
-            # generate emperor plot
-            commands.append(
-                ('qiime emperor plot '
-                 '--i-pcoa %s '
-                 '--m-metadata-file %s '
-                 '--o-visualization %s ') %
-                ('%s/pcoa_${var_metric}.qza' % workdir,
-                 '%s/metadata.tsv' % workdir,
-                 '%s/emperor_${var_metric}.qzv' % workdir)
-            )
+            for ordname in ORDINATIONS:
+                # generate emperor plot
+                commands.append(
+                    ('qiime emperor plot '
+                     '--i-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor-%s_${var_metric}.qzv' % (workdir, ordname))
+                )
 
         return commands
 
@@ -2799,12 +2809,13 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         label_procrustes = ""
         if args['other_beta_diversities'] is not None:
             label_procrustes = '-procrustes'
-        for metric in args['beta_diversities']:
-            results[metric] = os.path.join(
-                fp_results, 'emperor%s%s_%s.qzv' % (label_procrustes, infix, metric))
-            shutil.move(
-                "%s/emperor%s_%s.qzv" % (workdir, label_procrustes, metric),
-                results[metric])
+        for ordname in ORDINATIONS:
+            for metric in args['beta_diversities']:
+                results[metric] = os.path.join(
+                    fp_results, 'emperor-%s%s%s_%s.qzv' % (ordname, label_procrustes, infix, metric))
+                shutil.move(
+                    "%s/emperor-%s%s_%s.qzv" % (workdir, ordname, label_procrustes, metric),
+                    results[metric])
         return results
 
     return _executor('emperor',
