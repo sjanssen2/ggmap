@@ -193,7 +193,7 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr):
     fp_tree = os.path.join(prj_data['paths']['tmp_workdir'], 'sepp_uncorrected_tree.tmp')
     if not os.path.exists(fp_tree):
         with open(fp_tree, 'w') as f:
-            f.write(fp_tree)
+            f.write(res_sepp['results']['tree'])
 
     # correct zero branch length
     prj_data['paths']['insertion_tree'] = os.path.join(prj_data['paths']['tmp_workdir'], 'insertion_tree.nwk')
