@@ -146,7 +146,7 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         with open(fp_tmp, 'r') as f:
             print('using cutadapt version: %s' % f.readlines()[0].strip())
 
-    for fp_fastq in glob(os.path.join(prj_data['paths']['demux'],"*_R1_001.fastq.gz")):
+    for fp_fastq in glob(os.path.join(prj_data['paths']['demux'],"**","*_R1_001.fastq.gz"), recursive=True):
         if "Undetermined_S0_" in fp_fastq:
             continue
         fp_in_r1 = os.path.abspath(fp_fastq)
@@ -172,7 +172,8 @@ def project_deblur(prj_data, trimlength=150, ppn=4):
     cmds = []
 
     # link input fastq files, but only fwd
-    cmds.append('for f in `find %s -type f -name "*_R1_001.fastq.gz"`; do ln -s $f %s/inputs/; done' % (prj_data['paths']['trimmed'], prj_data['paths']['deblur']))
+    # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
+    cmds.append('for f in `find %s -type f -name "*_R1_001.fastq.gz"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], prj_data['paths']['deblur']))
 
     # deblur
     cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
