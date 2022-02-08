@@ -3866,3 +3866,47 @@ def adjust_saturation(color, amount=0.5):
         c = color
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], amount, amount)
+
+def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict()):
+    """Draw a 96-well plate layout.
+
+    meta : pd.DataFrame
+        The full metadata.
+    col_position : str
+        The column holding well positions in format G12 or G08
+    col_label : str
+        The label for the wells
+    col_texts : str
+        Texts to draw in wells
+    """
+    ROWS = ['A','B','C','D','E','F','G','H']
+    COLS = [1,2,3,4,5,6,7,8,9,10,11,12]
+
+    fig, axes = plt.subplots(1,1,figsize=(12,8))
+    for col in range(1,len(COLS)+1):
+        for row in range(1,len(ROWS)+1):
+            axes.add_patch(plt.Circle((col, row), 0.4, color='lightgray', fill=False))
+    axes.set_xlim((0,len(COLS)+1))
+    axes.set_ylim((0,len(ROWS)+1))
+
+    axes.set_yticks(range(1,len(ROWS)+1))
+    axes.set_yticklabels(ROWS)
+    axes.set_xticks(range(1,len(COLS)+1))
+    axes.set_xticklabels(COLS)
+    axes.invert_yaxis()
+
+    availColors = \
+        sns.color_palette('Paired', 12) +\
+        sns.color_palette('Dark2', 12) +\
+        sns.color_palette('Pastel1', 12)
+    for idx, sample in meta.iterrows():
+        if not pd.isnull(sample[col_position]):
+            row, col = ROWS.index(sample[col_position][0])+1, int(sample[col_position][1:])
+            if sample[col_label] not in colors:
+                colors[sample[col_label]] = availColors[len(colors)]
+            color = colors[sample[col_label]]
+            axes.add_patch(plt.Circle((col, row), 0.4, color=color, fill=True))
+            if (col_texts is not None) and pd.notnull(sample[col_texts]):
+                axes.text(col, row, sample[col_texts], horizontalalignment='center', verticalalignment='center', fontdict={'fontsize': 'x-small'})
+    axes.legend(handles=[Patch(color=colors[val], label=val) for val in sorted(colors.keys())], loc='upper left', bbox_to_anchor=(1.01, 1), title=col_label)
+    axes.set_title('Plate Layout by "%s" and "%s"' % (col_position, col_label))
