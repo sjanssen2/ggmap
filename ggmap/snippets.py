@@ -706,7 +706,7 @@ def plotTaxonomy(file_otutable,
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
-        rank_counts = rank_counts.loc[plottaxa, :]
+        rank_counts = rank_counts.loc[[t for t in plottaxa if t in rank_counts.index], :]
         if (out is not None) and verbose:
             out.write('%i taxa left after restricting to provided list.\n' %
                       (rank_counts.shape[0]))
@@ -1754,6 +1754,17 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                 linewidth=LINEWIDTH_NONSIG)
         ax.legend(title='FDR corrected')
 
+        # add some space to the axis to not truncate text labels
+        factor = 0.15
+        ax.set_xlim(
+            ax.get_xlim()[0]-(ax.get_xlim()[1]-ax.get_xlim()[0])*factor,
+            ax.get_xlim()[1]+(ax.get_xlim()[1]-ax.get_xlim()[0])*factor,
+        )
+        ax.set_ylim(
+            ax.get_ylim()[0]-(ax.get_ylim()[1]-ax.get_ylim()[0])*factor,
+            ax.get_ylim()[1]+(ax.get_ylim()[1]-ax.get_ylim()[0])*factor,
+        )
+
     return ax
 
 
@@ -2062,8 +2073,9 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
                         horizontal=True)
                 row += 1
 
-        if (summarize is False) and (name is not None):
-            plt.suptitle(name)
+        if (summarize is False):
+            if (name is not None):
+                plt.suptitle(name)
             return f
         else:
             res = pd.DataFrame(summary)
@@ -2278,7 +2290,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
 
     ns = metadata[field].value_counts()
     e = calour_experiment.filter_ids(metadata.index, axis='s')
@@ -2343,7 +2355,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
 
     if len(groups) > 1:
         e = calour_experiment.filter_ids(
@@ -3867,7 +3879,7 @@ def adjust_saturation(color, amount=0.5):
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], amount, amount)
 
-def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict()):
+def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict(), highlight_samples=set(), show_legend=True):
     """Draw a 96-well plate layout.
 
     meta : pd.DataFrame
@@ -3878,6 +3890,11 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
         The label for the wells
     col_texts : str
         Texts to draw in wells
+    highlight_samples : set
+        Set of samples that shall be highlighted by increasing the stroke width
+    show_legend : bool
+        Draw legend.
+        Default = True
     """
     ROWS = ['A','B','C','D','E','F','G','H']
     COLS = [1,2,3,4,5,6,7,8,9,10,11,12]
@@ -3902,11 +3919,25 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
     for idx, sample in meta.iterrows():
         if not pd.isnull(sample[col_position]):
             row, col = ROWS.index(sample[col_position][0])+1, int(sample[col_position][1:])
-            if sample[col_label] not in colors:
-                colors[sample[col_label]] = availColors[len(colors)]
-            color = colors[sample[col_label]]
+            norm_label = sample[col_label]
+            if pd.isnull(sample[col_label]):
+                norm_label = "nan"
+            if norm_label not in colors:
+                #print("%s not in colors" % sample[norm_label])
+                colors[norm_label] = availColors[len(colors) % len(availColors)]
+            color = colors[norm_label]
             axes.add_patch(plt.Circle((col, row), 0.4, color=color, fill=True))
+            if idx in highlight_samples:
+                axes.add_patch(plt.Circle((col, row), 0.4, fill=False, edgecolor="black", linewidth=5))
             if (col_texts is not None) and pd.notnull(sample[col_texts]):
                 axes.text(col, row, sample[col_texts], horizontalalignment='center', verticalalignment='center', fontdict={'fontsize': 'x-small'})
-    axes.legend(handles=[Patch(color=colors[val], label=val) for val in sorted(colors.keys())], loc='upper left', bbox_to_anchor=(1.01, 1), title=col_label)
+    sorted_keys = []
+    if show_legend:
+        try:
+            sorted_keys = sorted(colors.keys())
+        except TypeError:
+            sorted_keys = colors.keys()
+        axes.legend(handles=[Patch(color=colors[val], label=val) for val in sorted_keys], loc='upper left', bbox_to_anchor=(1.01, 1), title=col_label)
     axes.set_title('Plate Layout by "%s" and "%s"' % (col_position, col_label))
+
+    return fig
