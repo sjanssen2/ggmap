@@ -371,6 +371,10 @@ def rarefaction_curves(counts,
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
+        if args['min_depth'] is None:
+            # fall back to a default minimal rarefaction depth of 1000, if
+            # min_depth argument is None
+            args['min_depth'] = 1000
         f = open("%s/commands.txt" % workdir, "w")
         for depth in np.linspace(max(args['min_depth'], args['counts'].sum().min()),
                                  max_rare_depth,
