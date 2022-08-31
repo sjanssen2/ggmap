@@ -2500,6 +2500,11 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         return commands
 
     def post_execute(workdir, args):
+        # file content is not strictly json. some HTML content contains double
+        # quotes enclosed by single quotes. My strategy: remove all HTML context
+        # then convert all single quotes into double quotes and parse as json
+        regex = re.compile(r"\<table.*?\<\/table\>")
+
         results = []
         if args['alpha'] is not None:
             for metric in args['alpha'].keys():
@@ -2510,18 +2515,28 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                             column = '.'.join(("-".join(
                                 file.split('-')[1:])).split('.')[:-1])
                             with open('%s/%s' % (fp_asig, file), 'r') as f:
-                                content = "\n".join(f.readlines())
+                                # read file content
+                                content = "".join(f.readlines())
+                                # convert ' into "
+                                content = content.replace("'", '"')
+                                # remove load_data( ... ); wrapping
+                                content = '[%s]' % content[len('load_data('):-2]
+                                # remove HTML table with single and double quotes
+                                content = regex.sub("", content)
+
+                                testres = None
+                                for entry in json.loads(content):
+                                    if (type(entry) == dict) and len(set(['H','p']) & set(entry.keys())) >= 2:
+                                        testres = entry
+                                        break
+
                                 results.append({'div': 'alpha',
                                                 'type': 'group-significance',
                                                 'metric': metric,
                                                 'column': column,
-                                                'test-statistic':
-                                                re.findall(r'"H":\s+(\d*\.\d+)',
-                                                           content)[0],
+                                                'test-statistic': testres['H'],
                                                 'test statistic name': 'H',
-                                                'p-value':
-                                                re.findall(r'"p":\s+(\d*\.\d+)',
-                                                           content)[0],
+                                                'p-value': testres['p'],
                                                 'test':
                                                 'Kruskal-Wallis (all groups)'})
                     break
