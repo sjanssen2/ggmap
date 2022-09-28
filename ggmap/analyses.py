@@ -2530,6 +2530,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                                         testres = entry
                                         break
 
+                                assert(testres['p'] >= 0)
                                 results.append({'div': 'alpha',
                                                 'type': 'group-significance',
                                                 'metric': metric,
@@ -2712,6 +2713,9 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
     ?"""
 
     ORDINATIONS = ['pcoa']
+    if run_tsne_umap:
+        ORDINATIONS.extend(['tsne', 'umap'])
+
     def pre_execute(workdir, args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
@@ -2744,8 +2748,6 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         with open("%s/commands.txt" % workdir, "w") as f:
             for metric in args['beta_diversities'].keys():
                 f.write(metric+"\n")
-        if run_tsne_umap:
-            ORDINATIONS.extend(['tsne', 'umap'])
 
     def commands(workdir, ppn, args):
         commands = [
