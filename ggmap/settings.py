@@ -2,8 +2,10 @@ import yaml
 import os
 import sys
 import socket
+import subprocess
 
 
+INFOS_PRINTED = False
 FP_SETTINGS = os.path.join(os.environ['HOME'], '.ggmaprc')
 
 DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
@@ -64,9 +66,16 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
 def init(err=sys.stderr):
     # load settings from file
     if os.path.exists(FP_SETTINGS):
-        err.write('ggmap is custome code from Stefan Janssen, '
-                  'download at https://github.com/sjanssen2/ggmap\n')
-        err.write("Reading settings file '%s'\n" % FP_SETTINGS)
+        commit_msg = ""
+        commit = get_ggmap_commit_hash()
+        if commit is not None:
+            commit_msg = ", using commit '%s'" % commit
+        global INFOS_PRINTED
+        if INFOS_PRINTED is False:
+            err.write('ggmap is custome code from Stefan Janssen, '
+                      'download at https://github.com/sjanssen2/ggmap%s\n' % commit_msg)
+            err.write("Reading settings file '%s'\n" % FP_SETTINGS)
+            INFOS_PRINTED = True
         with open(FP_SETTINGS, 'r') as f:
             config = yaml.load(f, Loader=yaml.SafeLoader)
     else:
@@ -153,3 +162,18 @@ def init(err=sys.stderr):
         with open(FP_SETTINGS, 'w') as f:
             yaml.dump(config, f)
         err.write('New config file "%s" created.' % FP_SETTINGS)
+
+
+def get_ggmap_commit_hash():
+    fp_source = os.path.dirname(__file__)
+    with subprocess.Popen("git rev-parse HEAD",
+                          shell=True,
+                          stdout=subprocess.PIPE, cwd=fp_source) as task_git:
+        git_hash = task_git.stdout.read().decode('ascii').strip()
+        # close pipe
+        task_git.communicate()
+        # obtain exit code
+        if (task_git.returncode == 0):
+            return git_hash
+        else:
+            return None
