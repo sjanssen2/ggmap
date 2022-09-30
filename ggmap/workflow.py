@@ -215,7 +215,7 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr):
         end = timer()
         walltime = end - start
         if (walltime / 60 > 1):
-            print('loading took actually %.1f minutes.' % walltime, file=sys.stderr)
+            print('loading took actually %.1f minutes.' % (walltime / 60), file=sys.stderr)
 
     return prj_data
 
