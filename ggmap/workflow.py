@@ -6,6 +6,7 @@ from skbio.tree import TreeNode
 import pandas as pd
 from tempfile import mkstemp
 from glob import glob
+from timeit import default_timer as timer
 
 from ggmap.snippets import *
 from ggmap.analyses import *
@@ -209,7 +210,12 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr):
     # load the tree as skbio.TreeNode object into memory: might take ~8 minutes
     if ('insertion_tree' not in prj_data) or (prj_data['insertion_tree'] is None):
         print('loading tree. Be patient. Can take up around 8 minutes.', file=sys.stderr)
+        start = timer()
         prj_data['insertion_tree'] = TreeNode.read(prj_data['paths']['insertion_tree'])
+        end = timer()
+        walltime = end - start
+        if (walltime / 60 > 1):
+            print('loading took actually %.1f minutes.' % walltime, file=sys.stderr)
 
     return prj_data
 
