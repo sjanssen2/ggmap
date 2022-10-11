@@ -96,6 +96,8 @@ def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
         Index = sequencing depths,
         Values = number samples with at least this sequencing depth.
     """
+    if (sample_grouping is not None) and (len(set(counts_sums.index) & set(sample_grouping.index)) <= 0):
+        raise ValueError("Feature counts and metadata seem to share no sample indices. Have you set your metadata.index correctly?")
     sums = pd.concat([counts_sums, sample_grouping], axis=1, sort=False).dropna()
     if sample_grouping is not None:
         grps = sums.groupby(sample_grouping.name)[0]
