@@ -2657,7 +2657,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
     # find columns that a) have only one value for all samples ...
     cols_onevalue = [col
                      for col in metadata.columns
-                     if len(metadata.loc[[idx_samples, col].unique()) == 1]
+                     if len(metadata.loc[idx_samples, col].unique()) == 1]
     # ... or b) are categorial, but have different values for all samples
     cols_alldiff = [col
                     for col in categorial
