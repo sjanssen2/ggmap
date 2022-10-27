@@ -303,7 +303,7 @@ def process_study(metadata: pd.DataFrame,
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, list(set(counts.columns) - control_samples)].sum(axis=0)
+    plant_ratio = counts.loc[list(set(counts.index) - set(idx_chloroplast_mitochondria)), list(set(counts.columns) - control_samples)].sum(axis=0) / counts.loc[:, list(set(counts.columns) - control_samples)].sum(axis=0)
     if plant_ratio.min() < 0.95:
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
