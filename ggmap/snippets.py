@@ -442,6 +442,7 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
             except IndexError:
                 return settings.RANKS[
                     settings.RANKS.index(rank)].lower()[0] + "__"
+
         # add columns for each tax rank, such that we can groupby later on
         counts_taxonomy[rank] = counts_taxonomy['taxonomy'].apply(
             lambda x: _splitranks(x, rank))
@@ -484,12 +485,13 @@ def collapseCounts_objects(counts, rank, taxonomy, out=sys.stdout):
     """
     tax = taxonomy.copy()
     tax.name = 'taxonomy'
+
     return _collapse_counts(
         pd.merge(
             counts, tax.to_frame(),
             how='left', left_index=True, right_index=True),
         rank,
-        out=out)
+        out=out), tax
 
 
 def collapseCounts(file_otutable, rank,
@@ -552,7 +554,7 @@ def collapseCounts(file_otutable, rank,
             rank_counts = pd.merge(rank_counts, taxonomy, how='left',
                                    left_index=True, right_index=True)
 
-    return _collapse_counts(rank_counts, rank, out=out)
+    return _collapse_counts(rank_counts, rank, out=out), taxonomy
 
 
 def plotTaxonomy(file_otutable,
@@ -579,6 +581,7 @@ def plotTaxonomy(file_otutable,
                  no_sample_numbers=False,
                  colors=None,
                  min_abundance_grayscale=0,
+                 legend_use_last_X_labels=None,
                  ax=None):
     """Plot taxonomy.
 
@@ -637,6 +640,10 @@ def plotTaxonomy(file_otutable,
     min_abundance_grayscale : float
         Stop drawing gray rectangles for low abundant taxa if their relative
         abundance is below this threshold. Saves time and space.
+    legend_use_last_X_labels : int
+        Default: None, i.e. leave legend text as is
+        If set to e.g. 2, legend will contain lineage strings of the last two
+        known labels.
     ax : plt.axis
         Plot on this axis instead of creating a new figure. Only works if
         number of group levels is <= 2.
@@ -668,15 +675,17 @@ def plotTaxonomy(file_otutable,
                                   'in metadata table!') % (field, i))
 
     ft = file_taxonomy
+    taxonomy = None
     if taxonomy_from_biom:
         ft = None
     if isinstance(file_otutable, pd.DataFrame) and \
        isinstance(file_taxonomy, pd.Series):
-        rawcounts = collapseCounts_objects(file_otutable, rank, file_taxonomy,
-                                           out=out)
+        rawcounts, taxonomy = collapseCounts_objects(
+            file_otutable, rank, file_taxonomy, out=out)
     else:
-        rawcounts = collapseCounts(file_otutable, rank, file_taxonomy=ft,
-                                   verbose=verbose, out=out)
+        rawcounts, taxonomy = collapseCounts(
+            file_otutable, rank, file_taxonomy=ft, verbose=verbose, out=out)
+
 
     # restrict to those samples for which we have metadata AND counts
     meta = metadata.loc[[idx
@@ -970,10 +979,16 @@ def plotTaxonomy(file_otutable,
             l_patches = []
             for tax in vals.index:
                 if (tax in highAbundantTaxa) | (tax == NAME_LOW_ABUNDANCE):
-                    label_text = tax
+                    tax_name = tax
+                    if (rank == "raw") & (legend_use_last_X_labels is not None) & isinstance(file_taxonomy, pd.Series):
+                        if (tax in taxonomy.index):
+                            tax_name = ';'.join([l for l in taxonomy.loc[tax].split(';') if not l.strip().endswith('__')][-1 * legend_use_last_X_labels:])
+                        else:
+                            raise ValueError("taxon '%s' not included in taxonomy" % tax)
+                    label_text = tax_name
                     if print_meanrelabunances:
                         label_text = "%.2f %%: %s" % (
-                            rank_counts.loc[tax, :].mean()*100, tax)
+                            rank_counts.loc[tax, :].mean()*100, tax_name)
                     l_patches.append(mpatches.Patch(color=colors[tax],
                                                     label=label_text))
             label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
@@ -990,6 +1005,8 @@ def plotTaxonomy(file_otutable,
             font0 = FontProperties()
             font0.set_weight('bold')
             title = 'Rank: %s' % rank
+            if legend_use_last_X_labels is not None:
+                title += ", displayed = last %i known ranks" % legend_use_last_X_labels
             if fct_aggregate is not None:
                 title = ('Aggregrated "%s"\n' % fct_aggregate.__name__) + title
             ax.get_legend().set_title(title=title, prop=font0)
