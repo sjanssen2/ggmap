@@ -211,7 +211,7 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr):
     if ('insertion_tree' not in prj_data) or (prj_data['insertion_tree'] is None):
         print('loading tree. Be patient. Can take up around 8 minutes.', file=sys.stderr)
         start = timer()
-        prj_data['insertion_tree'] = TreeNode.read(prj_data['paths']['insertion_tree'])
+        prj_data['insertion_tree'] = TreeNode.read(prj_data['paths']['insertion_tree'], format='newick')
         end = timer()
         walltime = end - start
         if (walltime / 60 > 1):
@@ -308,7 +308,7 @@ def process_study(metadata: pd.DataFrame,
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if (tree_insert is None) and (fp_insertiontree is not None):
-        tree_insert = TreeNode.read(fp_insertiontree)
+        tree_insert = TreeNode.read(fp_insertiontree, format='newick')
     # collect tips actually inserted into tree
     if (tree_insert is not None):
         features_inserted = {node.name for node in tree_insert.tips()}

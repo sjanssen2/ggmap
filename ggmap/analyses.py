@@ -298,7 +298,7 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
     """
     if fix_zero_len_branches:
         tree_ref = TreeNode.read(
-            _get_ref_phylogeny(fp_reftree))
+            _get_ref_phylogeny(fp_reftree), format='newick')
         for node in tree_ref.preorder():
             if node.length is None:
                 node.length = 0
@@ -1215,7 +1215,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
                 '.json', '.tog.relabelled.tre')
 
         sys.stderr.write("step 3) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 4) use the phylogeny to det"
@@ -1262,7 +1262,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
     def post_cache(cache_results):
         newicks = []
         for tree in cache_results['trees']:
-            newicks.append(TreeNode.read(StringIO(tree)))
+            newicks.append(TreeNode.read(StringIO(tree), format='newick'))
         cache_results['trees'] = newicks
         return cache_results
 
@@ -1369,7 +1369,7 @@ def sepp_stepbystep(counts, reference=None,
         file_merged_tree = workdir +\
             '/seppstepbysteprun_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 2/2) use the phylogeny to det"
@@ -1466,7 +1466,7 @@ def sepp_git(counts,
         file_merged_tree = workdir +\
             '/res_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 2/2) use the phylogeny to det"
@@ -1684,7 +1684,7 @@ def denovo_tree(counts, ppn=1, **executor_args):
 
     def post_cache(cache_results):
         hmap = cache_results['results']['hmap']
-        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']), format='newick')
         for node in tree.tips():
             node.name = hmap.loc[node.name]
 
@@ -1815,7 +1815,7 @@ def denovo_tree_qiime2(counts, **executor_args):
 
     def post_cache(cache_results):
         hmap = cache_results['results']['hmap']
-        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']), format='newick')
         for node in tree.tips():
             node.name = hmap.loc[node.name]
 
