@@ -2120,7 +2120,7 @@ def picrust(counts, **executor_args):
 
 
 def picrust2(counts, **executor_args):
-    """Translate closed ref OTU tables into predicted meta-transcriptomics.
+    """Translate ASV tables into predicted meta-transcriptomics.
 
     Parameters
     ----------
