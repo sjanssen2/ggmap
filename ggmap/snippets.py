@@ -3245,6 +3245,8 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
     meta['__fakegroup__'] = 'all'
     if cols_groups is None:
         cols_groups = ['__fakegroup__']
+    if data.name in meta.columns:
+        raise ValueError("Your metadata already contains the column '%s', which is the same name as your numeric data!" % data.name)
     meta_data = meta.merge(data, left_index=True, right_index=True, how='left')
 
     if intervals is not None:
@@ -3670,7 +3672,9 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
     if title is not None:
         fig.suptitle(title)
 
-    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy']
+    reported_prediction = results.loc[chosen_iteration, 'prediction']
+    reported_prediction.name = 'prediction'
+    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy'], {'training': y_train, 'testing': y_test, 'prediction': reported_prediction}
 
 
 def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, verbose=sys.stderr):
