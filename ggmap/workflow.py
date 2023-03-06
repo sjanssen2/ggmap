@@ -90,7 +90,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     if verbose:
         _, fp_tmp = tempfile.mkstemp()
-        cluster_run(['bcl2fastq --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='spike', dry=False, use_grid=False)
+        cluster_run(['bcl2fastq --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='ggmap_spike', dry=False, use_grid=False)
         with open(fp_tmp, 'r') as f:
             print('using version: %s' % f.readlines()[1].strip())
 
@@ -147,7 +147,7 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
 
     if verbose:
         _, fp_tmp = tempfile.mkstemp()
-        cluster_run(['cutadapt --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='spike', dry=False, use_grid=False)
+        cluster_run(['cutadapt --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='ggmap_spike', dry=False, use_grid=False)
         with open(fp_tmp, 'r') as f:
             print('using cutadapt version: %s' % f.readlines()[0].strip())
 
@@ -158,7 +158,7 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
         fp_out_r2 = fp_out_r1.replace("_R1_", "_R2_")
         cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s %s %s" % (primerseq_fwd, primerseq_rev,
-             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="spike", ppn=1, dry=False, use_grid=True)
+             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=True)
 
     return prj_data
 
