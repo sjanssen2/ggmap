@@ -2652,6 +2652,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         sys.stderr.write(
             'Reducing analysis to %i samples.\n' % len(idx_samples))
 
+    idx_samples = list(idx_samples)
     # find columns that a) have only one value for all samples ...
     cols_onevalue = [col
                      for col in metadata.columns
