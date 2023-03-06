@@ -3270,10 +3270,12 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
         sns.lineplot(data=data_group,
                      y=data.name, x=col_events,
                      color=get_dictvalue(colors_groups, group, None),
-                     ci=get_dictvalue(cis_groups, group, 95),
-                     dashes=[get_dictvalue(dashes_groups, group, None)],
+                     #ci=get_dictvalue(cis_groups, group, 95),
+                     errorbar=('ci', get_dictvalue(cis_groups, group, 95)),
+                     dashes=[x for x in [get_dictvalue(dashes_groups, group, None)] if x is not None],
                      style=(None if get_dictvalue(dashes_groups, group, None) is None else '__fakegroup__'),
                      ax=ax)
+
         # fill legend
         legend_elements.append(Line2D([0], [0], color=get_dictvalue(colors_groups, group, None), lw=4, label=_get_group_name(group), linestyle=':' if get_dictvalue(dashes_groups, group, None) is not None else None))
 
