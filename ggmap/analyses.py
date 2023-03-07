@@ -109,9 +109,12 @@ def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
         rem = g.shape[0]+1 - g.value_counts().sort_index().cumsum()
         rem.name = grp
         remainings.append(rem)
-    return pd.concat(remainings, axis=1)
-    # 2023-03-06: fillna ... leads to additional horizontal lines when sample group switches, nut sure why I used fillna before?!
-    #return pd.concat(remainings, axis=1).fillna(method='ffill').fillna(method='bfill').astype(int)
+    remainings = pd.concat(remainings, axis=1)
+    if sample_grouping is not None:
+        return remainings
+    else:
+        # 2023-03-06: fillna ... leads to additional horizontal lines when sample group switches, nut sure why I used fillna before?!
+        return remainings.fillna(method='ffill').fillna(method='bfill').astype(int)
 
 
 def _parse_alpha_div_collated(workdir, samplenames):
