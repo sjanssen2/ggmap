@@ -303,7 +303,7 @@ def process_study(metadata: pd.DataFrame,
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, set(counts.columns) - control_samples].sum(axis=0)
+    plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
     if plant_ratio.min() < 0.95:
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
@@ -321,7 +321,7 @@ def process_study(metadata: pd.DataFrame,
     # remove features not inserted into tree
     results = dict()
     results['counts_plantsStillIn'] = counts
-    counts = counts.loc[sorted((set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
+    counts = counts.loc[sorted([feature for feature in counts.index if feature not in idx_chloroplast_mitochondria and feature in features_inserted]), sorted(counts.columns)]
 
     results['taxonomy'] = {'RDP': res_taxonomy}
     results['counts_plantsremoved'] = counts
@@ -334,14 +334,14 @@ def process_study(metadata: pd.DataFrame,
         return results
 
     # run: rarefy counts 1x
-    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
+    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, ppn=ppn)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, metrics=beta_metrics)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, metrics=beta_metrics, ppn=ppn)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
