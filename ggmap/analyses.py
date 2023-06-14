@@ -558,7 +558,7 @@ def _update_metric_alpha(metric):
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_features"],
                     num_iterations=10, reference_tree=None,
-                    fix_zero_len_branches=False,
+                    fix_zero_len_branches=False, ppn=1,
                     **executor_args):
     """Computes alpha diversity values for given BIOM table.
 
@@ -707,7 +707,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=1,
+                     ppn=ppn,
                      **executor_args)
 
 
@@ -2740,7 +2740,7 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                 len(samples))
 
         # write metadata to tmp file
-        args['metadata'].loc[samples, :].to_csv(
+        args['metadata'].loc[list(samples), :].to_csv(
             workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
 
         # write distance metrices to tmp files
