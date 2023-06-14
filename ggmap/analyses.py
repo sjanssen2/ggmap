@@ -919,7 +919,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
             file_fragments = workdir + '/sequences%s.mfa' % chunkname
             f = open(file_fragments, 'w')
             chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.iter():
+            for header, sequence in chunk_seqs.items():
                 f.write('>%s\n%s\n' % (header, sequence))
             f.close()
 
@@ -1137,7 +1137,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
             file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
             f = open(file_fragments, 'w')
             chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.iter():
+            for header, sequence in chunk_seqs.items():
                 f.write('>%s\n%s\n' % (header, sequence))
             f.close()
 
@@ -1318,7 +1318,7 @@ def sepp_stepbystep(counts, reference=None,
     def pre_execute(workdir, args):
         file_fragments = workdir + '/sequences.mfa'
         f = open(file_fragments, 'w')
-        for header, sequence in seqs.iter():
+        for header, sequence in seqs.items():
             f.write('>%s\n%s\n' % (header, sequence))
         f.close()
         os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
