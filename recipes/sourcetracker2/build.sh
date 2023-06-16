@@ -1,1 +1,1 @@
-pip install https://github.com/biota/sourcetracker2/archive/master.zip
+pip install --no-dependencies https://github.com/biota/sourcetracker2/archive/master.zip

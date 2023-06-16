@@ -18,8 +18,10 @@ yaml
 pyyaml
 scikit-learn
 h5py
+jupyter
+ipykernel
 fuzzywuzzy
 lxml
 openpyxl
-# from local git: trevismd/statannotations
-# from local git: webermarcolivier/statannot
+trevismd/statannotations
+webermarcolivier/statannot
