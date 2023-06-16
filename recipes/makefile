@@ -27,7 +27,7 @@ upload-%: ${CONDA_PREFIX}/conda-bld/${PLATFORM}/%-*.tar.bz2
 	anaconda upload ${CONDA_PREFIX}/conda-bld/${PLATFORM}/${*}*.tar.bz2
 
 
-all-env: env-feast env-picrust1 env-picrust2 env-bugbase env-metalonda env-dada2_pacbio env-pldist env-sourcetracker2
+all-env: env-feast env-picrust1 env-picrust2 env-bugbase env-metalonda env-dada2_pacbio env-pldist env-sourcetracker2 env-spike
 env-%: %/env.yaml
 	@if [ -d "${CONDA_PREFIX}/envs/${ENV_PREFIX}${*}/" ]; then \
 		echo "conda environment '${ENV_PREFIX}${*}' already exists."; \

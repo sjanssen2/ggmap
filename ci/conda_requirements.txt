@@ -18,5 +18,13 @@ yaml
 pyyaml
 scikit-learn
 h5py
+<<<<<<< HEAD
 jupyter
 ipykernel
+=======
+fuzzywuzzy
+lxml
+openpyxl
+# from local git: trevismd/statannotations
+# from local git: webermarcolivier/statannot
+>>>>>>> 25b527a5a1bfa47a622ac383e56c54fbf5da5f21

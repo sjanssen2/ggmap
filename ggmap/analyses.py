@@ -96,6 +96,8 @@ def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
         Index = sequencing depths,
         Values = number samples with at least this sequencing depth.
     """
+    if (sample_grouping is not None) and (len(set(counts_sums.index) & set(sample_grouping.index)) <= 0):
+        raise ValueError("Feature counts and metadata seem to share no sample indices. Have you set your metadata.index correctly?")
     sums = pd.concat([counts_sums, sample_grouping], axis=1, sort=False).dropna()
     if sample_grouping is not None:
         grps = sums.groupby(sample_grouping.name)[0]
@@ -107,7 +109,12 @@ def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
         rem = g.shape[0]+1 - g.value_counts().sort_index().cumsum()
         rem.name = grp
         remainings.append(rem)
-    return pd.concat(remainings, axis=1).fillna(method='ffill').fillna(method='bfill').astype(int)
+    remainings = pd.concat(remainings, axis=1)
+    if sample_grouping is not None:
+        return remainings
+    else:
+        # 2023-03-06: fillna ... leads to additional horizontal lines when sample group switches, nut sure why I used fillna before?!
+        return remainings.fillna(method='ffill').fillna(method='bfill').astype(int)
 
 
 def _parse_alpha_div_collated(workdir, samplenames):
@@ -296,7 +303,7 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
     """
     if fix_zero_len_branches:
         tree_ref = TreeNode.read(
-            _get_ref_phylogeny(fp_reftree))
+            _get_ref_phylogeny(fp_reftree), format='newick')
         for node in tree_ref.preorder():
             if node.length is None:
                 node.length = 0
@@ -371,6 +378,10 @@ def rarefaction_curves(counts,
         max_rare_depth = args['counts'].sum().describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
+        if args['min_depth'] is None:
+            # fall back to a default minimal rarefaction depth of 1000, if
+            # min_depth argument is None
+            args['min_depth'] = 1000
         f = open("%s/commands.txt" % workdir, "w")
         for depth in np.linspace(max(args['min_depth'], args['counts'].sum().min()),
                                  max_rare_depth,
@@ -1209,7 +1220,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
                 '.json', '.tog.relabelled.tre')
 
         sys.stderr.write("step 3) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 4) use the phylogeny to det"
@@ -1256,7 +1267,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
     def post_cache(cache_results):
         newicks = []
         for tree in cache_results['trees']:
-            newicks.append(TreeNode.read(StringIO(tree)))
+            newicks.append(TreeNode.read(StringIO(tree), format='newick'))
         cache_results['trees'] = newicks
         return cache_results
 
@@ -1363,7 +1374,7 @@ def sepp_stepbystep(counts, reference=None,
         file_merged_tree = workdir +\
             '/seppstepbysteprun_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 2/2) use the phylogeny to det"
@@ -1460,7 +1471,7 @@ def sepp_git(counts,
         file_merged_tree = workdir +\
             '/res_placement.tog.relabelled.tre'
         sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree)
+        tree = TreeNode.read(file_merged_tree, format='newick')
         sys.stderr.write(' done.\n')
 
         sys.stderr.write("step 2/2) use the phylogeny to det"
@@ -1678,7 +1689,7 @@ def denovo_tree(counts, ppn=1, **executor_args):
 
     def post_cache(cache_results):
         hmap = cache_results['results']['hmap']
-        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']), format='newick')
         for node in tree.tips():
             node.name = hmap.loc[node.name]
 
@@ -1809,7 +1820,7 @@ def denovo_tree_qiime2(counts, **executor_args):
 
     def post_cache(cache_results):
         hmap = cache_results['results']['hmap']
-        tree = TreeNode.read(StringIO(cache_results['results']['tree']))
+        tree = TreeNode.read(StringIO(cache_results['results']['tree']), format='newick')
         for node in tree.tips():
             node.name = hmap.loc[node.name]
 
@@ -2114,7 +2125,7 @@ def picrust(counts, **executor_args):
 
 
 def picrust2(counts, **executor_args):
-    """Translate closed ref OTU tables into predicted meta-transcriptomics.
+    """Translate ASV tables into predicted meta-transcriptomics.
 
     Parameters
     ----------
@@ -2496,6 +2507,11 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         return commands
 
     def post_execute(workdir, args):
+        # file content is not strictly json. some HTML content contains double
+        # quotes enclosed by single quotes. My strategy: remove all HTML context
+        # then convert all single quotes into double quotes and parse as json
+        regex = re.compile(r"\<table.*?\<\/table\>")
+
         results = []
         if args['alpha'] is not None:
             for metric in args['alpha'].keys():
@@ -2506,18 +2522,29 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                             column = '.'.join(("-".join(
                                 file.split('-')[1:])).split('.')[:-1])
                             with open('%s/%s' % (fp_asig, file), 'r') as f:
-                                content = "\n".join(f.readlines())
+                                # read file content
+                                content = "".join(f.readlines())
+                                # convert ' into "
+                                content = content.replace("'", '"')
+                                # remove load_data( ... ); wrapping
+                                content = '[%s]' % content[len('load_data('):-2]
+                                # remove HTML table with single and double quotes
+                                content = regex.sub("", content)
+
+                                testres = None
+                                for entry in json.loads(content):
+                                    if (type(entry) == dict) and len(set(['H','p']) & set(entry.keys())) >= 2:
+                                        testres = entry
+                                        break
+
+                                assert(testres['p'] >= 0)
                                 results.append({'div': 'alpha',
                                                 'type': 'group-significance',
                                                 'metric': metric,
                                                 'column': column,
-                                                'test-statistic':
-                                                re.findall(r'"H":\s+(\d*\.\d+)',
-                                                           content)[0],
+                                                'test-statistic': testres['H'],
                                                 'test statistic name': 'H',
-                                                'p-value':
-                                                re.findall(r'"p":\s+(\d*\.\d+)',
-                                                           content)[0],
+                                                'p-value': testres['p'],
                                                 'test':
                                                 'Kruskal-Wallis (all groups)'})
                     break
@@ -2630,6 +2657,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         sys.stderr.write(
             'Reducing analysis to %i samples.\n' % len(idx_samples))
 
+    idx_samples = list(idx_samples)
     # find columns that a) have only one value for all samples ...
     cols_onevalue = [col
                      for col in metadata.columns
@@ -2664,7 +2692,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      **executor_args)
 
 
-def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", ppn=1, **executor_args):
+def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None, infix="", run_tsne_umap=False, ppn=1, **executor_args):
     """Generates Emperor plots as qzv. Or procrustes if two distance metrics are given.
 
     Parameters
@@ -2682,12 +2710,20 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         distances for procrustes plots.
     infix : str
         Output filenames have pattern: "emperor%s_%s.gzv" % (infix, metric)
+    run_tsne_umap : bool
+        Default: False.
+        Besides PCoA, also compute ordinations via t-SNE and UMAP.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
     ?"""
+
+    ORDINATIONS = ['pcoa']
+    if run_tsne_umap:
+        ORDINATIONS.extend(['tsne', 'umap'])
+
     def pre_execute(workdir, args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
@@ -2739,14 +2775,15 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
              # " % Properties([\"phylogenetic\"])"
              # if 'unifrac' in metric else '',
              '%s/beta_${var_metric}.qza' % workdir))
-        # compute PcoA
-        commands.append(
-            ('qiime diversity pcoa '
-             '--i-distance-matrix %s '
-             '--o-pcoa %s ') %
-            ('%s/beta_${var_metric}.qza' % workdir,
-             '%s/pcoa_${var_metric}' % workdir)
-        )
+        # compute ordination
+        for ordname in ORDINATIONS:
+            commands.append(
+                ('qiime diversity %s '
+                 '--i-distance-matrix %s '
+                 '--o-%s %s ') %
+                (ordname, '%s/beta_${var_metric}.qza' % workdir,
+                 ordname, '%s/%s_${var_metric}' % (workdir, ordname))
+            )
         if args['other_beta_diversities'] is not None:
             # import diversity matrix as qiime2 artifact
             commands.append(
@@ -2759,37 +2796,39 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                  # " % Properties([\"phylogenetic\"])"
                  # if 'unifrac' in metric else '',
                  '%s/other_beta_${var_metric}.qza' % workdir))
-            # compute PcoA
-            commands.append(
-                ('qiime diversity pcoa '
-                 '--i-distance-matrix %s '
-                 '--o-pcoa %s ') %
-                ('%s/other_beta_${var_metric}.qza' % workdir,
-                 '%s/other_pcoa_${var_metric}' % workdir)
-            )
-            # generate procrustes emperor plot
-            commands.append(
-                ('qiime emperor procrustes-plot '
-                 '--i-reference-pcoa %s '
-                 '--i-other-pcoa %s '
-                 '--m-metadata-file %s '
-                 '--o-visualization %s ') %
-                ('%s/pcoa_${var_metric}.qza' % workdir,
-                 '%s/other_pcoa_${var_metric}.qza' % workdir,
-                 '%s/metadata.tsv' % workdir,
-                 '%s/emperor-procrustes_${var_metric}.qzv' % workdir)
-            )
+            # compute other ordination
+            for ordname in ORDINATIONS:
+                commands.append(
+                    ('qiime diversity %s '
+                     '--i-distance-matrix %s '
+                     '--o-%s %s ') %
+                    (ordname, '%s/other_beta_${var_metric}.qza' % workdir,
+                     ordname, '%s/other_%s_${var_metric}' % (workdir, ordname))
+                )
+                # generate procrustes emperor plot
+                commands.append(
+                    ('qiime emperor procrustes-plot '
+                     '--i-reference-pcoa %s '
+                     '--i-other-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/other_%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor-%s-procrustes_${var_metric}.qzv' % (workdir, ordname))
+                )
         else:
-            # generate emperor plot
-            commands.append(
-                ('qiime emperor plot '
-                 '--i-pcoa %s '
-                 '--m-metadata-file %s '
-                 '--o-visualization %s ') %
-                ('%s/pcoa_${var_metric}.qza' % workdir,
-                 '%s/metadata.tsv' % workdir,
-                 '%s/emperor_${var_metric}.qzv' % workdir)
-            )
+            for ordname in ORDINATIONS:
+                # generate emperor plot
+                commands.append(
+                    ('qiime emperor plot '
+                     '--i-pcoa %s '
+                     '--m-metadata-file %s '
+                     '--o-visualization %s ') %
+                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
+                     '%s/metadata.tsv' % workdir,
+                     '%s/emperor-%s_${var_metric}.qzv' % (workdir, ordname))
+                )
 
         return commands
 
@@ -2799,12 +2838,13 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         label_procrustes = ""
         if args['other_beta_diversities'] is not None:
             label_procrustes = '-procrustes'
-        for metric in args['beta_diversities']:
-            results[metric] = os.path.join(
-                fp_results, 'emperor%s%s_%s.qzv' % (label_procrustes, infix, metric))
-            shutil.move(
-                "%s/emperor%s_%s.qzv" % (workdir, label_procrustes, metric),
-                results[metric])
+        for ordname in ORDINATIONS:
+            for metric in args['beta_diversities']:
+                results[metric] = os.path.join(
+                    fp_results, 'emperor-%s%s%s_%s.qzv' % (ordname, label_procrustes, infix, metric))
+                shutil.move(
+                    "%s/emperor-%s%s_%s.qzv" % (workdir, ordname, label_procrustes, metric),
+                    results[metric])
         return results
 
     return _executor('emperor',
@@ -2955,7 +2995,7 @@ def empress(metadata: pd.DataFrame, beta_diversities, counts: pd.DataFrame, refe
                      **executor_args)
 
 
-def taxonomy_RDP(counts, fp_classifier, **executor_args):
+def taxonomy_RDP(counts, fp_classifier, ppn=4, **executor_args):
     """Uses q2-feature-classifier to obtain taxonomic lineages for features
        in counts table.
 
@@ -3017,7 +3057,7 @@ def taxonomy_RDP(counts, fp_classifier, **executor_args):
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=20,
+                     ppn=ppn,
                      **executor_args)
 
 

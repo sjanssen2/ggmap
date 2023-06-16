@@ -442,6 +442,7 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
             except IndexError:
                 return settings.RANKS[
                     settings.RANKS.index(rank)].lower()[0] + "__"
+
         # add columns for each tax rank, such that we can groupby later on
         counts_taxonomy[rank] = counts_taxonomy['taxonomy'].apply(
             lambda x: _splitranks(x, rank))
@@ -484,12 +485,13 @@ def collapseCounts_objects(counts, rank, taxonomy, out=sys.stdout):
     """
     tax = taxonomy.copy()
     tax.name = 'taxonomy'
+
     return _collapse_counts(
         pd.merge(
             counts, tax.to_frame(),
             how='left', left_index=True, right_index=True),
         rank,
-        out=out)
+        out=out), tax
 
 
 def collapseCounts(file_otutable, rank,
@@ -552,7 +554,7 @@ def collapseCounts(file_otutable, rank,
             rank_counts = pd.merge(rank_counts, taxonomy, how='left',
                                    left_index=True, right_index=True)
 
-    return _collapse_counts(rank_counts, rank, out=out)
+    return _collapse_counts(rank_counts, rank, out=out), taxonomy
 
 
 def plotTaxonomy(file_otutable,
@@ -579,6 +581,7 @@ def plotTaxonomy(file_otutable,
                  no_sample_numbers=False,
                  colors=None,
                  min_abundance_grayscale=0,
+                 legend_use_last_X_labels=None,
                  ax=None):
     """Plot taxonomy.
 
@@ -637,6 +640,10 @@ def plotTaxonomy(file_otutable,
     min_abundance_grayscale : float
         Stop drawing gray rectangles for low abundant taxa if their relative
         abundance is below this threshold. Saves time and space.
+    legend_use_last_X_labels : int
+        Default: None, i.e. leave legend text as is
+        If set to e.g. 2, legend will contain lineage strings of the last two
+        known labels.
     ax : plt.axis
         Plot on this axis instead of creating a new figure. Only works if
         number of group levels is <= 2.
@@ -668,15 +675,17 @@ def plotTaxonomy(file_otutable,
                                   'in metadata table!') % (field, i))
 
     ft = file_taxonomy
+    taxonomy = None
     if taxonomy_from_biom:
         ft = None
     if isinstance(file_otutable, pd.DataFrame) and \
        isinstance(file_taxonomy, pd.Series):
-        rawcounts = collapseCounts_objects(file_otutable, rank, file_taxonomy,
-                                           out=out)
+        rawcounts, taxonomy = collapseCounts_objects(
+            file_otutable, rank, file_taxonomy, out=out)
     else:
-        rawcounts = collapseCounts(file_otutable, rank, file_taxonomy=ft,
-                                   verbose=verbose, out=out)
+        rawcounts, taxonomy = collapseCounts(
+            file_otutable, rank, file_taxonomy=ft, verbose=verbose, out=out)
+
 
     # restrict to those samples for which we have metadata AND counts
     meta = metadata.loc[[idx
@@ -706,7 +715,7 @@ def plotTaxonomy(file_otutable,
 
     # restrict to those taxa that are asked for in plottaxa
     if plottaxa is not None:
-        rank_counts = rank_counts.loc[plottaxa, :]
+        rank_counts = rank_counts.loc[[t for t in plottaxa if t in rank_counts.index], :]
         if (out is not None) and verbose:
             out.write('%i taxa left after restricting to provided list.\n' %
                       (rank_counts.shape[0]))
@@ -970,10 +979,16 @@ def plotTaxonomy(file_otutable,
             l_patches = []
             for tax in vals.index:
                 if (tax in highAbundantTaxa) | (tax == NAME_LOW_ABUNDANCE):
-                    label_text = tax
+                    tax_name = tax
+                    if (rank == "raw") & (legend_use_last_X_labels is not None) & isinstance(file_taxonomy, pd.Series):
+                        if (tax in taxonomy.index):
+                            tax_name = ';'.join([l for l in taxonomy.loc[tax].split(';') if not l.strip().endswith('__')][-1 * legend_use_last_X_labels:])
+                        else:
+                            raise ValueError("taxon '%s' not included in taxonomy" % tax)
+                    label_text = tax_name
                     if print_meanrelabunances:
                         label_text = "%.2f %%: %s" % (
-                            rank_counts.loc[tax, :].mean()*100, tax)
+                            rank_counts.loc[tax, :].mean()*100, tax_name)
                     l_patches.append(mpatches.Patch(color=colors[tax],
                                                     label=label_text))
             label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
@@ -990,6 +1005,8 @@ def plotTaxonomy(file_otutable,
             font0 = FontProperties()
             font0.set_weight('bold')
             title = 'Rank: %s' % rank
+            if legend_use_last_X_labels is not None:
+                title += ", displayed = last %i known ranks" % legend_use_last_X_labels
             if fct_aggregate is not None:
                 title = ('Aggregrated "%s"\n' % fct_aggregate.__name__) + title
             ax.get_legend().set_title(title=title, prop=font0)
@@ -1754,6 +1771,17 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                 linewidth=LINEWIDTH_NONSIG)
         ax.legend(title='FDR corrected')
 
+        # add some space to the axis to not truncate text labels
+        factor = 0.15
+        ax.set_xlim(
+            ax.get_xlim()[0]-(ax.get_xlim()[1]-ax.get_xlim()[0])*factor,
+            ax.get_xlim()[1]+(ax.get_xlim()[1]-ax.get_xlim()[0])*factor,
+        )
+        ax.set_ylim(
+            ax.get_ylim()[0]-(ax.get_ylim()[1]-ax.get_ylim()[0])*factor,
+            ax.get_ylim()[1]+(ax.get_ylim()[1]-ax.get_ylim()[0])*factor,
+        )
+
     return ax
 
 
@@ -2062,8 +2090,9 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
                         horizontal=True)
                 row += 1
 
-        if (summarize is False) and (name is not None):
-            plt.suptitle(name)
+        if (summarize is False):
+            if (name is not None):
+                plt.suptitle(name)
             return f
         else:
             res = pd.DataFrame(summary)
@@ -2278,7 +2307,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
 
     ns = metadata[field].value_counts()
     e = calour_experiment.filter_ids(metadata.index, axis='s')
@@ -2343,7 +2372,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[calour_experiment.sample_metadata.index, :]
+    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
 
     if len(groups) > 1:
         e = calour_experiment.filter_ids(
@@ -2973,8 +3002,8 @@ def ganttChart(metadata: pd.DataFrame,
     Returns
     -------
     """
-    if timeresolution not in ['days', 'seconds']:
-        raise ValueError('timeresolution must either be "days" or "seconds"!')
+    if timeresolution not in ['days', 'seconds', 'weeks']:
+        raise ValueError('timeresolution must either be "weeks", "days" or "seconds"!')
 
     COL_DEATH = '_death'
     COL_GROUP = '_group'
@@ -3023,7 +3052,12 @@ def ganttChart(metadata: pd.DataFrame,
     date_baseline = meta[cols_dates].stack().min()
     #return date_baseline, cols_dates, meta
     for col in cols_dates:
-        meta[col] = meta[col].apply(lambda x: getattr((x - date_baseline), timeresolution))
+        date_resolution = timeresolution
+        factor = 1
+        if (timeresolution == 'weeks'):
+            date_resolution = 'days'
+            factor = 7
+        meta[col] = meta[col].apply(lambda x: getattr((x - date_baseline), date_resolution) / factor)
     # try to find end date for entities
     if col_death is not None:
         meta[COL_DEATH] = meta[col_death]
@@ -3211,6 +3245,8 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
     meta['__fakegroup__'] = 'all'
     if cols_groups is None:
         cols_groups = ['__fakegroup__']
+    if data.name in meta.columns:
+        raise ValueError("Your metadata already contains the column '%s', which is the same name as your numeric data!" % data.name)
     meta_data = meta.merge(data, left_index=True, right_index=True, how='left')
 
     if intervals is not None:
@@ -3234,10 +3270,12 @@ def plot_timecourse(metadata: pd.DataFrame, data: pd.Series,
         sns.lineplot(data=data_group,
                      y=data.name, x=col_events,
                      color=get_dictvalue(colors_groups, group, None),
-                     ci=get_dictvalue(cis_groups, group, 95),
-                     dashes=[get_dictvalue(dashes_groups, group, None)],
+                     #ci=get_dictvalue(cis_groups, group, 95),
+                     errorbar=('ci', get_dictvalue(cis_groups, group, 95)),
+                     dashes=[x for x in [get_dictvalue(dashes_groups, group, None)] if x is not None],
                      style=(None if get_dictvalue(dashes_groups, group, None) is None else '__fakegroup__'),
                      ax=ax)
+
         # fill legend
         legend_elements.append(Line2D([0], [0], color=get_dictvalue(colors_groups, group, None), lw=4, label=_get_group_name(group), linestyle=':' if get_dictvalue(dashes_groups, group, None) is not None else None))
 
@@ -3636,7 +3674,9 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
     if title is not None:
         fig.suptitle(title)
 
-    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy']
+    reported_prediction = results.loc[chosen_iteration, 'prediction']
+    reported_prediction.name = 'prediction'
+    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy'], {'training': y_train, 'testing': y_test, 'prediction': reported_prediction}
 
 
 def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, verbose=sys.stderr):
@@ -3866,3 +3906,66 @@ def adjust_saturation(color, amount=0.5):
         c = color
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], amount, amount)
+
+def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict(), highlight_samples=set(), show_legend=True):
+    """Draw a 96-well plate layout.
+
+    meta : pd.DataFrame
+        The full metadata.
+    col_position : str
+        The column holding well positions in format G12 or G08
+    col_label : str
+        The label for the wells
+    col_texts : str
+        Texts to draw in wells
+    highlight_samples : set
+        Set of samples that shall be highlighted by increasing the stroke width
+    show_legend : bool
+        Draw legend.
+        Default = True
+    """
+    ROWS = ['A','B','C','D','E','F','G','H']
+    COLS = [1,2,3,4,5,6,7,8,9,10,11,12]
+
+    fig, axes = plt.subplots(1,1,figsize=(12,8))
+    for col in range(1,len(COLS)+1):
+        for row in range(1,len(ROWS)+1):
+            axes.add_patch(plt.Circle((col, row), 0.4, color='lightgray', fill=False))
+    axes.set_xlim((0,len(COLS)+1))
+    axes.set_ylim((0,len(ROWS)+1))
+
+    axes.set_yticks(range(1,len(ROWS)+1))
+    axes.set_yticklabels(ROWS)
+    axes.set_xticks(range(1,len(COLS)+1))
+    axes.set_xticklabels(COLS)
+    axes.invert_yaxis()
+
+    availColors = \
+        sns.color_palette('Paired', 12) +\
+        sns.color_palette('Dark2', 12) +\
+        sns.color_palette('Pastel1', 12)
+    for idx, sample in meta.iterrows():
+        if not pd.isnull(sample[col_position]):
+            row, col = ROWS.index(sample[col_position][0])+1, int(sample[col_position][1:])
+            norm_label = sample[col_label]
+            if pd.isnull(sample[col_label]):
+                norm_label = "nan"
+            if norm_label not in colors:
+                #print("%s not in colors" % sample[norm_label])
+                colors[norm_label] = availColors[len(colors) % len(availColors)]
+            color = colors[norm_label]
+            axes.add_patch(plt.Circle((col, row), 0.4, color=color, fill=True))
+            if idx in highlight_samples:
+                axes.add_patch(plt.Circle((col, row), 0.4, fill=False, edgecolor="black", linewidth=5))
+            if (col_texts is not None) and pd.notnull(sample[col_texts]):
+                axes.text(col, row, sample[col_texts], horizontalalignment='center', verticalalignment='center', fontdict={'fontsize': 'x-small'})
+    sorted_keys = []
+    if show_legend:
+        try:
+            sorted_keys = sorted(colors.keys())
+        except TypeError:
+            sorted_keys = colors.keys()
+        axes.legend(handles=[Patch(color=colors[val], label=val) for val in sorted_keys], loc='upper left', bbox_to_anchor=(1.01, 1), title=col_label)
+    axes.set_title('Plate Layout by "%s" and "%s"' % (col_position, col_label))
+
+    return fig
