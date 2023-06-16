@@ -18,3 +18,5 @@ yaml
 pyyaml
 scikit-learn
 h5py
+jupyter
+ipykernel
