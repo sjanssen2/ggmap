@@ -104,7 +104,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr):
+def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_")):
     knownprimer = {
         'GTGCCAGCMGCCGCGGTAA': {
             'gene': '16s',
@@ -151,18 +151,18 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         with open(fp_tmp, 'r') as f:
             print('using cutadapt version: %s' % f.readlines()[0].strip())
 
-    for fp_fastq in glob(os.path.join(prj_data['paths']['demux'],"**","*_R1_001.fastq.gz"), recursive=True):
+    for fp_fastq in glob(os.path.join(prj_data['paths']['demux'],"**",pattern_fwdfiles), recursive=True):
         if "Undetermined_S0_" in fp_fastq:
             continue
         fp_in_r1 = os.path.abspath(fp_fastq)
         fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
-        fp_out_r2 = fp_out_r1.replace("_R1_", "_R2_")
+        fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
         cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s %s %s" % (primerseq_fwd, primerseq_rev,
              fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=True)
 
     return prj_data
 
-def project_deblur(prj_data, trimlength=150, ppn=4):
+def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz"):
     prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur')
 
     _, fp_tmp = tempfile.mkstemp()
@@ -178,7 +178,7 @@ def project_deblur(prj_data, trimlength=150, ppn=4):
 
     # link input fastq files, but only fwd
     # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
-    cmds.append('for f in `find %s -type f -name "*_R1_001.fastq.gz"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], prj_data['paths']['deblur']))
+    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
 
     # deblur
     cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
@@ -303,7 +303,7 @@ def process_study(metadata: pd.DataFrame,
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[set(counts.index) - set(idx_chloroplast_mitochondria), set(counts.columns) - control_samples].sum(axis=0) / counts.loc[:, set(counts.columns) - control_samples].sum(axis=0)
+    plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
     if plant_ratio.min() < 0.95:
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
@@ -321,7 +321,7 @@ def process_study(metadata: pd.DataFrame,
     # remove features not inserted into tree
     results = dict()
     results['counts_plantsStillIn'] = counts
-    counts = counts.loc[sorted((set(counts.index) - set(idx_chloroplast_mitochondria)) & features_inserted), sorted(counts.columns)]
+    counts = counts.loc[sorted([feature for feature in counts.index if feature not in idx_chloroplast_mitochondria and feature in features_inserted]), sorted(counts.columns)]
 
     results['taxonomy'] = {'RDP': res_taxonomy}
     results['counts_plantsremoved'] = counts
@@ -334,14 +334,14 @@ def process_study(metadata: pd.DataFrame,
         return results
 
     # run: rarefy counts 1x
-    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid)
+    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
 
     # run: alpha diversity
-    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches)
+    results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, ppn=ppn)
 
     # run: beta diversity
     if results['rarefaction']['results'] is not None:
-        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, metrics=beta_metrics)
+        results['beta_diversity'] = beta_diversity(results['rarefaction']['results'].fillna(0), reference_tree=fp_insertiontree, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, metrics=beta_metrics, ppn=ppn)
     else:
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 

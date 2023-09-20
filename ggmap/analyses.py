@@ -558,7 +558,7 @@ def _update_metric_alpha(metric):
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_features"],
                     num_iterations=10, reference_tree=None,
-                    fix_zero_len_branches=False,
+                    fix_zero_len_branches=False, ppn=1,
                     **executor_args):
     """Computes alpha diversity values for given BIOM table.
 
@@ -707,7 +707,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=1,
+                     ppn=ppn,
                      **executor_args)
 
 
@@ -919,7 +919,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
             file_fragments = workdir + '/sequences%s.mfa' % chunkname
             f = open(file_fragments, 'w')
             chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.iteritems():
+            for header, sequence in chunk_seqs.items():
                 f.write('>%s\n%s\n' % (header, sequence))
             f.close()
 
@@ -1137,7 +1137,7 @@ def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
             file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
             f = open(file_fragments, 'w')
             chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.iteritems():
+            for header, sequence in chunk_seqs.items():
                 f.write('>%s\n%s\n' % (header, sequence))
             f.close()
 
@@ -1318,7 +1318,7 @@ def sepp_stepbystep(counts, reference=None,
     def pre_execute(workdir, args):
         file_fragments = workdir + '/sequences.mfa'
         f = open(file_fragments, 'w')
-        for header, sequence in seqs.iteritems():
+        for header, sequence in seqs.items():
             f.write('>%s\n%s\n' % (header, sequence))
         f.close()
         os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
@@ -1452,7 +1452,7 @@ def sepp_git(counts,
     def pre_execute(workdir, args):
         file_fragments = workdir + '/sequences.mfa'
         f = open(file_fragments, 'w')
-        for header, sequence in seqs.iteritems():
+        for header, sequence in seqs.iter():
             f.write('>%s\n%s\n' % (header, sequence))
         f.close()
         os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
@@ -2740,7 +2740,7 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                 len(samples))
 
         # write metadata to tmp file
-        args['metadata'].loc[samples, :].to_csv(
+        args['metadata'].loc[list(samples), :].to_csv(
             workdir+'/metadata.tsv', sep="\t", index_label='sample_name')
 
         # write distance metrices to tmp files
