@@ -104,7 +104,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_")):
+def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True):
     knownprimer = {
         'GTGCCAGCMGCCGCGGTAA': {
             'gene': '16s',
@@ -157,12 +157,12 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         fp_in_r1 = os.path.abspath(fp_fastq)
         fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
         fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
-        cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s %s %s" % (primerseq_fwd, primerseq_rev,
-             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=True)
+        cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev,
+             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
 
     return prj_data
 
-def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz"):
+def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB'):
     prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur')
 
     _, fp_tmp = tempfile.mkstemp()
@@ -178,7 +178,7 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
 
     # link input fastq files, but only fwd
     # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
-    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
+    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -v -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
 
     # deblur
     cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
@@ -188,7 +188,7 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
         ppn,
     ))
     prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
-    cluster_run(cmds, 'deblur', prj_data['paths']['deblur_table'], environment=settings.QIIME2_ENV, dry=False, ppn=ppn)
+    cluster_run(cmds, 'deblur', prj_data['paths']['deblur_table'], environment=settings.QIIME2_ENV, dry=False, ppn=ppn, pmem=pmem)
 
     return prj_data
 
@@ -240,6 +240,7 @@ def process_study(metadata: pd.DataFrame,
                   pmem=None,
                   emperor_infix: str="",
                   emperor_fp: str=None,
+                  emperor_skip_tsne_umap=False,
                   alpha_metrics=["PD_whole_tree", "shannon", "observed_features"],
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
                   deblur_remove_features_lessthanXreads: int=10):
@@ -347,7 +348,7 @@ def process_study(metadata: pd.DataFrame,
 
     # run: emperor plot
     if results['beta_diversity']['results'] is not None:
-        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './' if emperor_fp is None else emperor_fp, infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid, walltime='00:20:00', pmem='8GB', run_tsne_umap=True)
+        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './' if emperor_fp is None else emperor_fp, infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid, walltime='00:40:00', pmem='8GB', run_tsne_umap=(not emperor_skip_tsne_umap))
     else:
         raise ValueError("Be patient and wait/poll for beta diversity results!")
 
