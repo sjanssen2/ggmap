@@ -18,7 +18,7 @@ def permanova_groups(file_dm, file_meta, min_group_size, num_permutations,
     if (meta_pair.value_counts().min() >= min_group_size) and \
        (meta_pair.value_counts().shape[0] == 2):
         dm_pair = dm.filter(idx_meta & idx_counts)
-        res = permanova(dm_pair, meta_pair, permutations=num_permutations)
+        res = permanova(dm_pair, meta_pair.to_frame(), columns=meta_pair.name, permutations=num_permutations)
     else:
         res = pd.Series()
     distances = [dm[x, y]
