@@ -1546,7 +1546,7 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
     # remove groups with less than minNum samples per group
     groups = sorted([name
                      for name, counts
-                     in groupings.value_counts().iteritems()
+                     in groupings.value_counts().items()
                      if counts >= min_group_size])
 
     network = dict()
@@ -1555,7 +1555,10 @@ def detect_distant_groups(beta_dm, metric_name, groupings, min_group_size=5,
             err.write('%s vs %s\n' % (a, b))
         group = groupings[groupings.isin([a, b])]
         group_dm = beta_dm.filter(group.index)
-        res = fct_test(group_dm, group, permutations=num_permutations)
+        # be on the safe side and protect against https://github.com/biocore/scikit-bio/issues/1877
+        # however, my tests did not indicate that I have used permanova incorrectly (smj: 2023-09-21)
+        res = fct_test(group_dm, group.to_frame(),
+                       column=group.name, permutations=num_permutations)
 
         if a not in network:
             network[a] = dict()
