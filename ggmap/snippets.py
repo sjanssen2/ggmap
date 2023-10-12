@@ -447,7 +447,7 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
         counts_taxonomy[rank] = counts_taxonomy['taxonomy'].apply(
             lambda x: _splitranks(x, rank))
         # sum counts according to the selected rank
-        counts_taxonomy = counts_taxonomy.reset_index().groupby(rank).sum()
+        counts_taxonomy = counts_taxonomy.reset_index().groupby(rank).sum(numeric_only=True)
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
         # rank
 
@@ -708,7 +708,8 @@ def plotTaxonomy(file_otutable,
         lowReadTaxa = rank_counts.loc[lowAbundandTaxa, :].sum(axis=0)
         lowReadTaxa.name = NAME_LOW_ABUNDANCE
         rank_counts = rank_counts.loc[highAbundantTaxa, :]
-        rank_counts = rank_counts.append(lowReadTaxa)
+        #rank_counts = rank_counts.append(lowReadTaxa)  # deprecated
+        rank_counts = pd.concat([rank_counts, lowReadTaxa.to_frame().T], axis=0)
         if (out is not None) and verbose:
             out.write('%i taxa left after filtering low abundant.\n' %
                       (rank_counts.shape[0]-1))
