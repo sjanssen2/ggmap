@@ -790,7 +790,7 @@ def plotTaxonomy(file_otutable,
 
         grps1 = [('all', g0)]
         if group_l1 is not None:
-            grps1 = g0.groupby(group_l1)
+            grps1 = g0.groupby(group_l1, sort=False)
         offset = 0
         for i1, (n1, g1) in enumerate(grps1):
             sample_idxs = vals.iloc[0, :].loc[g1.index]
@@ -1184,7 +1184,8 @@ def cluster_run(cmds, jobname, result, environment=None,
         if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
             raise ValueError("Cannot write qid file '%s'." % file_qid)
     if os.path.exists(result):
-        err.write("%s already computed\n" % jobname)
+        if err:
+            err.write("%s already computed\n" % jobname)
         return "Result already present!"
     if jobname is None:
         raise ValueError("You need to set a jobname!")
