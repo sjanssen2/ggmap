@@ -383,6 +383,6 @@ def process_study(metadata: pd.DataFrame,
         results['bugbase']['counts'] = bugbase(counts_closedref, dry=False, wait=False, use_grid=use_grid)
 
     if ('rarefaction' in results) and (results['rarefaction']['results'] is not None):
-        verbose.write('Your final feature able is composed of %i samples and %i features.\n' % (results['rarefaction']['results'].shape[1], results['rarefaction']['results'].shape[0]))
+        verbose.write('Your final feature table is composed of %i samples and %i features.\n' % (results['rarefaction']['results'].shape[1], results['rarefaction']['results'].shape[0]))
 
     return results
