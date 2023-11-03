@@ -243,7 +243,8 @@ def process_study(metadata: pd.DataFrame,
                   emperor_skip_tsne_umap=False,
                   alpha_metrics=["PD_whole_tree", "shannon", "observed_features"],
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
-                  deblur_remove_features_lessthanXreads: int=10):
+                  deblur_remove_features_lessthanXreads: int=10,
+                  skip_rarefaction_curves=False):
     """
     parameters
     ----------
@@ -263,11 +264,18 @@ def process_study(metadata: pd.DataFrame,
                         ('Insertion tree', fp_insertiontree),
                         ('ClosedRef table', fp_closedref_biom),
                         ('Naive bayes classifier', fp_taxonomy_trained_classifier)]:
+        if isinstance(fp, pd.DataFrame):
+            continue
         if (fp is not None) and (not exists(fp)):
             raise ValueError('The given file path "%s" for the %s does not exist!' % (fp, _type))
 
     # load deblur biom table
-    counts = biom2pandas(fp_deblur_biom).fillna(0)
+    counts = None
+    if isinstance(fp_deblur_biom, pd.DataFrame):
+        # do not read feature table from file but as an already given pandas DataFrame
+        counts = fp_deblur_biom
+    else:
+        counts = biom2pandas(fp_deblur_biom).fillna(0)
     if pd.Series(counts.columns).value_counts().max() > 1:
         raise ValueError("Your Deblur biom table has at least one sample duplicate!")
 
@@ -329,10 +337,11 @@ def process_study(metadata: pd.DataFrame,
 
     #return results
     # run: rarefaction curves
-    results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, min_depth=rarefaction_min_depth, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches,
-        pmem=pmem, metrics=alpha_metrics)
-    if rarefaction_depth is None:
-        return results
+    if not skip_rarefaction_curves:
+        results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, min_depth=rarefaction_min_depth, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches,
+            pmem=pmem, metrics=alpha_metrics)
+        if rarefaction_depth is None:
+            return results
 
     # run: rarefy counts 1x
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
@@ -372,4 +381,8 @@ def process_study(metadata: pd.DataFrame,
 
         results['bugbase'] = dict()
         results['bugbase']['counts'] = bugbase(counts_closedref, dry=False, wait=False, use_grid=use_grid)
+
+    if ('rarefaction' in results) and (results['rarefaction']['results'] is not None):
+        verbose.write('Your final feature able is composed of %i samples and %i features.\n' % (results['rarefaction']['results'].shape[1], results['rarefaction']['results'].shape[0]))
+
     return results
