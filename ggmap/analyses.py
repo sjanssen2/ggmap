@@ -2784,6 +2784,14 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                 (ordname, '%s/beta_${var_metric}.qza' % workdir,
                  ordname, '%s/%s_${var_metric}' % (workdir, ordname))
             )
+            commands.append(
+                ('qiime tools export '
+                 '--input-path %s '
+                 '--output-path %s ') %
+                ('%s/%s_${var_metric}.qza' % (workdir, ordname),
+                 '%s/%s_${var_metric}' % (workdir, ordname))
+            )
+
         if args['other_beta_diversities'] is not None:
             # import diversity matrix as qiime2 artifact
             commands.append(
@@ -2833,18 +2841,20 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
         return commands
 
     def post_execute(workdir, args):
-        results = dict()
+        results = {'ordinations': dict(), 'visualizations': dict()}
         os.makedirs(fp_results, exist_ok=True)
         label_procrustes = ""
         if args['other_beta_diversities'] is not None:
             label_procrustes = '-procrustes'
         for ordname in ORDINATIONS:
             for metric in args['beta_diversities']:
-                results[metric] = os.path.join(
+                with open("%s/%s_%s/ordination.txt" % (workdir, ordname, metric), 'r') as f:
+                    results['ordinations'][metric] = f.readlines()
+                results['visualizations'][metric] = os.path.join(
                     fp_results, 'emperor-%s%s%s_%s.qzv' % (ordname, label_procrustes, infix, metric))
                 shutil.move(
                     "%s/emperor-%s%s_%s.qzv" % (workdir, ordname, label_procrustes, metric),
-                    results[metric])
+                    results['visualizations'][metric])
         return results
 
     return _executor('emperor',
