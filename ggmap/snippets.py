@@ -582,7 +582,8 @@ def plotTaxonomy(file_otutable,
                  colors=None,
                  min_abundance_grayscale=0,
                  legend_use_last_X_labels=None,
-                 ax=None):
+                 ax=None,
+                 horizontal_spacer=None):
     """Plot taxonomy.
 
     Parameters
@@ -800,7 +801,7 @@ def plotTaxonomy(file_otutable,
             sample_idxs = sample_idxs.index
             if group_l2 is not None:
                 help_sample_idxs = []
-                for n2, g2 in g0.loc[g1.index, :].groupby(group_l2):
+                for n2, g2 in g0.loc[g1.index, :].groupby(group_l2, sort=False):
                     reorderd = [idx for idx in sample_idxs if idx in g2.index]
                     help_sample_idxs.extend(reorderd)
                     graphinfo.loc[reorderd, 'group_l2'] = n2
@@ -810,7 +811,10 @@ def plotTaxonomy(file_otutable,
                                                        offset+len(sample_idxs))
             offset += len(sample_idxs)
             if i1 < len(grps1):
-                offset += max(1, int(g0.shape[0]*0.05))
+                spacer = max(1, int(g0.shape[0]*0.05))
+                if horizontal_spacer is not None:
+                    spacer = horizontal_spacer
+                offset += spacer
 
     # define colors for taxons
     availColors = \
@@ -1942,6 +1946,7 @@ def plotGroup_permanovas(beta, groupings,
         if len(missing_colors) > 0:
             raise ValueError("Not all group conditions have defined colors! %s" % ",".join(missing_colors))
         colors = colors_boxplot
+
     sns.boxplot(data=pd.DataFrame(data),
                 x=x_axis,
                 y=y_axis,
