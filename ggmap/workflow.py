@@ -157,8 +157,9 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         fp_in_r1 = os.path.abspath(fp_fastq)
         fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
         fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
+        fp_in_r2 = fp_in_r1.replace(r1r2_replace[0], r1r2_replace[1])
         cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev,
-             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r1)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
+             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
 
     return prj_data
 
