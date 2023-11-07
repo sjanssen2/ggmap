@@ -104,7 +104,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True):
+def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
     knownprimer = {
         'GTGCCAGCMGCCGCGGTAA': {
             'gene': '16s',
@@ -156,10 +156,14 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
             continue
         fp_in_r1 = os.path.abspath(fp_fastq)
         fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
-        fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
-        fp_in_r2 = fp_in_r1.replace(r1r2_replace[0], r1r2_replace[1])
-        cluster_run(["cutadapt -g %s -G %s -n 2 -o %s -p %s \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev,
-             fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
+        cmd = "cutadapt "
+        if not no_rev_seqs:
+            fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
+            fp_in_r2 = fp_in_r1.replace(r1r2_replace[0], r1r2_replace[1])
+            cmd += "-g %s -G %s -n 2 -o %s -p %s \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev, fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)
+        else:
+            cmd += "-g %s -n 1 -o %s \"%s\"" % (primerseq_fwd, fp_out_r1, fp_in_r1)
+        cluster_run([cmd], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
 
     return prj_data
 
