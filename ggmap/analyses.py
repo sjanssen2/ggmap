@@ -24,7 +24,7 @@ from sklearn.ensemble import RandomForestClassifier
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects)
 from ggmap import settings
 import seaborn as sns
 import networkx as nx
@@ -164,7 +164,7 @@ def _parse_alpha_div_collated(workdir, samplenames):
     for metric in pd_res['metric'].unique():
         final[metric] = pd_res[pd_res['metric'] == metric].groupby(
             ['sample_name', 'rarefaction depth'])\
-            .mean()\
+            .mean(numeric_only=True)\
             .reset_index()\
             .rename(columns={'value': metric})\
             .loc[:, ['rarefaction depth', 'sample_name', metric]]
@@ -4082,6 +4082,151 @@ def scnic(counts: pd.DataFrame,
                      array=1,
                      **executor_args)
 
+def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, min_mean_abundance_per_feature: float=0.005,
+          ppn=1, pmem='4GB', **executor_args):
+    """Execute ANCOM analysis through Qiime2.
+
+    Paramaters
+    ----------
+    counts: pd.DataFrame
+        The feature table.
+    rank: str or (str, str)
+        A taxonomic rank to which features shall be collapsed.
+        Use 'raw' to avoid collapsing.
+        Use a tuple e.g. ('Family', 'Genus') to collapse on merged taxonomy
+        ranks.
+    taxonomy: pd.Series
+        Taxonomic lineages for each feature in counts. Can be None if rank is
+        'raw'.
+    grouping: pd.Series
+        The metadata column on which samples of the feature table shall be
+        grouped into exactly two groups.
+    min_mean_abundance_per_feature: float
+        only report features, that have on average a relative abundance of
+        min_mean_abundance_per_feature
+    palette: dict, optional
+        You can pass a color dictionary to the underlying sns.barplot function
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose,
+        dirty
+
+    Returns
+    -------
+    """
+
+    COL = 'COLANCOM'
+    # general sanity checks
+    (counts, grouping) = sync_counts_metadata(counts, grouping.dropna())
+    if grouping.value_counts().shape[0] < 2:
+        raise ValueError("Your grouping information has only ONE group. It must be exactly two!")
+    if grouping.value_counts().shape[0] > 2:
+        raise ValueError("Your grouping information has more than two groups. It must be exactly two!")
+
+    if rank is None:
+        raise ValueError("Rank cannot be empty, choose from %s or set to 'raw'." % settings.RANKS)
+    if (taxonomy is None) and rank != 'raw':
+        raise ValueError("You must provide a taxonomy pd.Series if 'rank' is not 'raw'!")
+    counts = collapseCounts_objects(counts, rank, taxonomy)[0]
+
+    def pre_execute(workdir, args):
+        pandas2biom('%s/counts.biom' % workdir, args['counts'])
+        args['grouping'].name = COL
+        args['grouping'].to_csv('%s/grouping.tsv' % workdir, sep="\t", index_label="sample_name")
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureTable[Frequency]" '
+             '--output-path %s') %
+            (workdir+'/counts.biom', workdir+'/counts'))
+        commands.append(
+            ('qiime composition add-pseudocount '
+             '--i-table %s '
+             '--o-composition-table %s ') %
+            (workdir+'/counts.qza', workdir+'/counts_pseudo.qza'))
+        commands.append(
+            ('qiime composition ancom '
+             '--i-table %s '
+             '--m-metadata-file %s '
+             '--m-metadata-column %s '
+             '--o-visualization %s ') %
+            (workdir+'/counts_pseudo.qza', workdir+'/grouping.tsv', COL, workdir+'/ancom.qzv'))
+        commands.append(
+            ('qiime tools export '
+             '--input-path %s/ancom.qzv '
+             '--output-path %s/ancom_results/')
+            % (workdir, workdir))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+        results['ancom'] = pd.read_csv('%s/ancom_results/ancom.tsv' % workdir,
+                                       sep="\t", index_col=0)
+        results['data'] = pd.read_csv('%s/ancom_results/data.tsv' % workdir,
+                                      sep="\t", index_col=0)
+        results['percent_abundances'] = pd.read_csv('%s/ancom_results/percent-abundances.tsv' % workdir,
+                                                    sep="\t", index_col=0, header=[0,1])
+        # normalize feature table
+        feat = args['counts'] / args['counts'].sum()
+        # restructure data
+        feat = feat.stack().reset_index().rename(columns={'level_1': 'sample_name', 0: 'relAbundance'})
+        # assign grouping values
+        feat = feat.merge(args['grouping'].to_frame(), left_on='sample_name', right_index=True, how='left')
+        # add 'Reject null hypothesis'
+        feat = feat.merge(results['ancom'][['Reject null hypothesis']], left_on=args['counts'].index.name, right_index=True, how='left')
+        results['features'] = feat
+
+        results['col_feature'] = args['counts'].index.name
+        results['col_grouping'] = args['grouping'].name
+
+        return results
+
+    def post_cache(cache_results, palette=None):
+        feat_sigdiff = cache_results['results']['ancom'][cache_results['results']['ancom']['Reject null hypothesis']].index
+
+        data = cache_results['results']['features'][
+            cache_results['results']['features'][cache_results['results']['col_feature']].isin(feat_sigdiff)]
+
+        srt_feat = data.groupby(
+            cache_results['results']['col_feature'])['relAbundance'].mean(numeric_only=True).sort_values(ascending=False)
+
+        report_taxa = cache_results['results']['ancom'].copy()
+        report_taxa = report_taxa.merge((cache_results['results']['features'].groupby(cache_results['results']['col_feature'])['relAbundance'].mean(numeric_only=True) >= min_mean_abundance_per_feature).to_frame(), left_index=True, right_index=True, how='left')
+        report_taxa = report_taxa.groupby(['Reject null hypothesis', 'relAbundance']).size().to_frame().reset_index().sort_values(by=['Reject null hypothesis', 'relAbundance'], ascending=[False, False]).rename(columns={
+            0: '#%s' % cache_results['results']['col_feature'],
+            'relAbundance': '>= %f mean rel. abundance' % min_mean_abundance_per_feature,
+            'Reject null hypothesis': 'significantly different'
+        })
+        display(report_taxa)
+
+        srt_feat = srt_feat[srt_feat >= min_mean_abundance_per_feature]
+
+        fig, axes = plt.subplots(1,1,figsize=(5, 0.4 * report_taxa[report_taxa['significantly different'] & report_taxa['>= %f mean rel. abundance' % min_mean_abundance_per_feature]].iloc[0,-1]))
+        cache_results['plot'] = sns.barplot(
+            data=cache_results['results']['features'][cache_results['results']['features']['Reject null hypothesis']],
+            x='relAbundance', y=cache_results['results']['col_feature'], hue=cache_results['results']['col_grouping'],
+            order=srt_feat.index,
+            orient='h', ax=axes, palette=palette)
+
+        return cache_results
+
+    return _executor('ancom',
+                     {'counts': counts.fillna(0.0),
+                      'grouping': grouping.sort_values(),
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=settings.QIIME2_ENV,
+                     ppn=ppn,
+                     pmem=pmem,
+                     **executor_args)
+
 
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
@@ -4118,7 +4263,7 @@ def _md5(filepath):
 
 
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
-              post_cache=None,
+              post_cache=None, post_cache_arguments=dict(),
               dry=True, use_grid=True, ppn=10, nocache=False,
               pmem='20GB', environment=settings.QIIME_ENV, walltime='4:00:00',
               wait=True, timing=True, verbose=sys.stderr, array=1,
@@ -4254,7 +4399,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         f = open(results['file_cache'], 'rb')
         results = pickle.load(f)
         f.close()
-        return post_cache(results)
+        return post_cache(results, **post_cache_arguments)
 
     # phase 3: search in TMP dir if non-collected results are
     # ready or are waited for
@@ -4371,4 +4516,4 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     pickle.dump(results, f)
     f.close()
 
-    return post_cache(results)
+    return post_cache(results, **post_cache_arguments)
