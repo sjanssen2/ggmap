@@ -4093,15 +4093,22 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
     rank: str or (str, str)
         A taxonomic rank to which features shall be collapsed.
         Use 'raw' to avoid collapsing.
-        Use a tuple e.g. ('Family', 'Genus') to collapse on merged taxonomy ranks.
+        Use a tuple e.g. ('Family', 'Genus') to collapse on merged taxonomy
+        ranks.
     taxonomy: pd.Series
-        Taxonomic lineages for each feature in counts. Can be None if rank is 'raw'.
+        Taxonomic lineages for each feature in counts. Can be None if rank is
+        'raw'.
+    grouping: pd.Series
+        The metadata column on which samples of the feature table shall be
+        grouped into exactly two groups.
     min_mean_abundance_per_feature: float
-        only report features, that have on average a relative abundance of min_mean_abundance_per_feature
+        only report features, that have on average a relative abundance of
+        min_mean_abundance_per_feature
     palette: dict, optional
         You can pass a color dictionary to the underlying sns.barplot function
     executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose, dirty
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose,
+        dirty
 
     Returns
     -------
@@ -4113,7 +4120,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
     if grouping.value_counts().shape[0] < 2:
         raise ValueError("Your grouping information has only ONE group. It must be exactly two!")
     if grouping.value_counts().shape[0] > 2:
-        raise ValueError("Your grouping information more than two groups. It must be exactly two!")
+        raise ValueError("Your grouping information has more than two groups. It must be exactly two!")
 
     if rank is None:
         raise ValueError("Rank cannot be empty, choose from %s or set to 'raw'." % settings.RANKS)
