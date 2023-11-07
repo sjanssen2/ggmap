@@ -423,37 +423,55 @@ def _get_sample_numbers(num_samples, fields, names):
 
 
 def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
-    # check that rank is a valid taxonomic rank
-    if rank not in settings.RANKS + ['raw']:
-        raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
-                         (rank, ", ".join(settings.RANKS)))
+    label = rank
 
-    if rank != 'raw':
+    # check that rank is a valid taxonomic rank
+    if isinstance(rank, tuple):
+        ranks = list(rank)
+        label = ' and '.join(ranks)
+    elif isinstance(rank, str):
+        ranks = [rank, rank]
+    else:
+        raise ValueError("Argument rank must be either a string or a tuple of strings!")
+
+    for rank in ranks:
+        if rank not in settings.RANKS + ['raw']:
+            raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
+                             (rank, ", ".join(settings.RANKS)))
+
+    if settings.RANKS.index(ranks[0]) > settings.RANKS.index(ranks[-1]):
+        raise ValueError("You provided a range of taxonomic ranks, but your left rank is lower than your right one. Try to flip!")
+
+    if all(map(lambda rank: rank != 'raw', ranks)):
         # split lineage string into individual taxa names on ';' and remove
         # surrounding whitespaces. If rank does not exist return r+'__' instead
-        def _splitranks(x, rank):
+        def _splitranks(x, ranks):
             try:
-                return [t.strip()
-                        for t
-                        in x.split(";")][settings.RANKS.index(rank)]
+                res = []
+                for t in x.split(";")[settings.RANKS.index(ranks[0]):settings.RANKS.index(ranks[-1])+1]:
+                    res.append(t)
+                while len(res) < (settings.RANKS.index(ranks[-1]) - settings.RANKS.index(ranks[0]) + 1):
+                    res.append(settings.RANKS[settings.RANKS.index(ranks[0]) + len(res)].lower()[0] + "__")
+                res = ' '.join(map(str.strip, res))
+                return res
             except AttributeError:
                 # e.g. if lineage string is missing
-                settings.RANKS[settings.RANKS.index(rank)].lower()[0] + "__"
+                settings.RANKS[settings.RANKS.index(ranks[0])].lower()[0] + "__"
             except IndexError:
                 return settings.RANKS[
-                    settings.RANKS.index(rank)].lower()[0] + "__"
+                    settings.RANKS.index(ranks[0])].lower()[0] + "__"
 
         # add columns for each tax rank, such that we can groupby later on
-        counts_taxonomy[rank] = counts_taxonomy['taxonomy'].apply(
-            lambda x: _splitranks(x, rank))
+        counts_taxonomy[label] = counts_taxonomy['taxonomy'].apply(
+            lambda x: _splitranks(x, ranks))
         # sum counts according to the selected rank
-        counts_taxonomy = counts_taxonomy.reset_index().groupby(rank).sum(numeric_only=True)
+        counts_taxonomy = counts_taxonomy.reset_index().groupby(label).sum(numeric_only=True)
         # get rid of the old index, i.e. OTU ids, since we have grouped by some
         # rank
 
         if out:
             out.write('%i taxa left after collapsing to %s.\n' %
-                      (counts_taxonomy.shape[0], rank))
+                      (counts_taxonomy.shape[0], label))
     else:
         sample_cols = set(counts_taxonomy.columns) - set(['taxonomy'])
         counts_taxonomy = counts_taxonomy.loc[:, sample_cols]
