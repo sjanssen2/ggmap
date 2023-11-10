@@ -4185,7 +4185,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
 
         return results
 
-    def post_cache(cache_results, palette=None):
+    def post_cache(cache_results, palette=None, feature_order=None, hue_order=None):
         feat_sigdiff = cache_results['results']['ancom'][cache_results['results']['ancom']['Reject null hypothesis']].index
 
         data = cache_results['results']['features'][
@@ -4209,8 +4209,12 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
         cache_results['plot'] = sns.barplot(
             data=cache_results['results']['features'][cache_results['results']['features']['Reject null hypothesis']],
             x='relAbundance', y=cache_results['results']['col_feature'], hue=cache_results['results']['col_grouping'],
-            order=srt_feat.index,
+            order=srt_feat.index if feature_order is None else feature_order,
+            hue_order=hue_order,
             orient='h', ax=axes, palette=palette)
+
+        cache_results['results']['reported_features'] = srt_feat
+        cache_results['results']['figure'] = fig
 
         return cache_results
 
