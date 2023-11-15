@@ -422,7 +422,7 @@ def redundancy_analysis_alpha(metadata, alpha,
 
 def redundancy_analysis_beta(metadata, beta, metric_name,
                              categorials=[], ordinals={}, intervals=[],
-                             dates={}, num_dimensions=10, title=None,
+                             dates={}, num_dimensions=10, title=None, seed=None,
                              colors=None, ax=None,
                              **executor_args):
     """Perform a forward step redundancy analysis rearding alpha diversity.
@@ -452,6 +452,9 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
         Number of PCoA dimensions to consider.
     title : str
         Additional string that will be printed into figure's title
+    seed : int or None
+        As the R function ordiR2step relies on permutations, results won't be
+        stable unless to define a distinct seed.
     colors : dict(str -> str)
         A dictionary, defining the color for every metadata column.
     ax : plt.axes
@@ -509,6 +512,8 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
                     'vars_meta])  # Model with intercept only\n')
             f.write('mod1 <- rda(meta_beta[, vars_pcs] ~ ., meta_beta[, '
                     'vars_meta])  # Model with all explanatory variables\n')
+            if args['seed'] is not None:
+                f.write('set.seed(%i)\n' % args['seed'])
             f.write('step.res <- ordiR2step(mod0, mod1, perm.max = 1000)\n')
             f.write('write.table(step.res$anova, file=\'%s/result.tsv\', '
                     'quote=FALSE, sep=\'\\t\', col.names = NA)\n' % workdir)
@@ -540,7 +545,7 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
 
         rda = rda.reset_index().rename(columns={'index': 'covariate'})
 
-        return {'table': rda}
+        return {'table': rda, 'seed': args['seed']}
 
     def post_cache(cache_results):
         if cache_results['results']['table'].shape[0] > 0:
@@ -584,7 +589,8 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
                       'categorials': categorials,
                       'ordinals': ordinals,
                       'intervals': intervals,
-                      'dates': dates},
+                      'dates': dates,
+                      'seed': seed},
                      pre_execute,
                      commands,
                      post_execute,
