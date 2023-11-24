@@ -33,8 +33,10 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
         if verbose:
             print('Creating project directory structure:', file=verbose)
-    for subdir in ['', 'Incoming', 'Outgoing', 'FromQiita', 'tmp_workdir', os.path.join('Generated', 'Emperor'), 'Figures']:
+    for subdir in ['', 'Incoming', 'Outgoing', 'FromQiita', 'tmp_workdir/no_backup', os.path.join('Generated', 'Emperor'), 'Figures']:
         fp_subdir = os.path.join(fp_path_project, subdir)
+        if subdir.startswith('tmp_workdir'):
+            subdir = subdir.split('/')[0]
         prj_data['paths']['root' if subdir == '' else subdir] = os.path.abspath(fp_subdir)
         if force is False:
             os.makedirs(fp_subdir, exist_ok=True)
@@ -79,9 +81,21 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
                 raise ValueError("Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_demuxsheet)
 
     # peek into Illumina data directory
+    fp_tmp_dir = None
+    if os.path.isfile(fp_illuminadata) and fp_illuminadata.endswith('.tgz'):
+        fp_tmp_dir = os.path.join(prj_data['paths']['tmp_workdir'], os.path.basename(fp_demuxsheet)[:-4])
+        verbose.write("Found a compressed tar archive. Extracing into temporary directory '%s'" % fp_tmp_dir)
+        os.makedirs(fp_tmp_dir, exist_ok=True)
+        cluster_run(['tar xzf %s -C %s/' % (fp_illuminadata, prj_data['paths']['tmp_workdir'])],
+            'untar_seqdata',
+            os.path.join(fp_tmp_dir, 'RunInfo.xml'),
+            ppn=1,
+            dry=False, use_grid=False, wait=True)
+        fp_illuminadata = fp_tmp_dir
+
     if not force:
         if not os.path.exists(os.path.join(fp_illuminadata, 'RunInfo.xml')) or not os.path.exists(os.path.join(fp_illuminadata, 'Data', 'Intensities', 'BaseCalls')):
-            raise ValueError("Your path '%s' does not look like a typical Illumina raw data directory. Please double check. If you are certain it is correct, switch parameter 'force' to True.")
+            raise ValueError("Your path '%s' does not look like a typical Illumina raw data directory. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_illuminadata)
 
     prj_data['paths']['demux'] = os.path.join(prj_data['paths']['tmp_workdir'], 'demultiplex')
     os.makedirs(prj_data['paths']['demux'], exist_ok=True)
@@ -90,7 +104,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     if verbose:
         _, fp_tmp = tempfile.mkstemp()
-        cluster_run(['bcl2fastq --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='ggmap_spike', dry=False, use_grid=False)
+        cluster_run(['bcl2fastq --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment=settings.SPIKE_ENV, dry=False, use_grid=False)
         with open(fp_tmp, 'r') as f:
             print('using version: %s' % f.readlines()[1].strip())
 
@@ -99,10 +113,53 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
         prj_data['paths']['illumina_rawdata'],
         prj_data['paths']['demux'],
         prj_data['paths']['illumina_demuxsheet'],
-        ppn, ppn, ppn)], "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment="spike", ppn=ppn,
+        ppn, ppn, ppn)], "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment=settings.SPIKE_ENV, ppn=ppn,
         use_grid=False, dry=True)
 
     return prj_data
+
+def _report_trimratio(fp_logs):
+    res = []
+    for fp_log in glob(fp_logs):
+        with open(fp_log, 'r') as f:
+            fwd_name = None
+            rev_name = None
+            lines = f.readlines()
+            for i in range(len(lines)):
+                if lines[i].startswith('Command line parameters: '):
+                    parts = lines[i][len('Command line parameters: '):].split(' ')
+                    parts = dict(list(zip(parts[::2]+[''], parts[1::2])))
+                    if '-o' in parts:
+                        fwd_name = parts['-o'].split('/')[-1]
+                    if '-p' in parts:
+                        rev_name = parts['-p'].split('/')[-1]
+                if 'Total basepairs processed:' in lines[i]:
+                    offset = 3 if rev_name is not None else 2
+                    res.append({'name': fwd_name,
+                                'basepairs': lines[i+1].split()[2].replace(',',''),
+                                'direction': 'forward',
+                                'step': 'read'})
+                    res.append({'name': fwd_name,
+                                'basepairs': lines[i+1+offset].split()[2].replace(',',''),
+                                'direction': 'forward',
+                                'step': 'written'})
+                    if rev_name is not None:
+                        res.append({'name': rev_name,
+                                    'basepairs': lines[i+2].split()[2].replace(',',''),
+                                    'direction': 'reverse',
+                                    'step': 'read'})
+                        res.append({'name': rev_name,
+                                    'basepairs': lines[i+2+offset].split()[2].replace(',',''),
+                                    'direction': 'reverse',
+                                    'step': 'written'})
+    if len(res) > 0:
+        res = pd.DataFrame(res)
+        res['basepairs'] = res['basepairs'].astype(int)
+        report = res.groupby(['direction', 'step'])['basepairs'].mean().to_frame().unstack()
+        report['ratio'] = report.loc[:, ('basepairs', 'written')] / report.loc[:, ('basepairs', 'read')]
+        return report
+    else:
+        return None
 
 def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
     knownprimer = {
@@ -127,7 +184,7 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
             'orientation': 'rev',
             'position': '806r',
             'reference': 'Parada et al.',
-            'doi': '10.1111/1462-2920.13023 '},
+            'doi': '10.1111/1462-2920.13023'},
         'GGACTACNVGGGTWTCTAAT': {
             'gene': '16s',
             'region': 'V4',
@@ -135,6 +192,21 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
             'position': '806r',
             'reference': 'Apprill et al.',
             'doi': '10.3354/ame01753'},
+
+        'CCTACGGGNGGCWGCAG': {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'fwd',
+            'position': '341f',
+            'reference': 'Klindworth et al.',
+            'doi': ' 10.1093/nar/gks808'},
+        'GACTACHVGGGTATCTAATCC': {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'rev',
+            'position': '785r',
+            'reference': 'Klindworth et al.',
+            'doi': ' 10.1093/nar/gks808'},
     }
 
     if primerseq_fwd.upper() not in knownprimer.keys():
@@ -160,10 +232,14 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
         if not no_rev_seqs:
             fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
             fp_in_r2 = fp_in_r1.replace(r1r2_replace[0], r1r2_replace[1])
-            cmd += "-g %s -G %s -n 2 -o %s -p %s \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev, fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)
+            cmd += "-g %s -G %s -n 2 -o %s -p %s -m 1 \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev, fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)
         else:
-            cmd += "-g %s -n 1 -o %s \"%s\"" % (primerseq_fwd, fp_out_r1, fp_in_r1)
-        cluster_run([cmd], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid)
+            cmd += "-g %s -n 1 -o %s -m 1 \"%s\"" % (primerseq_fwd, fp_out_r1, fp_in_r1)
+        cluster_run([cmd], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid,
+                    file_qid=os.path.join(prj_data['paths']['tmp_workdir'], 'dummy'))
+    report = _report_trimratio('tmp_workdir/no_backup/slurmlog-cr_trimming-*.log')
+    if report is not None:
+        print(report)
 
     return prj_data
 
@@ -234,6 +310,7 @@ def process_study(metadata: pd.DataFrame,
                   rarefaction_min_depth=1000,
                   rarefaction_max_depth=None,
                   rarefaction_sample_grouping:pd.Series=None,
+                  fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval: str='/vol/jlab/MicrobiomeAnalyses/References/Q2-Naive_Bayes_classifiers/gg-13-8-99-nb-classifier_2022.11.qza',
                   fp_taxonomy_trained_classifier: str='/home/sjanssen/GreenGenes/gg-13-8-99-515-806-nb-classifier.qza',
                   tree_insert: TreeNode=None,
                   verbose=sys.stderr,
@@ -311,9 +388,22 @@ def process_study(metadata: pd.DataFrame,
             '"cutadapt -g %s -G %s -n 2 -o {output.forward} -p {output.reverse} {input.forward} {input.forward}"\n'
             '(p.s. primer suggestions %s)\n') % (primer_forward, primer_reverse, text))
 
+    # currently (Nov 17th, 2023) it looks like GG2 is lacking chloroplast / mitochondria labels, thus we need to use two taxonomy assignment runs:
+    # 1) against older GG13.8 to the remove ASVs falling into categories of mitochondria / chloroplast
+    # 2) against more recent GG2 for better taxonomy labels
+    # mail from Daniel McDonald:
+    # See here:
+    # https://forum.qiime2.org/t/taxonomy-filtering-greengenes2/28334
+    # GG2 does include chloroplast and mitochondria, but the labels were accidentally not part of the taxonomy decoration, which I'm very well aware of but while this is incredibly important, it is not the highest priority I have at the moment
+    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
+    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
+
     # compute taxonomic lineages for feature sequences
-    res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
-    idx_chloroplast_mitochondria = res_taxonomy['results'][res_taxonomy['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
+    if fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval:
+        res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
+    else:
+        res_taxonomy = res_taxonomy_GG138
+    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
@@ -337,9 +427,14 @@ def process_study(metadata: pd.DataFrame,
     results['counts_plantsStillIn'] = counts
     counts = counts.loc[sorted([feature for feature in counts.index if feature not in idx_chloroplast_mitochondria and feature in features_inserted]), sorted(counts.columns)]
 
-    results['taxonomy'] = {'RDP': res_taxonomy}
+    results['taxonomy'] = {'RDP': res_taxonomy, 'GG138': res_taxonomy_GG138}
     results['counts_plantsremoved'] = counts
 
+    numReadsPlantRemoval = results['counts_plantsStillIn'].sum().sum() - results['counts_plantsremoved'].sum().sum()
+    if numReadsPlantRemoval == 0:
+        verbose.write("It is very dubious that NO reads should be classified as chloroplasts or mitochondia?!\n")
+        return results
+    verbose.write('In total, %i reads (%f%%) have been filtered for chloroplast/mitochondia removal.\n' % (numReadsPlantRemoval, numReadsPlantRemoval / results['counts_plantsStillIn'].sum().sum() * 100))
     #return results
     # run: rarefaction curves
     if not skip_rarefaction_curves:
