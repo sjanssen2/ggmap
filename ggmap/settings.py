@@ -24,6 +24,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                  'variable_name': 'PLDIST_ENV'},
             'condaenv_dada2_pacbio': {'default': 'ggmap_dada2_pacbio',
                                  'variable_name': 'DADA2PACBIO_ENV'},
+            'condaenv_spike': {'default': 'ggmap_spike',
+                               'variable_name': 'SPIKE_ENV'},
             'condaenv_sourcetracker2': {'default': 'ggmap_sourcetracker2',
                                         'variable_name': 'SOURCETRACKER2_ENV'},
             # since condas init magic, activating an environment failes if
@@ -103,6 +105,8 @@ def init(err=sys.stderr):
     PLDIST_ENV = config['condaenv_pldist']
     global DADA2PACBIO_ENV
     DADA2PACBIO_ENV = config['condaenv_dada2_pacbio']
+    global SPIKE_ENV
+    SPIKE_ENV = config['condaenv_spike']
     global SOURCETRACKER2_ENV
     SOURCETRACKER2_ENV = config['condaenv_sourcetracker2']
     global FILE_REFERENCE_TREE
