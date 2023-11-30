@@ -887,6 +887,7 @@ def plotTaxonomy(file_otutable,
                 ax.fill_between(_shiftLeft(_repMiddleValues(xpos)),
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
+                                linewidth=0,  # no outline, just area
                                 color=color)
 
             if grayscale & \
@@ -3951,6 +3952,9 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
     show_legend : bool
         Draw legend.
         Default = True
+
+    Returns
+    -------
     """
     ROWS = ['A','B','C','D','E','F','G','H']
     COLS = [1,2,3,4,5,6,7,8,9,10,11,12]
@@ -3996,4 +4000,4 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
         axes.legend(handles=[Patch(color=colors[val], label=val) for val in sorted_keys], loc='upper left', bbox_to_anchor=(1.01, 1), title=col_label)
     axes.set_title('Plate Layout by "%s" and "%s"' % (col_position, col_label))
 
-    return fig
+    return fig, colors
