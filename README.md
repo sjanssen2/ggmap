@@ -14,7 +14,8 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
  3. clone github repo via: `git clone https://github.com/sjanssen2/ggmap.git`
  4. cd into the new directory `cd ggmap`
  5. install modules from sources `python setup.py develop --user`
-     * should the above command fail, you can alternatively try to install dependencies via conda like ``conda install -c conda-forge `cat ci/conda_requirements.txt | cut -d ">" -f 1 | xargs` `` and thereafter repeat the command of step 5. 
+     * should the above command fail, you can alternatively try to install dependencies via conda like ``conda install -c conda-forge `cat ci/conda_requirements.txt | grep -v '#' | cut -d ">" -f 1 | xargs` `` and thereafter repeat the command of step 5.
+     * I recommend to pip install the two statannot packages directly from their github repos as there are no conda packages available. See comments in `ci/conda_requirements.txt`
      * only for BCF System: you probably have to set the proxy to enable conda to speak to the internet: `export ftp_proxy="http://proxy.computational.bio.uni-giessen.de:3128" && export http_proxy="http://proxy.computational.bio.uni-giessen.de:3128" && export https_proxy="http://proxy.computational.bio.uni-giessen.de:3128"`
 
 ### Install for JupyterHub (skip if you install on your local machine)
