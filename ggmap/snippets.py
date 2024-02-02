@@ -1850,6 +1850,9 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
     for group in groups:
         sns.distplot(alpha.loc[groupings[groupings == group].index],
                      hist=False, label=group, ax=ax, rug=True)
+        # add legends to the histograms to know which color belongs to which
+        # group
+        ax.legend(loc="upper left")
 
     return ax
 
@@ -2887,7 +2890,7 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series,
     classes = set(y_true.unique()) | set(y_pred.unique())
 
     # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred, sorted(classes))
+    cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=sorted(classes))
 
     if normalize:
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
