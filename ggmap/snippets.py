@@ -3100,6 +3100,9 @@ def ganttChart(metadata: pd.DataFrame,
         meta[COL_DEATH] = meta[cols_dates].stack().max()
 
     if align_to_event_title is not None:
+        entities_without_aligntitle = [k for k,v in (meta.groupby(col_entities)[col_events_title].apply(lambda x: align_to_event_title in x.values)).items() if v is False]
+        if len(entities_without_aligntitle) > 0:
+            raise ValueError("Cannot align all %ss, because the following %i do not have a sample for %s: \n\t%s" % (col_entity, len(entities_without_aligntitle), align_to_event_title, "\n\t".join(entities_without_aligntitle)))
         for entity in meta[col_entities].unique():
             offset = meta[
                 (meta[col_entities] == entity) &
