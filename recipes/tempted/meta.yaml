@@ -58,7 +58,7 @@ test:
 #    - test_L644.tp40.bam.Q20.fastq
 #    - test_L833.tp40.bam.Q20.fastq
   commands:
-    - echo 'library("tempted"); ?tempted_all;' | R --vanilla | grep Martino > obs.test
+    - echo 'library("tempted"); ?tempted_all;' | R --vanilla | grep Martino -c > obs.test
     - echo '1' > exp.test
     - diff exp.test obs.test
 
