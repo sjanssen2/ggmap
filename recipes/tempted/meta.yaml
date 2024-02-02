@@ -67,3 +67,7 @@ about:
   summary: 'Perform dimensionality reduction for multivariate longitudinal data, with a special attention to longitudinal mirobiome studies.'
   description: |
     This is a vignette for the R package tempted, which implements the statistical method TEMPoral TEnsor Decomposition (TEMPTED). The goal of TEMPTED is to perform dimensionality reduction for multivariate longitudinal data, with a special attention to longitudinal mirobiome studies.
+
+# register as jupyter notebook: within R
+#install.packages('IRkernel')
+#IRkernel::installspec(name = 'ir43', displayname = 'R 4.2 tempted')
