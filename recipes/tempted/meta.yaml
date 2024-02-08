@@ -1,0 +1,73 @@
+package:
+  name: tempted
+  version: "0.1.0"
+
+build:
+  number: 1
+
+requirements:
+  build:
+    - 'r-base >=4.2.0'
+    - r-essentials
+    - 'r-ggplot2 >=3.4.0'
+    - r-readr
+    - r-dplyr
+    - r-yaml
+    - r-tidyr
+    - r-reticulate
+    - r-vegan
+    - r-randomforest
+    - r-prroc
+    - r-ggpubr
+    - r-gridextra
+    - r-rcolorbrewer
+    - r-plotly
+    - 'r-np >=0.60-17'
+    - r-ape
+    - r-igraph
+    - libxml2  # for r-igraph: libxml/globals.h: No such file or directory
+    - r-ade4
+
+  run:
+    - 'r-base >=4.2.0'
+    - r-essentials
+    - 'r-ggplot2 >=3.4.0'
+    - r-readr
+    - r-dplyr
+    - r-yaml
+    - r-tidyr
+    - r-reticulate
+    - r-vegan
+    - r-randomforest
+    - r-prroc
+    - r-ggpubr
+    - r-gridextra
+    - r-rcolorbrewer
+    - r-plotly
+    - 'r-np >=0.60-17'
+    - r-ape
+    - r-igraph
+    - libxml2  # for r-igraph: libxml/globals.h: No such file or directory
+    - r-ade4
+
+test:
+#  files:
+#    - test.R
+#    - test_demux.csv
+#    - test_exp_featuretable.csv
+#    - test_L644.tp40.bam.Q20.fastq
+#    - test_L833.tp40.bam.Q20.fastq
+  commands:
+    - echo 'library("tempted"); ?tempted_all;' | R --vanilla | grep Martino -c > obs.test
+    - echo '1' > exp.test
+    - diff exp.test obs.test
+
+about:
+  home: https://github.com/pixushi/tempted
+  summary: 'Perform dimensionality reduction for multivariate longitudinal data, with a special attention to longitudinal mirobiome studies.'
+  description: |
+    This is a vignette for the R package tempted, which implements the statistical method TEMPoral TEnsor Decomposition (TEMPTED). The goal of TEMPTED is to perform dimensionality reduction for multivariate longitudinal data, with a special attention to longitudinal mirobiome studies.
+
+# register as jupyter notebook: within R
+#install.packages('IRkernel')
+#IRkernel::installspec(name = 'ir43', displayname = 'R 4.2 tempted')
