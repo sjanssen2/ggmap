@@ -439,7 +439,7 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
             raise ValueError('"%s" is not a valid taxonomic rank. Choose from %s' %
                              (rank, ", ".join(settings.RANKS)))
 
-    if settings.RANKS.index(ranks[0]) > settings.RANKS.index(ranks[-1]):
+    if all([r != 'raw' for r in ranks]) and (settings.RANKS.index(ranks[0]) > settings.RANKS.index(ranks[-1])):
         raise ValueError("You provided a range of taxonomic ranks, but your left rank is lower than your right one. Try to flip!")
 
     if all(map(lambda rank: rank != 'raw', ranks)):
@@ -759,7 +759,7 @@ def plotTaxonomy(file_otutable,
     elif grayscale is True:
         taxaidx = [taxon for taxon in taxaidx if taxon in highAbundantTaxa] +\
                   [taxon for taxon in taxaidx if taxon not in highAbundantTaxa]
-    rank_counts = rank_counts.loc[taxaidx, :]
+    rank_counts = rank_counts.loc[[t for t in taxaidx if t in rank_counts.index], :]
 
     levels = [f for f in [group_l2, group_l1, group_l0] if f is not None]
 
@@ -1102,6 +1102,7 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('module load ') or\
            cmd.startswith('var_') or\
            cmd.startswith('export ') or\
+           cmd.startswith('source ') or\
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         elif cmd.startswith('if [ '):
@@ -1121,6 +1122,20 @@ def _add_timing_cmds(commands, file_timing):
                                (settings.EXEC_TIME, file_timing, cmd))
     return timing_cmds
 
+
+def get_conda_activate_cmd(use_grid, environment):
+    if settings.GRIDNAME == 'JLU':
+        # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
+        if use_grid is False:
+            cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
+        else:
+            cmd_conda = "conda activate %s; " % (environment)
+    elif settings.GRIDNAME == 'JLU_SLURM':
+        cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
+    else:
+        cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
+            settings.DIR_CONDA, settings.DIR_CONDA, environment)
+    return cmd_conda
 
 def cluster_run(cmds, jobname, result, environment=None,
                 walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
@@ -1242,17 +1257,18 @@ def cluster_run(cmds, jobname, result, environment=None,
             if (env_present.wait() != 0):
                 raise ValueError("Conda environment '%s' not present." %
                                  environment)
-        if settings.GRIDNAME == 'JLU':
-            # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
-            if use_grid is False:
-                cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-            else:
-                cmd_conda = "conda activate %s; " % (environment)
-        elif settings.GRIDNAME == 'JLU_SLURM':
-            cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-        else:
-            cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
-                settings.DIR_CONDA, settings.DIR_CONDA, environment)
+        cmd_conda = get_conda_activate_cmd(use_grid, environment)
+        # if settings.GRIDNAME == 'JLU':
+        #     # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
+        #     if use_grid is False:
+        #         cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
+        #     else:
+        #         cmd_conda = "conda activate %s; " % (environment)
+        # elif settings.GRIDNAME == 'JLU_SLURM':
+        #     cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
+        # else:
+        #     cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
+        #         settings.DIR_CONDA, settings.DIR_CONDA, environment)
 
     slurm = False
     if use_grid is False:
