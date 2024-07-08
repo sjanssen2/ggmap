@@ -4,6 +4,7 @@ import biom
 from biom.util import biom_open
 from itertools import repeat, chain
 import numpy as np
+import matplotlib as mpl
 import matplotlib.patches as mpatches
 from matplotlib.font_manager import FontProperties
 import os
@@ -32,6 +33,8 @@ from matplotlib.patches import Patch
 import math
 from skbio.sequence import DNA
 from skbio.tree import TreeNode
+from wordcloud import WordCloud
+import requests
 
 if 'PROJ_LIB' not in os.environ:
     os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
@@ -1251,12 +1254,13 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             file_condaenvinfo = " > %s" % file_condaenvinfo
         # check if environment exists
-        with subprocess.Popen("%s/condabin/conda list -n %s %s" % (settings.DIR_CONDA, environment, file_condaenvinfo),
-                              shell=True,
-                              stdout=subprocess.PIPE) as env_present:
-            if (env_present.wait() != 0):
-                raise ValueError("Conda environment '%s' not present." %
-                                 environment)
+        if '/' not in environment:  # special case where we use environments in non standard paths
+            with subprocess.Popen("%s/condabin/conda list -n %s %s" % (settings.DIR_CONDA, environment, file_condaenvinfo),
+                                  shell=True,
+                                  stdout=subprocess.PIPE) as env_present:
+                if (env_present.wait() != 0):
+                    raise ValueError("Conda environment '%s' not present." %
+                                     environment)
         cmd_conda = get_conda_activate_cmd(use_grid, environment)
         # if settings.GRIDNAME == 'JLU':
         #     # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
@@ -1877,7 +1881,8 @@ def plotGroup_permanovas(beta, groupings,
                          network, n_per_group, min_group_size,
                          num_permutations, metric_name, group_name, fct_name,
                          ax=None, horizontal=False, edgelabel_decimals=2,
-                         print_sample_numbers=False, colors_boxplot=None):
+                         print_sample_numbers=False, colors_boxplot=None,
+                         plt_fct=sns.boxplot):
     """
     Parameters
     ----------
@@ -1893,6 +1898,7 @@ def plotGroup_permanovas(beta, groupings,
     colors_boxplot : dict(metadata_field: RGB)
         Default: None
         Set color schema for boxplots in "sample rel. abundance" plot.
+    plt_fct : sns.boxplot
     """
     # remove samples whose grouping in NaN
     groupings = groupings.dropna()
@@ -1985,13 +1991,16 @@ def plotGroup_permanovas(beta, groupings,
             raise ValueError("Not all group conditions have defined colors! %s" % ",".join(missing_colors))
         colors = colors_boxplot
 
-    sns.boxplot(data=pd.DataFrame(data),
+    plt_settings = {}
+    if plt_fct == sns.stripplot:
+        plt_settings['dodge'] = True
+    plt_fct(data=pd.DataFrame(data),
                 x=x_axis,
                 y=y_axis,
                 hue='_type',
                 hue_order=[name_left, name_inter, name_right],
                 ax=ax,
-                palette=colors)
+                palette=colors, **plt_settings)
     if horizontal:
         ax.legend_.remove()
         ax.yaxis.tick_right()
@@ -2006,7 +2015,8 @@ def plotGroup_permanovas(beta, groupings,
 # definition of network plots
 def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: dict, b_min_num=5, pthresh=0.05,
                  permutations=999, name=None, minnumalpha=21,
-                 fct_beta_test=permanova, fct_alpha_test=mannwhitneyu, summarize=False):
+                 fct_beta_test=permanova, fct_alpha_test=mannwhitneyu, summarize=False,
+                 beta_plt_fct=sns.boxplot):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
 
     Parameters
@@ -2043,6 +2053,8 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
     fct_alpha_test : function
         Default: mannwhitneyu
         Python function to execute test.
+    beta_plt_fct : function
+        default: sns.boxplot
 
     Returns
     -------
@@ -2135,7 +2147,7 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
                     plotGroup_permanovas(
                         beta[b_metric], metadata[field], **b,
                         ax=_get_ax(axarr, row, 1),
-                        horizontal=True)
+                        horizontal=True, plt_fct=beta_plt_fct)
                 row += 1
 
         if (summarize is False):
@@ -3118,7 +3130,7 @@ def ganttChart(metadata: pd.DataFrame,
     if align_to_event_title is not None:
         entities_without_aligntitle = [k for k,v in (meta.groupby(col_entities)[col_events_title].apply(lambda x: align_to_event_title in x.values)).items() if v is False]
         if len(entities_without_aligntitle) > 0:
-            raise ValueError("Cannot align all %ss, because the following %i do not have a sample for %s: \n\t%s" % (col_entity, len(entities_without_aligntitle), align_to_event_title, "\n\t".join(entities_without_aligntitle)))
+            raise ValueError("Cannot align all %ss, because the following %i do not have a sample for %s: \n\t%s" % (col_entities, len(entities_without_aligntitle), align_to_event_title, "\n\t".join(entities_without_aligntitle)))
         for entity in meta[col_entities].unique():
             offset = meta[
                 (meta[col_entities] == entity) &
@@ -4023,3 +4035,103 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
     axes.set_title('Plate Layout by "%s" and "%s"' % (col_position, col_label))
 
     return fig, colors
+
+def dbbact_wordcloud(counts: pd.DataFrame, min_sample_ratio: float=1/3, title=None,
+                     dbbact_url='https://dbbact.org', img_width: int=400, img_height: int=200, img_DPI=100, skip_figure=False):
+    """Submits ASVs in at least `min_sample_ratio` samples to dbBact to retrieve
+       F-scores and draws an wordcloud from them.
+
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Feature-table
+    min_sample_ratio : float
+        Default: 1/3
+    title : str
+        Default: none. Print a title above the word cloud.
+    skip_figure : bool
+        Do NOT generate the wordcloud figure, just return the F-scores.
+        Default: False
+    """
+    def _get_color(word, font_size, position, orientation, font_path, random_state, fscore, recall, precision, term_count):
+        '''Get the color for a wordcloud term based on the term_count and higher/lower
+
+        If term starts with "-", it is lower in and colored red. otherwise colored blue
+        If we have term_count, we use it to color from close to white(low count) to full color (>=10 experiments)
+
+        Parameters
+        ----------
+        fscores: dict of {term(str): fscore(float)}
+            between 0 and 1
+        recall: dict of {term(str): recall score(float)}, optional
+        precision: dict of {term(str): precision score(float)}, optional
+        term_count: dict of {term(str): number of experiments with term(float)}, optional
+            used to determine the color intensity
+
+
+        Returns
+        -------
+        str: the color in hex "0#RRGGBB"
+        '''
+        if word in term_count:
+            count = min(term_count[word], 10)
+        else:
+            count = 10
+
+        if word[0] == '-':
+            cmap = mpl.cm.get_cmap('Oranges')
+            rgba = cmap(float(0.4 + count / 40), bytes=True)
+        else:
+            cmap = mpl.cm.get_cmap('Purples')
+            rgba = cmap(float(0.4 + count / 40), bytes=True)
+
+        red = format(rgba[0], '02x')
+        green = format(rgba[1], '02x')
+        blue = format(rgba[2], '02x')
+        return '#%s%s%s' % (red, green, blue)
+
+    #for prot in ['http', 'https']:
+    #    os.environ["%s_proxy" % prot] = 'http://proxy.computational.bio.uni-giessen.de:3128'
+    proxies = {prot: 'http://proxy.computational.bio.uni-giessen.de:3128'
+               for prot in ['http', 'https', 'ftp']}
+
+    if counts.shape[1] <= 0:
+        raise ValueError("Your feature table provides zero samples!")
+
+    sel_features = [feature
+                    for feature, occ
+                    in (counts > 0).sum(axis=1).items()
+                    if float(occ) >= min_sample_ratio * counts.shape[1]]
+
+    if len(sel_features) <= 0:
+        raise ValueError("None of the %i features occur in %.2f%% of the %i samples!" % (counts.shape[0], min_sample_ratio, counts.shape[1]))
+    print("use %i of %i ASVs" % (len(sel_features), counts.shape[0]))
+
+    #dbbact = requests.get('%s/sequences_fscores' % dbbact_url, json={'sequences': sel_features}, verify=False)
+    dbbact = requests.post('%s/sequences_fscores' % dbbact_url, json={'sequences': sel_features}, proxies=proxies)#, verify=False)
+    if dbbact.status_code != 200:
+        raise ValueError("could not obtain F-scores from dbBact: %s\n%s" % (dbbact.reason, dbbact._content))
+
+    fscores = dbbact.json()
+    fig = None
+
+    if skip_figure is False:
+        wc = WordCloud(width=img_width,
+                       height=img_height,
+                       background_color='white',
+                       relative_scaling=float(0.5),
+                       stopwords=set(),
+                       color_func=lambda *x, **y: _get_color(
+                          *x, **y, fscore=fscores, recall={},
+                          precision={}, term_count={}))
+        cloud = wc.generate_from_frequencies(fscores)
+
+        fig = plt.figure(figsize=(img_width/img_DPI, img_height/img_DPI), dpi=img_DPI, frameon=False)
+        ax = plt.Axes(fig, [0., 0., 1., 1.])
+        ax.set_axis_off()
+        if title is not None:
+            ax.set_title(title)
+        fig.add_axes(ax)
+        ax.imshow(cloud, aspect='auto')
+
+    return {'figure': fig, 'f-scores': fscores, 'sel_asvs': sel_features}
