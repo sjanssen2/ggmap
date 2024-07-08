@@ -28,6 +28,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                'variable_name': 'SPIKE_ENV'},
             'condaenv_sourcetracker2': {'default': 'ggmap_sourcetracker2',
                                         'variable_name': 'SOURCETRACKER2_ENV'},
+            'condaenv_tempted': {'default': 'ggmap_tempted',
+                                 'variable_name': 'TEMPTED_ENV'},
             # since condas init magic, activating an environment failes if
             # .bashrc is not read, which is the case when executing a
             # subprocess from python :-(
@@ -109,6 +111,8 @@ def init(err=sys.stderr):
     SPIKE_ENV = config['condaenv_spike']
     global SOURCETRACKER2_ENV
     SOURCETRACKER2_ENV = config['condaenv_sourcetracker2']
+    global TEMPTED_ENV
+    TEMPTED_ENV = config['condaenv_tempted']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
     global FILE_REFERENCE_SEPP
