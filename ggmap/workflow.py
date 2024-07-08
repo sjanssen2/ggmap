@@ -118,7 +118,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def _report_trimratio(fp_logs):
+def _report_trimratio(fp_logs, no_rev_seqs=False):
     res = []
     for fp_log in glob(fp_logs):
         with open(fp_log, 'r') as f:
@@ -134,23 +134,33 @@ def _report_trimratio(fp_logs):
                     if '-p' in parts:
                         rev_name = parts['-p'].split('/')[-1]
                 if 'Total basepairs processed:' in lines[i]:
-                    offset = 3 if rev_name is not None else 2
-                    res.append({'name': fwd_name,
-                                'basepairs': lines[i+1].split()[2].replace(',',''),
-                                'direction': 'forward',
-                                'step': 'read'})
-                    res.append({'name': fwd_name,
-                                'basepairs': lines[i+1+offset].split()[2].replace(',',''),
-                                'direction': 'forward',
-                                'step': 'written'})
-                    if rev_name is not None:
-                        res.append({'name': rev_name,
-                                    'basepairs': lines[i+2].split()[2].replace(',',''),
-                                    'direction': 'reverse',
+                    if no_rev_seqs is False:
+                        offset = 3 if rev_name is not None else 2
+                        res.append({'name': fwd_name,
+                                    'basepairs': lines[i+1].split()[2].replace(',',''),
+                                    'direction': 'forward',
                                     'step': 'read'})
-                        res.append({'name': rev_name,
-                                    'basepairs': lines[i+2+offset].split()[2].replace(',',''),
-                                    'direction': 'reverse',
+                        res.append({'name': fwd_name,
+                                    'basepairs': lines[i+1+offset].split()[2].replace(',',''),
+                                    'direction': 'forward',
+                                    'step': 'written'})
+                        if rev_name is not None:
+                            res.append({'name': rev_name,
+                                        'basepairs': lines[i+2].split()[2].replace(',',''),
+                                        'direction': 'reverse',
+                                        'step': 'read'})
+                            res.append({'name': rev_name,
+                                        'basepairs': lines[i+2+offset].split()[2].replace(',',''),
+                                        'direction': 'reverse',
+                                        'step': 'written'})
+                    else:
+                        res.append({'name': fwd_name,
+                                    'basepairs': lines[i].split()[3].replace(',',''),
+                                    'direction': 'forward',
+                                    'step': 'read'})
+                        res.append({'name': fwd_name,
+                                    'basepairs': lines[i+1].split()[3].replace(',',''),
+                                    'direction': 'forward',
                                     'step': 'written'})
     if len(res) > 0:
         res = pd.DataFrame(res)
@@ -237,7 +247,7 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
             cmd += "-g %s -n 1 -o %s -m 1 \"%s\"" % (primerseq_fwd, fp_out_r1, fp_in_r1)
         cluster_run([cmd], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid,
                     file_qid=os.path.join(prj_data['paths']['tmp_workdir'], 'dummy'))
-    report = _report_trimratio('tmp_workdir/no_backup/slurmlog-cr_trimming-*.log')
+    report = _report_trimratio(os.path.join(prj_data['paths']['tmp_workdir'], 'slurmlog-cr_trimming-*.log'), no_rev_seqs=no_rev_seqs)
     if report is not None:
         print(report)
 
@@ -326,7 +336,8 @@ def process_study(metadata: pd.DataFrame,
                   alpha_metrics=["PD_whole_tree", "shannon", "observed_features"],
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
                   deblur_remove_features_lessthanXreads: int=10,
-                  skip_rarefaction_curves=False):
+                  skip_rarefaction_curves=False,
+                  ignore_noplantmito=False):
     """
     parameters
     ----------
@@ -412,6 +423,8 @@ def process_study(metadata: pd.DataFrame,
         verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if (tree_insert is None) and (fp_insertiontree is not None):
+        if tree_insert.count() <= 1:
+            raise ValueError("Something is off with your insertion tree, as it holds no more than one node?!")
         tree_insert = TreeNode.read(fp_insertiontree, format='newick')
     # collect tips actually inserted into tree
     if (tree_insert is not None):
@@ -431,7 +444,7 @@ def process_study(metadata: pd.DataFrame,
     results['counts_plantsremoved'] = counts
 
     numReadsPlantRemoval = results['counts_plantsStillIn'].sum().sum() - results['counts_plantsremoved'].sum().sum()
-    if numReadsPlantRemoval == 0:
+    if (numReadsPlantRemoval == 0) and (ignore_noplantmito is False):
         verbose.write("It is very dubious that NO reads should be classified as chloroplasts or mitochondia?!\n")
         return results
     verbose.write('In total, %i reads (%f%%) have been filtered for chloroplast/mitochondia removal.\n' % (numReadsPlantRemoval, numReadsPlantRemoval / results['counts_plantsStillIn'].sum().sum() * 100))
