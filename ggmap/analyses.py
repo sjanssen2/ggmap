@@ -20,11 +20,12 @@ import matplotlib.patches as mpatches
 from matplotlib.ticker import FuncFormatter
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+from skbio import OrdinationResults
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, get_conda_activate_cmd)
 from ggmap import settings
 import seaborn as sns
 import networkx as nx
@@ -176,7 +177,8 @@ def _parse_alpha_div_collated(workdir, samplenames):
 
 def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
                              control_sample_names=[],
-                             sample_grouping:pd.Series=None):
+                             sample_grouping:pd.Series=None,
+                             onlyshow=None):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -205,78 +207,89 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
                       for grp, col
                       in zip(sample_grouping.unique(), sns.color_palette() * (int(len(sample_grouping.unique()) / 10)+1))}
 
-    fig, axes = plt.subplots(2+len(data['metrics']),
+    fig, axes = plt.subplots(2+len(data['metrics']) if onlyshow is None else 1,
                              1,
-                             figsize=(5, (2+len(data['metrics']))*5),
+                             figsize=(5, (2+len(data['metrics']))*5) if onlyshow is None else (5, 5),
                              sharex=False)
 
     # read count histogram
-    ax = axes[0]
-    n, bins, patches = ax.hist(data['readcounts'].fillna(0.0),
-                               50,
-                               facecolor='black',
-                               alpha=0.75)
-    ax.set_title('Read count distribution across samples')
-    ax.set_xlabel("read counts")
-    ax.set_ylabel("# samples")
-    ax.get_xaxis().set_major_formatter(
-        FuncFormatter(lambda x, p: format(int(x), ',')))
+    if onlyshow is None:
+        ax = axes[0]
+        n, bins, patches = ax.hist(data['readcounts'].fillna(0.0),
+                                   50,
+                                   facecolor='black',
+                                   alpha=0.75)
+        ax.set_title('Read count distribution across samples')
+        ax.set_xlabel("read counts")
+        ax.set_ylabel("# samples")
+        ax.get_xaxis().set_major_formatter(
+            FuncFormatter(lambda x, p: format(int(x), ',')))
 
     # loosing samples
-    ax = axes[1]
     lost = data['remaining'].max().sum() - data['remaining'].sum(axis=1)
-    for control in control_sample_names:
-        # plot a vertical gray line to indicate one control sample.
-        if control in data['readcounts']:
-            ax.axvline(x=data['readcounts'].loc[control], color='lightgray')
+    if onlyshow is None:
+        ax = axes[1]
+        for control in control_sample_names:
+            # plot a vertical gray line to indicate one control sample.
+            if control in data['readcounts']:
+                ax.axvline(x=data['readcounts'].loc[control], color='lightgray')
 
-    for grp, g in data['remaining'].T.iterrows():
-        color = None
+        for grp, g in data['remaining'].T.iterrows():
+            color = None
+            if sample_grouping is not None:
+                color = grp_colors[grp]
+            ax.plot(g.index, g, label=grp, color=color)
+            # add an horizontal line for the left region where no samples are lost, since no sample has that little reads
+            ax.plot([0, g.index[0]], [g.iloc[0], g.iloc[0]], color=color, lw=2)
         if sample_grouping is not None:
-            color = grp_colors[grp]
-        ax.plot(g.index, g, label=grp, color=color)
-        # add an horizontal line for the left region where no samples are lost, since no sample has that little reads
-        ax.plot([0, g.index[0]], [g.iloc[0], g.iloc[0]], color=color, lw=2)
-    if sample_grouping is not None:
-        ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
-    else:
-        ax.plot(lost.index, lost, label='lost')
+            ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
+        else:
+            ax.plot(lost.index, lost, label='lost')
 
-    ax.set_xlabel("rarefaction depth")
-    ax.set_ylabel("# samples")
-    ax.set_title('How many of the %i samples do we loose?' %
-                 data['readcounts'].shape[0])
-    ax.get_xaxis().set_major_formatter(
-        FuncFormatter(lambda x, p: format(int(x), ',')))
+        ax.set_xlabel("rarefaction depth")
+        ax.set_ylabel("# samples")
+        ax.set_title('How many of the %i samples do we loose?' %
+                     data['readcounts'].shape[0])
+        ax.get_xaxis().set_major_formatter(
+            FuncFormatter(lambda x, p: format(int(x), ',')))
 
     lostHalf = abs(data['remaining'].sum(axis=1) - lost)
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
     maxX = lostHalf * 1.1
     if maxX < data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].mean():
         maxX = data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].max() * 1.1
-    ax.set_xlim(0, maxX)
+    if onlyshow is None:
+        ax.set_xlim(0, maxX)
 
     for i, metric in enumerate(sorted(data['metrics'].keys())):
+        ax = None
+        if onlyshow is not None:
+            if metric != onlyshow:
+                continue
+            else:
+                ax = axes
+        else:
+            ax = axes[i+2]
+
         # using different drawing methods for normal grouping by sample name and alternative grouping due to speed
         if sample_grouping is None:
             for sample, g in data['metrics'][metric].groupby('sample_name'):
                 gsorted = g.sort_values('rarefaction depth')
-                axes[i+2].errorbar(
+                ax.errorbar(
                     gsorted['rarefaction depth'],
                     gsorted[gsorted.columns[-1]])
         else:
             grps = data['metrics'][metric].merge(sample_grouping, left_on='sample_name', right_index=True).groupby(sample_grouping.name)
             for grp, g in grps:
                 d = g.groupby('rarefaction depth')[metric].describe()
-                axes[i+2].errorbar(d.index, d['mean'], yerr=d['std'], label=grp, color=grp_colors[grp], ecolor=adjust_saturation(grp_colors[grp], 0.9))
+                ax.errorbar(d.index, d['mean'], yerr=d['std'], label=grp, color=grp_colors[grp], ecolor=adjust_saturation(grp_colors[grp], 0.9))
             if i == 0:
-                axes[i+2].legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
-        axes[i+2].set_ylabel(metric)
-        axes[i+2].set_xlabel('rarefaction depth')
-        axes[i+2].set_xlim(0, maxX)
-        axes[i+2].get_xaxis().set_major_formatter(
+                ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
+        ax.set_ylabel(metric)
+        ax.set_xlabel('rarefaction depth')
+        ax.set_xlim(0, maxX)
+        ax.get_xaxis().set_major_formatter(
             FuncFormatter(lambda x, p: format(int(x), ',')))
-
 
     return fig
 
@@ -324,7 +337,7 @@ def rarefaction_curves(counts,
                        num_steps=20, reference_tree=None, max_depth=None,
                        min_depth=1000, num_iterations=10,
                        control_sample_names=[], fix_zero_len_branches=False,
-                       sample_grouping:pd.Series=None,
+                       sample_grouping:pd.Series=None, onlyshow=None,
                        pmem='8GB', **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
@@ -353,6 +366,9 @@ def rarefaction_curves(counts,
         Default: [].
         A set of samples that serve as controls, i.e. samples that we are
         willing to loose during rarefaction. Only used for plotting.
+    onlyshow : str
+        Only return the single rarefaction graph with the given metric name.
+        Default: None, i.e. return all graphs
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -469,7 +485,8 @@ def rarefaction_curves(counts,
         cache_results['results'] = \
             _plot_rarefaction_curves(cache_results['results'],
                                      control_sample_names=control_sample_names,
-                                     sample_grouping=sample_grouping)
+                                     sample_grouping=sample_grouping,
+                                     onlyshow=onlyshow)
         return cache_results
 
 
@@ -4174,13 +4191,21 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
         feat = args['counts'] / args['counts'].sum()
         # restructure data
         feat = feat.stack().reset_index().rename(columns={'level_1': 'sample_name', 0: 'relAbundance'})
+
+        merge_on = args['counts'].index.name
+        if rank == 'raw':
+            feat = feat.rename(columns={'level_0': 'raw'})
+            if merge_on is None:
+                merge_on = 'raw'
+
         # assign grouping values
         feat = feat.merge(args['grouping'].to_frame(), left_on='sample_name', right_index=True, how='left')
         # add 'Reject null hypothesis'
-        feat = feat.merge(results['ancom'][['Reject null hypothesis']], left_on=args['counts'].index.name, right_index=True, how='left')
+
+        feat = feat.merge(results['ancom'][['Reject null hypothesis']], left_on=merge_on, right_index=True, how='left')
         results['features'] = feat
 
-        results['col_feature'] = args['counts'].index.name
+        results['col_feature'] = merge_on
         results['col_grouping'] = args['grouping'].name
 
         return results
@@ -4204,17 +4229,18 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
         display(report_taxa)
 
         srt_feat = srt_feat[srt_feat >= min_mean_abundance_per_feature]
-
-        fig, axes = plt.subplots(1,1,figsize=(5, 0.4 * report_taxa[report_taxa['significantly different'] & report_taxa['>= %f mean rel. abundance' % min_mean_abundance_per_feature]].iloc[0,-1]))
-        cache_results['plot'] = sns.barplot(
-            data=cache_results['results']['features'][cache_results['results']['features']['Reject null hypothesis']],
-            x='relAbundance', y=cache_results['results']['col_feature'], hue=cache_results['results']['col_grouping'],
-            order=srt_feat.index if feature_order is None else feature_order,
-            hue_order=hue_order,
-            orient='h', ax=axes, palette=palette)
+        if report_taxa[report_taxa['significantly different'] & report_taxa['>= %f mean rel. abundance' % min_mean_abundance_per_feature]].shape[0] > 0:
+            fig, axes = plt.subplots(1,1,figsize=(5, 0.4 * report_taxa[report_taxa['significantly different'] & report_taxa['>= %f mean rel. abundance' % min_mean_abundance_per_feature]].iloc[0,-1]))
+            cache_results['plot'] = sns.barplot(
+                data=cache_results['results']['features'][cache_results['results']['features']['Reject null hypothesis']],
+                x='relAbundance', y=cache_results['results']['col_feature'], hue=cache_results['results']['col_grouping'],
+                order=srt_feat.index if feature_order is None else feature_order,
+                hue_order=hue_order,
+                orient='h', ax=axes, palette=palette)
+            cache_results['results']['figure'] = fig
 
         cache_results['results']['reported_features'] = srt_feat
-        cache_results['results']['figure'] = fig
+
 
         return cache_results
 
@@ -4226,6 +4252,230 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
                      commands,
                      post_execute,
                      post_cache,
+                     environment=settings.QIIME2_ENV,
+                     ppn=ppn,
+                     pmem=pmem,
+                     **executor_args)
+
+def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
+            pivot_samples: pd.Series, fp_results: str, infix: str="",
+            col_subject: str='host_subject_id', col_collection_date: str='collection_timestamp',
+            drop_samples_lessThanCounts: int=1, drop_feature_lessInRatioSamples: float=0.05, drop_subjects_lessTimepoints: int=2,
+            apply_clr: bool=True, apply_svd: bool=True,
+            components: int=5,
+            ppn=1, pmem='4GB', **executor_args):
+    """Run tempted analysis and return Emperor plots.
+
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Feature in rows x Samples in columns read counts.
+    sample_metadata : pd.DataFrame
+        Metadata about samples (not about subjects, i.e. multiple samples have the same subject)
+    pivot_samples: pd.Series
+        A pd.Series that holds one sample_name per subject to point to the sample/timepoint that shall form the baseline, i.e. time point zero.
+        Used to compute the delta between each timepoint and this sample.
+    fp_results: str
+        Filepath for generated Emperor plot.
+    infix: str
+        Infix for emperor file name.
+    col_subject: str
+        the column name in the metadata that gives the subject name, i.e. used as grouper for multiple timepoints per subject
+    col_collection_date: str
+        the column name in the metadata that holds an actual date of sample collections. These dates will be used to compute time deltas.
+    drop_samples_lessThanCounts: int
+        Samples with less than this number of feature counts in total will be dropped.
+    drop_feature_lessInRatioSamples: float
+        Features that occure in less than this percentage of samples will be dropped.
+    drop_subjects_lessTimepoints: int
+        Subjects with less than this number of samples/timepoints will be dropped.
+    apply_clr: bool
+        Transform feature counts?
+    apply_svd: bool
+        Centralize feature counts?
+    components: int
+        Number of components for tempted computation = PC axes?!
+    """
+    meta = sample_metadata.copy()
+    counts_internal = counts.copy()
+
+    COL = 'COLTEMPTED'
+    if COL in meta.columns:
+        raise ValueError("Column named %s already found in your sample_metadata!" % COL)
+
+    # general sanity checks
+    check_column_presents(meta, [col_subject, col_collection_date])
+    #(counts, sample_metadata) = sync_counts_metadata(counts, sample_metadata.dropna(subset=[col_subject, col_collection_date]))
+    if len(set(pivot_samples.values) - set(meta.index)):
+        raise ValueError("Not all samples in your pivot_samples are included in sample_metadata (after syncing with counts)! Missing samples are:\n  - %s" % '\n  - '.join(sorted(list(set(pivot_samples.values) - set(meta.index)))))
+
+    if 'verbose' in executor_args and executor_args['verbose'] is not None:
+        executor_args['verbose'].write('You start tempted with    %i subjects, %i samples and %i features.\n' % (len(meta[col_subject].unique()), counts.shape[1], counts.shape[0]))
+
+    # filter out samples with less than drop_samples_lessThanCounts reads
+    counts_internal = counts_internal.T[counts_internal.sum() >= drop_samples_lessThanCounts].T
+
+    # filter ASVs not occuring in at least drop_feature_lessInRatioSamples% of all samples
+    asvs = [asv for asv, numsamples in (counts_internal > 0).sum(axis=1).items() if numsamples >= counts_internal.shape[1] * drop_feature_lessInRatioSamples]
+    counts_internal = counts_internal.loc[asvs, :]
+
+    # compute actual time deltas per subject
+    for subject, g in meta.groupby(col_subject):
+        idx_baseline = pivot_samples.loc[subject]
+        if isinstance(idx_baseline, pd.Series):
+            # multiple samples point to the baseline!!
+            # check if both samples point to the very same date
+            dates = meta.loc[idx_baseline.values, col_collection_date].unique()
+            if len(dates) != 1:
+                raise ValueError("Your pivot_samples hold multiple samples for subject %s with different dates!!\n%s" % (subject, dates))
+            idx_baseline = idx_baseline.iloc[0]
+        try:
+            # time might be given as date or as float, try date first ...
+            _baseline = pd.to_datetime(str(meta.loc[idx_baseline, col_collection_date]))
+        except ValueError as e:
+            # ... resort to float later
+            _baseline = float(meta.loc[idx_baseline, col_collection_date])
+
+        x = None
+        try:
+            # time might be given as date or as float, try date first ...
+            times = g[col_collection_date].apply(lambda x: pd.to_datetime(str(x)))
+            x = (times - _baseline).dt.days.apply(float)
+        except ValueError as e:
+            # ... resort to float later
+            x = g[col_collection_date].apply(float) - _baseline
+        meta.loc[x.index, COL] = x.loc[x.index]
+
+    # filter out subjects with less than drop_subjects_lessTimepoints samples
+    (counts_internal, meta) = sync_counts_metadata(counts_internal, meta.dropna(subset=[col_subject, col_collection_date]), verbose=None)
+    subjects = [hsid for (hsid, num_samples) in meta.groupby(col_subject).size().items() if num_samples >= drop_subjects_lessTimepoints]
+    meta = meta[meta[col_subject].isin(subjects)]
+    (counts_internal, meta) = sync_counts_metadata(counts_internal, meta.dropna(subset=[col_subject, col_collection_date]), verbose=None)
+
+    if 'verbose' in executor_args and executor_args['verbose'] is not None:
+        executor_args['verbose'].write('After filtering, you have %i subjects, %i samples and %i features.\n' % (len(meta[col_subject].unique()), counts_internal.shape[1], counts_internal.shape[0]))
+
+    meta_missing = meta[pd.isnull(meta[COL])]
+    if meta_missing.shape[0] > 0:
+        raise ValueError("There are %i samples in %i subjects having NaN in metadata-column '%s'!" % (meta_missing.shape[0], len(meta_missing[col_subject].unique())), col_collection_date)
+
+    def pre_execute(workdir, args):
+        m_sorted = args['sample_metadata'].sort_values(by=[col_subject, COL])
+        m_sorted.to_csv('%s/sample_metadata.csv' % workdir, sep=",", index_label="sample_name")
+        args['counts'].loc[:, m_sorted.index].T.to_csv('%s/counts_T.csv' % workdir, sep=",", index_label="feature")
+
+        old_index = args['sample_metadata'].index.name
+        if old_index is None:
+            old_index = 'index'
+        m = args['sample_metadata'].groupby(col_subject).head(1).reset_index()
+        del m[old_index]
+        m.set_index(col_subject).rename(columns={'sample_name': 'old_sample_name'}).to_csv('%s/subject_metadata.tsv' % workdir, sep="\t", index_label="sample_name")
+
+        with open('%s/R.script' % workdir, 'w') as R:
+            R.write("# for data \n")
+            R.write("library(readr) # read tsv\n")
+            R.write("#library(qiime2R) # read in Qiime artifacts\n")
+            R.write("library(dplyr) # data formatting\n")
+            R.write("library(yaml) # for read_qza() in qiime2R\n")
+            R.write("library(tidyr)\n\n")
+            R.write("# for computing\n")
+            R.write("library(reticulate) # run py codes\n")
+            R.write("library(phyloseq) # phyloseq object\n")
+            R.write("library(vegan) # distance matrix\n")
+            R.write("library(PERMANOVA) # permanova\n")
+            R.write("library(randomForest) # random forest\n")
+            R.write("library(PRROC) # roc and pr\n")
+            R.write("library(tempted)\n\n")
+            R.write("library(microTensor)\n")
+            R.write("# for plotting\n")
+            R.write("library(ggpubr)\n")
+            R.write("library(ggplot2)\n")
+            R.write("library(gridExtra)\n")
+            R.write("library(RColorBrewer)\n")
+            R.write("library(plotly)\n\n")
+
+            R.write("# load data\n")
+            R.write("meta <- read.csv(\"%s/sample_metadata.csv\", row.names=1)\n" % workdir)
+            R.write("counts <- read.csv(\"%s/counts_T.csv\", row.names=1)\n\n" % workdir)
+            R.write("# run tempted\n")
+            R.write("datlist <- format_tempted(counts, meta$%s, meta$%s, threshold=%f, pseudo=0.5, transform='%s')\n" % (
+                COL, col_subject, 1-drop_feature_lessInRatioSamples, 'clr' if apply_clr else 'none'))
+            if apply_svd:
+                R.write("svd <- svd_centralize(datlist, 1)\n")
+            else:
+                R.write("svd <- datlist\n")
+            R.write("res_tempted <- tempted(svd$datlist, r = %s, resolution = 101, smooth=1e-6)\n\n" % components)
+
+            R.write("# export data\n")
+            R.write("write.table(res_tempted$A_hat, file=\"%s/pcs.csv\", quote=FALSE, sep=\"\\t\", col.names=NA)\n" % workdir)
+            R.write("write.table(res_tempted$Lambda, file=\"%s/lambda.csv\", col.names=\"Lambda\", sep=\",\")\n" % workdir)
+            R.write("write.table(res_tempted$r_square, file=\"%s/r_square.csv\", col.names=\"r_square\", sep=\",\")\n" % workdir)
+
+        # dry = executor_args['dry'] if 'dry' in executor_args else True
+        # cluster_run(['cat %s/R.script | R --vanilla' % workdir], environment=settings.TEMPTED_ENV,
+        #             jobname='R_tempted',
+        #             result="%s/r_square.csv" % workdir,
+        #             ppn=1,
+        #             pmem=pmem,
+        #             walltime='1:00:00',
+        #             dry=dry,
+        #             wait=True, use_grid=executor_args.get('use_grid', True))
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # execute the R tempted program in it's own conda env
+        commands.append(get_conda_activate_cmd(executor_args.get('use_grid', True), settings.TEMPTED_ENV))
+        commands.append('cat %s/R.script | R --vanilla' % workdir)
+        #commands.append('%s cat %s/R.script | R --vanilla' % (get_conda_activate_cmd(executor_args.get('use_grid', True), settings.TEMPTED_ENV), workdir))
+
+        # collect tempted results and create an PCoA like file
+        commands.extend([
+            'echo "Eigvals\t%i" > %s/ordination.txt' % (components, workdir),
+            'tail -n +2 %s/lambda.csv | cut -f 2 -d "," | xargs | tr " " "\t" >> %s/ordination.txt' % (workdir, workdir),
+            'echo "" >> %s/ordination.txt' % workdir,
+            'echo "Proportion explained\t%i" >> %s/ordination.txt' % (components, workdir),
+            'tail -n +2 %s/r_square.csv | cut -f 2 -d "," | xargs | tr " " "\t" >> %s/ordination.txt' % (workdir, workdir),
+            'echo "" >> %s/ordination.txt' % workdir,
+            'echo "Species\t0\t0" >> %s/ordination.txt' % workdir,
+            'echo "" >> %s/ordination.txt' % workdir,
+            'echo "Site\t%i\t%i" >> %s/ordination.txt' % (len(subjects), components, workdir),
+            'tail -n +2 %s/pcs.csv >> %s/ordination.txt' % (workdir, workdir),
+            'echo "" >> %s/ordination.txt' % workdir,
+            'echo "Biplot\t0\t0" >> %s/ordination.txt' % workdir,
+            'echo "" >> %s/ordination.txt' % workdir,
+            'echo "Site constraints\t0\t0" >> %s/ordination.txt' % workdir,
+        ])
+
+        commands.append(get_conda_activate_cmd(executor_args.get('use_grid', True), settings.QIIME2_ENV))
+
+        commands.append('qiime tools import --input-path %s/ordination.txt --output-path %s/ordination.qza --type PCoAResults' % (workdir, workdir))
+
+        commands.append('qiime emperor plot --i-pcoa %s/ordination.qza --m-metadata-file %s/subject_metadata.tsv  --o-visualization %s/emperor_tempted%s.qzv' % (workdir, workdir, workdir, infix))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        os.makedirs(fp_results, exist_ok=True)
+        shutil.copy(
+            "%s/emperor_tempted%s.qzv" % (workdir, infix), fp_results)
+        results['emperor'] = fp_results
+
+        results['ordination'] = OrdinationResults.read(open('%s/ordination.txt' % workdir))
+
+        results['subject_metadata'] = pd.read_csv('%s/subject_metadata.tsv' % workdir, sep="\t", index_col=0)
+
+        return results
+
+    return _executor('tempted',
+                     {'counts': counts_internal.fillna(0.0),
+                      'sample_metadata': meta,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
                      pmem=pmem,
