@@ -25,7 +25,7 @@ from skbio import OrdinationResults
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, get_conda_activate_cmd)
+from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, get_conda_activate_cmd, plotTaxonomy)
 from ggmap import settings
 import seaborn as sns
 import networkx as nx
@@ -4477,6 +4477,250 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
+                     ppn=ppn,
+                     pmem=pmem,
+                     **executor_args)
+
+
+def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: pd.Series,
+             col_concentration: str, col_sampletype: str="sample_type", name_control_sample: str="blank",
+             cols_batch: [str]=[],
+             threshold: float=0.5,
+             rank: str='Genus',
+             ppn=1, pmem='4GB', environment=settings.QIIME2_ENV, **executor_args):
+    """Run decontam to remove kitome contamination in low biomass samples. See https://doi.org/10.1186/s40168-018-0605-2
+    Also see: https://jordenrabasco.github.io/Q2_Decontam_Tutorial.html
+    - does not handle cross contamination / spill over
+    - best use with DNA concentrations AND blanks (= negative control samples)
+    - "five to six negative control samples are sufficient to identify most contamination" quote from above paper
+    - consider batch effects, i.e. diff runs / diff plates
+    - apply per sample type: "we recommend applying decontam independently to samples collected from different environments" quote from above paper
+
+    Parameters
+    ----------
+    counts_raw : pd.DataFrame
+        Raw reads! i.e. prior to rarefaction, normalization. Feature in rows x Samples in columns read counts.
+    sample_metadata : pd.DataFrame
+        Metadata about samples.
+    col_concentration : str
+        the column name in the metadata that gives DNA concentrations prior library construction. Used to find inverse correlations of contaminant features.
+    col_sample_type : str
+        the column name in the metadata that tells decontam if a sample is a negative control or true biological sample.
+    cols_batch : [str]
+        List of column names in the metadata, which will be used to group samples into batches.
+    name_control_sample: str
+        the 'name' of control samples in col_sample_type
+    threshold: float
+        this indicates the metadata column which will subset the input table
+    """
+    meta = sample_metadata.copy()
+    counts_internal = counts_raw.copy()
+
+    # general sanity checks
+    if type(cols_batch) != list:
+        cols_batch = [cols_batch]
+    check_column_presents(meta, [col_concentration, col_sampletype] + cols_batch)
+
+    # sync counts and metadata + drop samples lacking col information
+    (counts_internal, meta) = sync_counts_metadata(counts_internal, meta[[col_concentration, col_sampletype] + cols_batch].dropna(axis=0, how='any'))
+
+    # test if all values can be interpreted as concentrations
+    meta[col_concentration] = meta[col_concentration].astype(float)
+    if meta[col_concentration].min() < 0:
+        raise ValueError("Some concentrations are negative!")
+
+    env_types = meta[col_sampletype].unique()
+    if len(env_types) > 2:
+        raise ValueError("You have %i different sample types: '%s'. Better use decontam per environment and/or remove samples that you don't want to subject to decontam!" % (len(env_types), "', '".join(env_types)))
+    if name_control_sample not in env_types:
+        raise ValueError("The identifier '%s' for your negative control samples cannot be found in the the metadata!" % name_control_sample)
+
+    grps = [('all', meta)]
+    if cols_batch != []:
+        grps = []
+        batch_sizes = dict()
+        cb = cols_batch
+        if len(cols_batch) == 1:
+            cb = cols_batch[0]
+        for n, g in meta.groupby(cb):
+            batch_sizes[n] = g.shape[0]
+            batch_controls = g[g[col_sampletype] == name_control_sample]
+            if batch_controls.shape[0] < 1:
+                raise ValueError("Your batch %s lacks negative control samples!" % str(n))
+            if batch_controls.shape[0] == g.shape[0]:
+                raise ValueError("Your batch %s consists of only control samples!" % str(n))
+            grps.append((n, g))
+        empty_batch_sizes = {n: s for (n, s) in batch_sizes.items() if s <= 0}
+        if len(empty_batch_sizes) > 0:
+            raise ValueError("%i of your batch groups have zero samples!" % len(empty_batch_sizes))
+
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+        if verbose:
+            verbose.write("Splitting into %i batches:\n  - %s\n" % (len(grps), "\n  - ".join([str(n) for (n, g) in grps])))
+
+    def pre_execute(workdir, args):
+        with open('%s/rep-seq.fasta' % (workdir), 'w') as f:
+            for seq in args['counts'].index:
+                f.write('>%s\n%s\n' % (seq, seq))
+
+        for i, (batchname, g) in enumerate(grps):
+            grp_counts = args['counts'].loc[:, g.index]
+            grp_counts = grp_counts[grp_counts.sum(axis=1) > 0]
+            pandas2biom('%s/counts_%i.biom' % (workdir, i), grp_counts)
+
+            g.to_csv('%s/metadata_%i.tsv' % (workdir, i), sep="\t", index_label="sample_name")
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureData[Sequence]" '
+             '--output-path %s') %
+            ('%s/rep-seq.fasta' % (workdir), '%s/rep-seq.qza' % (workdir)))
+
+        for i, (batchname, g) in enumerate(grps):
+            commands.append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "FeatureTable[Frequency]" '
+                 '--output-path %s') %
+                ('%s/counts_%i.biom' % (workdir, i), '%s/counts_%i' % (workdir, i)))
+
+            commands.append(
+                ('qiime quality-control decontam-identify '
+                 '--i-table %s '
+                 '--m-metadata-file %s '
+                 '--p-method combined '
+                 '--p-freq-concentration-column "%s" '
+                 '--p-prev-control-column "%s" '
+                 '--p-prev-control-indicator "%s" '
+                 '--o-decontam-scores %s') %
+                ('%s/counts_%i.qza' % (workdir, i), '%s/metadata_%i.tsv' % (workdir, i), col_concentration, col_sampletype, args['name_control_sample'], '%s/decontam-score_%i.qza' % (workdir, i)))
+
+            commands.append(
+                ('qiime tools export '
+                 '--input-path %s/decontam-score_%i.qza '
+                 '--output-path %s/decontam_results_%i/')
+                % (workdir, i, workdir, i))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = []
+        batch_counts = []
+        stats = []
+        for i, (batchname, g) in enumerate(grps):
+            batch_counts.append(biom2pandas('%s/counts_%i.biom' % (workdir, i)))
+            res_decontam = pd.read_csv('%s/decontam_results_%i/stats.tsv' % (workdir, i), sep="\t", index_col=0)
+            res = res_decontam.merge(batch_counts[i].sum(axis=1).rename('reads'), left_index=True, right_index=True)
+            for (colname, value) in zip(cols_batch, list(batchname)):
+                res[colname] = value
+            res['batch_grp'] = i
+            results.append(res)
+
+            stats.append({
+                'lost_asvs': res[res['p'] < threshold].index,
+                'lost_num_asvs': len(res[res['p'] < threshold].index),
+                'total_num_asvs': res.shape[0],
+                'percent_lost_asvs': len(res[res['p'] < threshold].index) / res.shape[0] * 100,
+                'lost_num_reads': res[res['p'] < threshold]['reads'].sum(),
+                'total_num_reads': res['reads'].sum(),
+                'non_plotted_num_reads': res[pd.isnull(res['p'])]['reads'].sum(),
+                'percent_lost_reads': res[res['p'] < threshold]['reads'].sum() / res['reads'].sum() * 100,
+                'batch_name': batchname,
+                'batch_grp': i,
+                'num_control_samples': g[g[col_sampletype] == name_control_sample].shape[0],
+                'name_control_samples': name_control_sample,
+                'num_biol_samples': g[g[col_sampletype] != name_control_sample].shape[0],
+                'name_biol_samples': g[g[col_sampletype] != name_control_sample][col_sampletype].unique()[0]
+                })
+
+        return {'decontam': pd.concat(results), 'batch_counts': batch_counts, 'stats': pd.DataFrame(stats)}
+
+    def post_cache(cache_results):
+        SIZE = 5
+        fig, axes = plt.subplots(len(grps), 3, figsize=(SIZE * 3, SIZE * len(grps)))
+        fig.subplots_adjust(hspace=0.4, wspace=0.5)
+
+        num_bins = 50
+        tax_colors = dict()
+        for i, (batchname, g) in enumerate(grps):
+            stats = cache_results['results']['stats'][cache_results['results']['stats']['batch_grp'] == i]
+
+            res = cache_results['results']['decontam'][cache_results['results']['decontam']['batch_grp'] == i]
+            ax = axes[i][0]
+            for tcont in ['contaminant', 'non-contaminant']:
+                data = res[res['p'] < threshold]
+                if tcont == 'non-contaminant':
+                    data = res[res['p'] >= threshold]
+                _ = ax.hist(data['p'], bins=num_bins, range=(0, 1), weights=data['reads'], log=True, facecolor='red' if tcont == 'contaminant' else 'blue' , rwidth=0.88, label=tcont[0].upper() + tcont[1:] + ' Reads')
+            ax.axvline(x=threshold, label='Threshold', color='black', linestyle='dashed')
+            ax.set_ylabel('Number of Reads')
+            ax.set_xlabel('Score')
+            if i == 0:
+                ax.legend()
+            ax.set_title('%s\n%i Non-Contaminant reads with p=NA (not plotted)' % (str(batchname), stats['non_plotted_num_reads']))
+
+            ax = axes[i][1]
+            data = cache_results['results']['decontam'][(cache_results['results']['decontam']['batch_grp'] == i) & pd.notnull(cache_results['results']['decontam']['p'])]
+            sum_reads = data['reads'].sum()
+            lost = []
+            for mybin in np.linspace(0, 1, num=num_bins + 1):
+                cont = data[data['p'] < mybin]
+                lost.append({
+                    'accum_reads': cont['reads'].sum(),
+                    'accum_asvs': cont.shape[0],
+                    'accum_norm_reads': cont['reads'].sum() / sum_reads,
+                    'accum_norm_asvs': cont.shape[0] / data.shape[0],
+                    'max_p': mybin, 'type': 'contaminant'})
+            lost = pd.DataFrame(lost)
+            ln_reads = ax.plot(lost['max_p'].values, lost['accum_reads'], label='Number of Reads', color='orange')
+            ax.set_ylabel('Number of Reads')
+            rax = ax.twinx()
+            ln_asvs = rax.plot(lost['max_p'].values, lost['accum_asvs'], label='Number of ASVs', color='green')
+            rax.set_ylabel('Number of ASVs')
+            ln_thresh = ax.axvline(x=threshold, label='Threshold', color='black', linestyle='dashed')
+            comb = ln_reads + ln_asvs
+            ax.legend(comb, [l.get_label() for l in comb], loc=0)
+            ax.set_xlabel("Score")
+            ax.set_title('loosing %i of %i = %.2f%% features\nloosing %i of %i = %.2f%% reads' % (
+                stats['lost_num_asvs'], stats['total_num_asvs'], stats['percent_lost_asvs'],
+                stats['lost_num_reads'], stats['total_num_reads'], stats['percent_lost_reads']
+            ))
+
+            ax = axes[i][2]
+            taxonomy_cont = taxonomy.copy()
+            taxa_contaminants = set(data[data['p'] < threshold].index)
+            taxonomy_cont.loc[list(set(taxonomy_cont.index) - taxa_contaminants)] = '; '.join(['%s__non-contaminant' % r[0].lower().replace('k', 'd') for r in settings.RANKS])
+            taxa_contaminants = [t for t in collapseCounts_objects(cache_results['results']['batch_counts'][i], rank, taxonomy_cont, out=None)[0].index if '__non-contaminant' not in t]
+            _, _, _, _, tax_colors = plotTaxonomy(cache_results['results']['batch_counts'][i], meta.loc[cache_results['results']['batch_counts'][i].columns, :], rank=rank, file_taxonomy=taxonomy_cont, ax=ax, minreadnr=1, plottaxa=taxa_contaminants, out=None, colors=tax_colors)
+            ax.set_title('using %i "%s" samples' % (stats['num_control_samples'], stats['name_control_samples'].values[0]))
+            ax.set_xlabel('%i "%s" samples' % (stats['num_biol_samples'], stats['name_biol_samples'].values[0]))
+
+        fig.suptitle('in %i batches\nloosing %i of %i = %.2f%% features\nloosing %i of %i = %.2f%% reads' % (
+            len(grps),
+            cache_results['results']['stats']['lost_num_asvs'].sum(), cache_results['results']['stats']['total_num_asvs'].sum(), cache_results['results']['stats']['lost_num_asvs'].sum() / cache_results['results']['stats']['total_num_asvs'].sum() * 100,
+            cache_results['results']['stats']['lost_num_reads'].sum(), cache_results['results']['stats']['total_num_reads'].sum(), cache_results['results']['stats']['lost_num_reads'].sum() / cache_results['results']['stats']['total_num_reads'].sum() * 100
+        ), y=0.94)
+        cache_results['figure'] = fig
+
+        return cache_results
+
+    return _executor('decontam',
+                     {'counts': counts_internal.fillna(0.0),
+                      'sample_metadata': meta,
+                      'name_control_sample': name_control_sample,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=environment,
                      ppn=ppn,
                      pmem=pmem,
                      **executor_args)
