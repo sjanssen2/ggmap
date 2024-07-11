@@ -480,11 +480,14 @@ def redundancy_analysis_beta(metadata, beta, metric_name,
         if type(args['beta']) == OrdinationResults:
             dimred = args['beta'].samples
         else:
-            dimred = pcoa(args['beta']).samples
+            idx_shared = set(args['beta'].ids) & set(meta.index)
+            if len(idx_shared) <= 0:
+                raise ValueError("There is no overlap between samples in your metadata and those in your beta diversity DistanceMatrix!")
+            dimred = pcoa(args['beta'].filter(idx_shared)).samples
         dimred = dimred.iloc[:, :num_dimensions]
         dimred.columns = ['%s_%s' % (COL_NAME_BETA, c) for c in dimred.columns]
 
-        meta_beta = meta.loc[:, all_columns].merge(
+        meta_beta = meta.loc[:, list(all_columns)].merge(
             dimred, left_index=True, right_index=True)
         if args['metadata'].shape[0] != dimred.shape[0]:
             sys.stderr.write(
