@@ -321,6 +321,7 @@ def process_study(metadata: pd.DataFrame,
                   rarefaction_max_depth=None,
                   rarefaction_sample_grouping:pd.Series=None,
                   fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval: str='/vol/jlab/MicrobiomeAnalyses/References/Q2-Naive_Bayes_classifiers/gg-13-8-99-nb-classifier_2022.11.qza',
+                  conda_env_gg138_chloroMitoRemoval: str='qiime2-2022.11',
                   fp_taxonomy_trained_classifier: str='/home/sjanssen/GreenGenes/gg-13-8-99-515-806-nb-classifier.qza',
                   tree_insert: TreeNode=None,
                   verbose=sys.stderr,
@@ -337,7 +338,14 @@ def process_study(metadata: pd.DataFrame,
                   beta_metrics=["unweighted_unifrac", "weighted_unifrac", "bray_curtis"],
                   deblur_remove_features_lessthanXreads: int=10,
                   skip_rarefaction_curves=False,
-                  ignore_noplantmito=False):
+                  ignore_noplantmito=False,
+                  decontam_col_concentration:str=None,
+                  decontam_col_sampletype:str=None,
+                  decontam_name_control_sample:str=None,
+                  decontam_lowbiomass_envs:[str]=[],
+                  decontam_cols_batch:[str]=[],
+                  decontam_threshold:float=0.5
+                  ):
     """
     parameters
     ----------
@@ -348,6 +356,27 @@ def process_study(metadata: pd.DataFrame,
     deblur_remove_features_lessthanXreads : int
         For Deblur only: As a first step, filter out features with less than X
         reads in all samples combined.
+    conda_env_gg138_chloroMitoRemoval : str
+        classifying requires matching sklearn versions. For old GG13.8 you can
+        specify a specific qiime2 environment, as GG13.8 is no longer served
+        for newer qiime2 versions.
+    decontam_cols_concentration : str
+        Column name in metadata table that holds individual DNA concentrations
+        per sample prior to library construction.
+    decontam_col_sampletype : str
+        Column name in metadata table that give holds a sample type (e.g. fecal,
+        soil, ...) for every sample. One of the types must indicate negative
+        control samples.
+    decontam_name_control_sample : str
+        Type of negative control samples in the given
+        metadata[decontam_col_sampletype] column.
+    decontam_lowbiomass_envs : [str]
+        List of low biomass sample types that shall be check for contaminants.
+    decontam_cols_batch : [str]
+        List of names of metadata table columns whose values shall be used to
+        split samples into batches, e.g. ['flowcell', 'plate_number']
+    decontam_threshold : float
+        P threshold below features are considered contaminants
     """
     dupl_meta_cols = pd.Series(metadata.columns).value_counts()
     if dupl_meta_cols.max() > 1:
@@ -406,7 +435,7 @@ def process_study(metadata: pd.DataFrame,
     # See here:
     # https://forum.qiime2.org/t/taxonomy-filtering-greengenes2/28334
     # GG2 does include chloroplast and mitochondria, but the labels were accidentally not part of the taxonomy decoration, which I'm very well aware of but while this is incredibly important, it is not the highest priority I have at the moment
-    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
+    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
     idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     # compute taxonomic lineages for feature sequences
@@ -448,13 +477,66 @@ def process_study(metadata: pd.DataFrame,
         verbose.write("It is very dubious that NO reads should be classified as chloroplasts or mitochondia?!\n")
         return results
     verbose.write('In total, %i reads (%f%%) have been filtered for chloroplast/mitochondia removal.\n' % (numReadsPlantRemoval, numReadsPlantRemoval / results['counts_plantsStillIn'].sum().sum() * 100))
-    #return results
+
+    # perform decontam analysis to identify contaminant featurs. You need to have DNA concentrations per sample + negative control samples
+    run_decontam = (len(decontam_lowbiomass_envs) > 0) and (decontam_col_concentration is not None) and (decontam_col_sampletype is not None)
+    if run_decontam:
+        counts_decontam = counts.copy()
+        waiting = False
+        for type_biol in decontam_lowbiomass_envs:
+            m = metadata[(metadata[decontam_col_sampletype].isin([type_biol, decontam_name_control_sample]))].copy()
+            # automatically drop batches with zero controls OR zero biol samples
+            grp = ('all', m)
+            if len(decontam_cols_batch) == 1:
+                grp = m.groupby(decontam_cols_batch[0])
+            elif len(decontam_cols_batch) > 1:
+                grp = m.groupby(decontam_cols_batch)
+            idx_samples_batch_blacklist = []
+            for batch_name, g in grp:
+                if g[g[decontam_col_sampletype] == decontam_name_control_sample].shape[0] <= 0:
+                    verbose.write('Skipping batch %s for decontam analysis as it contains zero control samples.\n' % str(batch_name))
+                    idx_samples_batch_blacklist.extend(list(g.index))
+                if g[g[decontam_col_sampletype] != decontam_name_control_sample].shape[0] <= 0:
+                    verbose.write('Skipping batch %s for decontam analysis as it contains zero biological samples.\n' % str(batch_name))
+                    idx_samples_batch_blacklist.extend(list(g.index))
+            m = m.loc[[s for s in m.index if s not in idx_samples_batch_blacklist], :]
+
+            res_decontam = decontam(
+                results['counts_plantsremoved'],
+                m,
+                col_concentration=decontam_col_concentration,
+                col_sampletype=decontam_col_sampletype,
+                name_control_sample=decontam_name_control_sample,
+                dry=dry, wait=True, environment='qiime2-amplicon-2024.5', use_grid=use_grid,
+                cols_batch=decontam_cols_batch,
+                threshold=decontam_threshold,
+                taxonomy=results['taxonomy']['RDP']['results']['Taxon'],
+                rank='Genus', verbose=verbose
+                )
+            if res_decontam['results'] is not None:
+                for _, row in res_decontam['results']['stats'].iterrows():
+                    counts_decontam.loc[row['lost_asvs'], row['affected_samples']] = 0
+                #return res_decontam['results']['stats']
+                display(res_decontam['figure'])
+            else:
+                waiting = True
+                raise ValueError("Be patient and wait/poll for rarefaction results!")
+
+        if waiting is False:
+            results['counts_decontaminated'] = counts_decontam
+            counts = counts_decontam
+    else:
+        results['counts_decontaminated'] = counts
+
+    # return results
     # run: rarefaction curves
     if not skip_rarefaction_curves:
         results['rarefaction_curves'] = rarefaction_curves(counts, reference_tree=fp_insertiontree, control_sample_names=control_samples, sample_grouping=rarefaction_sample_grouping, min_depth=rarefaction_min_depth, max_depth=rarefaction_max_depth, dry=dry, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches,
             pmem=pmem, metrics=alpha_metrics)
         if rarefaction_depth is None:
             return results
+        if run_decontam and (results['rarefaction_curves'] is not None):
+            display(results['rarefaction_curves']['results'])
 
     # run: rarefy counts 1x
     results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)

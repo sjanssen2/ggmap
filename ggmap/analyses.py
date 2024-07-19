@@ -3022,7 +3022,7 @@ def empress(metadata: pd.DataFrame, beta_diversities, counts: pd.DataFrame, refe
                      **executor_args)
 
 
-def taxonomy_RDP(counts, fp_classifier, ppn=4, **executor_args):
+def taxonomy_RDP(counts, fp_classifier, ppn=4, environment=settings.QIIME2_ENV, **executor_args):
     """Uses q2-feature-classifier to obtain taxonomic lineages for features
        in counts table.
 
@@ -3083,7 +3083,7 @@ def taxonomy_RDP(counts, fp_classifier, ppn=4, **executor_args):
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=settings.QIIME2_ENV,
+                     environment=environment,
                      ppn=ppn,
                      **executor_args)
 
@@ -4559,7 +4559,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
         else:
             verbose = executor_args['verbose']
         if verbose:
-            verbose.write("Splitting into %i batches:\n  - %s\n" % (len(grps), "\n  - ".join([str(n) for (n, g) in grps])))
+            verbose.write("Decontam: splitting into %i batches:\n  - %s\n" % (len(grps), "\n  - ".join([str(n) for (n, g) in grps])))
 
     def pre_execute(workdir, args):
         with open('%s/rep-seq.fasta' % (workdir), 'w') as f:
@@ -4623,8 +4623,9 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             res['batch_grp'] = i
             results.append(res)
 
-            stats.append({
+            stat = {
                 'lost_asvs': res[res['p'] < threshold].index,
+                'affected_samples': batch_counts[i].columns,
                 'lost_num_asvs': len(res[res['p'] < threshold].index),
                 'total_num_asvs': res.shape[0],
                 'percent_lost_asvs': len(res[res['p'] < threshold].index) / res.shape[0] * 100,
@@ -4638,11 +4639,24 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                 'name_control_samples': name_control_sample,
                 'num_biol_samples': g[g[col_sampletype] != name_control_sample].shape[0],
                 'name_biol_samples': g[g[col_sampletype] != name_control_sample][col_sampletype].unique()[0]
-                })
+                }
+            for (colname, value) in list(zip(cols_batch, batchname)):
+                stat.update({colname: value})
+            stats.append(stat)
+        stats = pd.DataFrame(stats)
 
-        return {'decontam': pd.concat(results), 'batch_counts': batch_counts, 'stats': pd.DataFrame(stats)}
+        return {'decontam': pd.concat(results), 'batch_counts': batch_counts, 'stats': stats}
 
     def post_cache(cache_results):
+        if 'verbose' not in executor_args:
+            verbose = sys.stderr
+        else:
+            verbose = executor_args['verbose']
+        if verbose:
+            verbose.write('  loosing %i of %i = %.2f%% features\n  loosing %i of %i = %.2f%% reads\n' % (
+                cache_results['results']['stats']['lost_num_asvs'].sum(), cache_results['results']['stats']['total_num_asvs'].sum(), cache_results['results']['stats']['lost_num_asvs'].sum() / cache_results['results']['stats']['total_num_asvs'].sum() * 100,
+                cache_results['results']['stats']['lost_num_reads'].sum(), cache_results['results']['stats']['total_num_reads'].sum(), cache_results['results']['stats']['lost_num_reads'].sum() / cache_results['results']['stats']['total_num_reads'].sum() * 100))
+
         SIZE = 5
         fig, axes = plt.subplots(len(grps), 3, figsize=(SIZE * 3, SIZE * len(grps)))
         fig.subplots_adjust(hspace=0.4, wspace=0.5)
@@ -4653,7 +4667,11 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             stats = cache_results['results']['stats'][cache_results['results']['stats']['batch_grp'] == i]
 
             res = cache_results['results']['decontam'][cache_results['results']['decontam']['batch_grp'] == i]
-            ax = axes[i][0]
+            ax = None
+            if len(grps) > 1:
+                ax = axes[i][0]
+            else:
+                ax = axes[0]
             for tcont in ['contaminant', 'non-contaminant']:
                 data = res[res['p'] < threshold]
                 if tcont == 'non-contaminant':
@@ -4666,7 +4684,11 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                 ax.legend()
             ax.set_title('%s\n%i Non-Contaminant reads with p=NA (not plotted)' % (str(batchname), stats['non_plotted_num_reads']))
 
-            ax = axes[i][1]
+            ax = None
+            if len(grps) > 1:
+                ax = axes[i][1]
+            else:
+                ax = axes[1]
             data = cache_results['results']['decontam'][(cache_results['results']['decontam']['batch_grp'] == i) & pd.notnull(cache_results['results']['decontam']['p'])]
             sum_reads = data['reads'].sum()
             lost = []
@@ -4693,20 +4715,19 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                 stats['lost_num_reads'], stats['total_num_reads'], stats['percent_lost_reads']
             ))
 
-            ax = axes[i][2]
+            ax = None
+            if len(grps) > 1:
+                ax = axes[i][2]
+            else:
+                ax = axes[2]
             taxonomy_cont = taxonomy.copy()
             taxa_contaminants = set(data[data['p'] < threshold].index)
             taxonomy_cont.loc[list(set(taxonomy_cont.index) - taxa_contaminants)] = '; '.join(['%s__non-contaminant' % r[0].lower().replace('k', 'd') for r in settings.RANKS])
             taxa_contaminants = [t for t in collapseCounts_objects(cache_results['results']['batch_counts'][i], rank, taxonomy_cont, out=None)[0].index if '__non-contaminant' not in t]
-            _, _, _, _, tax_colors = plotTaxonomy(cache_results['results']['batch_counts'][i], meta.loc[cache_results['results']['batch_counts'][i].columns, :], rank=rank, file_taxonomy=taxonomy_cont, ax=ax, minreadnr=1, plottaxa=taxa_contaminants, out=None, colors=tax_colors)
-            ax.set_title('using %i "%s" samples' % (stats['num_control_samples'], stats['name_control_samples'].values[0]))
-            ax.set_xlabel('%i "%s" samples' % (stats['num_biol_samples'], stats['name_biol_samples'].values[0]))
+            _, _, _, _, tax_colors = plotTaxonomy(cache_results['results']['batch_counts'][i], meta.loc[cache_results['results']['batch_counts'][i].columns, :], rank=rank, file_taxonomy=taxonomy_cont, ax=ax, minreadnr=1, plottaxa=taxa_contaminants, out=None, colors=tax_colors, group_l1=col_sampletype)
+            # ax.set_title('using %i "%s" samples' % (stats['num_control_samples'], stats['name_control_samples'].values[0]))
+            # ax.set_xlabel('%i "%s" samples' % (stats['num_biol_samples'], stats['name_biol_samples'].values[0]))
 
-        fig.suptitle('in %i batches\nloosing %i of %i = %.2f%% features\nloosing %i of %i = %.2f%% reads' % (
-            len(grps),
-            cache_results['results']['stats']['lost_num_asvs'].sum(), cache_results['results']['stats']['total_num_asvs'].sum(), cache_results['results']['stats']['lost_num_asvs'].sum() / cache_results['results']['stats']['total_num_asvs'].sum() * 100,
-            cache_results['results']['stats']['lost_num_reads'].sum(), cache_results['results']['stats']['total_num_reads'].sum(), cache_results['results']['stats']['lost_num_reads'].sum() / cache_results['results']['stats']['total_num_reads'].sum() * 100
-        ), y=0.94)
         cache_results['figure'] = fig
 
         return cache_results
