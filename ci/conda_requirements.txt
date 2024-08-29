@@ -26,3 +26,4 @@ openpyxl
 # trevismd/statannotations  # use `pip install git+git://github.com/trevismd/statannotations@master` to install
 # webermarcolivier/statannot  # use `pip install git+git://github.com/webermarcolivier/statannot@master` to install
 matplotlib-venn
+upsetplot
