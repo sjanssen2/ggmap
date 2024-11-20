@@ -118,154 +118,15 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def _report_trimratio(fp_logs, no_rev_seqs=False):
-    res = []
-    for fp_log in glob(fp_logs):
-        with open(fp_log, 'r') as f:
-            fwd_name = None
-            rev_name = None
-            lines = f.readlines()
-            for i in range(len(lines)):
-                if lines[i].startswith('Command line parameters: '):
-                    parts = lines[i][len('Command line parameters: '):].split(' ')
-                    parts = dict(list(zip(parts[::2]+[''], parts[1::2])))
-                    if '-o' in parts:
-                        fwd_name = parts['-o'].split('/')[-1]
-                    if '-p' in parts:
-                        rev_name = parts['-p'].split('/')[-1]
-                if 'Total basepairs processed:' in lines[i]:
-                    if no_rev_seqs is False:
-                        offset = 3 if rev_name is not None else 2
-                        res.append({'name': fwd_name,
-                                    'basepairs': lines[i+1].split()[2].replace(',',''),
-                                    'direction': 'forward',
-                                    'step': 'read'})
-                        res.append({'name': fwd_name,
-                                    'basepairs': lines[i+1+offset].split()[2].replace(',',''),
-                                    'direction': 'forward',
-                                    'step': 'written'})
-                        if rev_name is not None:
-                            res.append({'name': rev_name,
-                                        'basepairs': lines[i+2].split()[2].replace(',',''),
-                                        'direction': 'reverse',
-                                        'step': 'read'})
-                            res.append({'name': rev_name,
-                                        'basepairs': lines[i+2+offset].split()[2].replace(',',''),
-                                        'direction': 'reverse',
-                                        'step': 'written'})
-                    else:
-                        res.append({'name': fwd_name,
-                                    'basepairs': lines[i].split()[3].replace(',',''),
-                                    'direction': 'forward',
-                                    'step': 'read'})
-                        res.append({'name': fwd_name,
-                                    'basepairs': lines[i+1].split()[3].replace(',',''),
-                                    'direction': 'forward',
-                                    'step': 'written'})
-    if len(res) > 0:
-        res = pd.DataFrame(res)
-        res['basepairs'] = res['basepairs'].astype(int)
-        report = res.groupby(['direction', 'step'])['basepairs'].mean().to_frame().unstack()
-        report['ratio'] = report.loc[:, ('basepairs', 'written')] / report.loc[:, ('basepairs', 'read')]
-        return report
-    else:
-        return None
-
-def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
+def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
     """Operates on directory prj_data['paths']['demux']"""
-    knownprimer = {
-        'GTGCCAGCMGCCGCGGTAA': {
-            'gene': '16s',
-            'region': 'V4',
-            'orientation': 'fwd',
-            'position': '515f',
-            'reference': 'Caporaso et al.',
-            'doi': '10.1073/pnas.1000080107'},
-        'GGACTACHVGGGTWTCTAAT': {
-            'gene': '16s',
-            'region': 'V4',
-            'orientation': 'rev',
-            'position': '806r',
-            'reference': 'Caporaso et al.',
-            'doi': '10.1073/pnas.1000080107'},
-
-        'GTGYCAGCMGCCGCGGTAA': {
-            'gene': '16s',
-            'region': 'V4',
-            'orientation': 'rev',
-            'position': '806r',
-            'reference': 'Parada et al.',
-            'doi': '10.1111/1462-2920.13023'},
-        'GGACTACNVGGGTWTCTAAT': {
-            'gene': '16s',
-            'region': 'V4',
-            'orientation': 'rev',
-            'position': '806r',
-            'reference': 'Apprill et al.',
-            'doi': '10.3354/ame01753'},
-
-        'CCTACGGGNGGCWGCAG': {
-            'gene': '16s',
-            'region': 'V34',
-            'orientation': 'fwd',
-            'position': '341f',
-            'reference': 'Klindworth et al.',
-            'doi': '10.1093/nar/gks808'},
-        'GACTACHVGGGTATCTAATCC': {
-            'gene': '16s',
-            'region': 'V34',
-            'orientation': 'rev',
-            'position': '785r',
-            'reference': 'Klindworth et al.',
-            'doi': '10.1093/nar/gks808'},
-
-        'GTGYCAGCMGCCGCGGTAA': {
-            'gene': '16s',
-            'region': 'V45',
-            'orientation': 'fwd',
-            'position': '515f',
-            'reference': 'Parada et al. 2016',
-            'doi': '10.1111/1462-2920.13023'},
-        'CCGYCAATTYMTTTRAGTTT': {
-            'gene': '16s',
-            'region': 'V45',
-            'orientation': 'rev',
-            'position': '926r',
-            'reference': 'Parada et al. 2016',
-            'doi': '10.1111/1462-2920.13023'},
-    }
-
-    if primerseq_fwd.upper() not in knownprimer.keys():
-        print("Forward primer sequence unknown.")
-    if primerseq_rev.upper() not in knownprimer.keys():
-        print("Reverse primer sequence unknown.")
 
     prj_data['paths']['trimmed'] = os.path.join(prj_data['paths']['tmp_workdir'], 'trimmed')
-    os.makedirs(prj_data['paths']['trimmed'], exist_ok=True)
 
-    if verbose:
-        _, fp_tmp = tempfile.mkstemp()
-        cluster_run(['cutadapt --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment='ggmap_spike', dry=False, use_grid=False)
-        with open(fp_tmp, 'r') as f:
-            print('using cutadapt version: %s' % f.readlines()[0].strip())
-
-    for fp_fastq in glob(os.path.join(prj_data['paths']['demux'],"**",pattern_fwdfiles), recursive=True):
-        if "Undetermined_S0_" in fp_fastq:
-            continue
-        fp_in_r1 = os.path.abspath(fp_fastq)
-        fp_out_r1 = os.path.join(prj_data['paths']['trimmed'], os.path.basename(fp_in_r1))
-        cmd = "cutadapt "
-        if not no_rev_seqs:
-            fp_out_r2 = fp_out_r1.replace(r1r2_replace[0], r1r2_replace[1])
-            fp_in_r2 = fp_in_r1.replace(r1r2_replace[0], r1r2_replace[1])
-            cmd += "-g %s -G %s -n 2 -o %s -p %s -m 1 \"%s\" \"%s\"" % (primerseq_fwd, primerseq_rev, fp_out_r1, fp_out_r2, fp_in_r1, fp_in_r2)
-        else:
-            cmd += "-g %s -n 1 -o %s -m 1 \"%s\"" % (primerseq_fwd, fp_out_r1, fp_in_r1)
-        cluster_run([cmd], "trimming", fp_out_r1, environment="ggmap_spike", ppn=1, dry=False, use_grid=use_grid,
-                    file_qid=os.path.join(prj_data['paths']['tmp_workdir'], 'dummy'))
-    report = _report_trimratio(os.path.join(prj_data['paths']['tmp_workdir'], 'slurmlog-cr_trimming-*.log'), no_rev_seqs=no_rev_seqs)
-    if report is not None:
-        print(report)
+    res_trimming = trimprimers(
+        prj_data['paths']['demux'], primerseq_fwd, primerseq_rev, prj_data['paths']['trimmed'],
+        pattern_fwdfiles=pattern_fwdfiles, r1r2_replace=r1r2_replace, no_rev_seqs=no_rev_seqs,
+        verbose=verbose, use_grid=use_grid, dry=False)
 
     return prj_data
 
@@ -289,8 +150,8 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
 
     # deblur
     cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
-        prj_data['paths']['deblur'],
-        prj_data['paths']['deblur'],
+        os.path.abspath(prj_data['paths']['deblur']),
+        os.path.abspath(prj_data['paths']['deblur']),
         trimlength,
         ppn,
     ))

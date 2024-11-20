@@ -15,6 +15,7 @@ import re
 import csv
 from glob import glob
 from IPython.display import Image
+from tqdm import tqdm
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -4761,7 +4762,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
 def QC(dir_fastqs:str,
        pattern_fwdfiles:str="*_R1_*.fastq.gz",
        r1r2_replace:(str, str)=("_R1_", "_R2_"),
-       no_rev_seq:bool=False,
+       no_rev_seqs:bool=False,
        ppn:int=1, pmem:str='2GB', environment:str=settings.SPIKE_ENV,
        **executor_args):
     """Generates multiQC reports for all fastq files in a directory.
@@ -4785,14 +4786,14 @@ def QC(dir_fastqs:str,
             continue
 
         files_fwd.append(os.path.abspath(fp_fastq))
-        if not no_rev_seq:
+        if not no_rev_seqs:
             fp_rev = os.path.join(os.path.dirname(fp_fastq), os.path.basename(fp_fastq).replace(r1r2_replace[0], r1r2_replace[1]))
             if not os.path.exists(fp_rev):
                 raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
             files_rev.append(os.path.abspath(fp_rev))
     if (len(files_fwd) + len(files_rev)) <= 0:
         raise ValueError("No fwd fastQ files found. Check dir_fastqs and pattern_fwdfiles!")
-    if (not no_rev_seq) & (len(files_fwd) != len(files_rev)):
+    if (not no_rev_seqs) & (len(files_fwd) != len(files_rev)):
         raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
 
     def pre_execute(workdir, args):
@@ -4801,7 +4802,7 @@ def QC(dir_fastqs:str,
             for fp_fwd in files_fwd:
                 f.write('fastqc --noextract --outdir %s --threads 1 %s\n' % (
                     '%s/forward/' % workdir, fp_fwd))
-            if not args['no_rev_seq']:
+            if not args['no_rev_seqs']:
                 os.makedirs('%s/reverse/' % workdir, exist_ok=True)
                 for fp_rev in files_rev:
                     f.write('fastqc --noextract --outdir %s --threads 1 %s\n' % (
@@ -4819,7 +4820,7 @@ def QC(dir_fastqs:str,
         dry = executor_args['dry'] if 'dry' in executor_args else True
 
         directions = ['forward']
-        if not args['no_rev_seq']:
+        if not args['no_rev_seqs']:
             directions.append('reverse')
 
         results = dict()
@@ -4861,7 +4862,7 @@ def QC(dir_fastqs:str,
                      {'dir_fastqs': os.path.abspath(dir_fastqs),
                       'pattern_fwdfiles': pattern_fwdfiles,
                       'r1r2_replace': r1r2_replace,
-                      'no_rev_seq': no_rev_seq
+                      'no_rev_seqs': no_rev_seqs
                       },
                      pre_execute,
                      commands,
@@ -4872,6 +4873,220 @@ def QC(dir_fastqs:str,
                      pmem=pmem,
                      array=(len(files_fwd) + len(files_rev)),
                      **executor_args)
+
+
+def trimprimers(dir_fastqs:str,
+       primerseq_fwd:str,
+       primerseq_rev:str,
+       dir_target:str=None,
+       pattern_fwdfiles:str="*_R1_*.fastq.gz",
+       r1r2_replace:(str, str)=("_R1_", "_R2_"),
+       no_rev_seqs:bool=False,
+       ppn:int=1, pmem:str='4GB', environment:str=settings.SPIKE_ENV,
+       **executor_args):
+    """Trimms all fastq files in a directory.
+
+    Parameters
+    ----------
+    dir_fastqs : str
+        Filepath to directory which contains one or more Sequencing fastq files.
+    primerseq_fwd : str
+        Forward primer nucleotide sequence.
+    primerseq_rev : str
+        Reverse primer nucleotide sequence.
+    dir_target : str
+        Filepath of target directory into which trimmed files shall be moved.
+        Default: None, i.e. remove files with temporary directory.
+    pattern_fwdfiles : str
+        Unix pattern identify fastq files.
+    r1r2_replace : (str, str)
+        Source and Target infix to instruct how matching reverse fastQ files
+        can be identified from forward fastQ files.
+    no_rev_seqs : Boolean
+        If True, no R2 (=reverse) reads are expected, i.e. processed
+    """
+    KNOWNPRIMER = {
+        'GTGCCAGCMGCCGCGGTAA': {
+            'gene': '16s',
+            'region': 'V4',
+            'orientation': 'fwd',
+            'position': '515f',
+            'reference': 'Caporaso et al.',
+            'doi': '10.1073/pnas.1000080107'},
+        'GGACTACHVGGGTWTCTAAT': {
+            'gene': '16s',
+            'region': 'V4',
+            'orientation': 'rev',
+            'position': '806r',
+            'reference': 'Caporaso et al.',
+            'doi': '10.1073/pnas.1000080107'},
+
+        'GTGYCAGCMGCCGCGGTAA': {
+            'gene': '16s',
+            'region': 'V4',
+            'orientation': 'rev',
+            'position': '806r',
+            'reference': 'Parada et al.',
+            'doi': '10.1111/1462-2920.13023'},
+        'GGACTACNVGGGTWTCTAAT': {
+            'gene': '16s',
+            'region': 'V4',
+            'orientation': 'rev',
+            'position': '806r',
+            'reference': 'Apprill et al.',
+            'doi': '10.3354/ame01753'},
+
+        'CCTACGGGNGGCWGCAG': {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'fwd',
+            'position': '341f',
+            'reference': 'Klindworth et al.',
+            'doi': '10.1093/nar/gks808'},
+        'GACTACHVGGGTATCTAATCC': {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'rev',
+            'position': '785r',
+            'reference': 'Klindworth et al.',
+            'doi': '10.1093/nar/gks808'},
+
+        'GTGYCAGCMGCCGCGGTAA': {
+            'gene': '16s',
+            'region': 'V45',
+            'orientation': 'fwd',
+            'position': '515f',
+            'reference': 'Parada et al. 2016',
+            'doi': '10.1111/1462-2920.13023'},
+        'CCGYCAATTYMTTTRAGTTT': {
+            'gene': '16s',
+            'region': 'V45',
+            'orientation': 'rev',
+            'position': '926r',
+            'reference': 'Parada et al. 2016',
+            'doi': '10.1111/1462-2920.13023'},
+
+        "CCTAYGGGDBGCWGCAG": {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'fwd',
+            'position': '341f',
+            'reference': 'Quick-16S Plus NGS Library Prep Kit (V3-V4, UDI)',
+            'doi': 'https://www.zymoresearch.de/products/quick-16s-plus-ngs-library-prep-kit-v3-v4-udi'},
+        "GACTACNVGGGTMTCTAATCC": {
+            'gene': '16s',
+            'region': 'V34',
+            'orientation': 'rev',
+            'position': '806r',
+            'reference': 'Quick-16S Plus NGS Library Prep Kit (V3-V4, UDI)',
+            'doi': 'https://www.zymoresearch.de/products/quick-16s-plus-ngs-library-prep-kit-v3-v4-udi'},
+    }
+    if primerseq_fwd.upper() not in KNOWNPRIMER.keys():
+        print("Forward primer sequence unknown.")
+    if primerseq_rev.upper() not in KNOWNPRIMER.keys():
+        print("Reverse primer sequence unknown.")
+
+    files_fwd = []
+    files_rev = []
+    for fp_fastq in sorted(glob(os.path.join(dir_fastqs, "**", pattern_fwdfiles), recursive=True)):
+        if os.path.basename(fp_fastq).startswith('Undetermined_S0_'):
+            continue
+
+        files_fwd.append(os.path.abspath(fp_fastq))
+        if not no_rev_seqs:
+            fp_rev = os.path.join(os.path.dirname(fp_fastq), os.path.basename(fp_fastq).replace(r1r2_replace[0], r1r2_replace[1]))
+            if not os.path.exists(fp_rev):
+                raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
+            files_rev.append(os.path.abspath(fp_rev))
+    if (len(files_fwd) + len(files_rev)) <= 0:
+        raise ValueError("No fwd fastQ files found in %s. Check dir_fastqs and pattern_fwdfiles!" % dir_fastqs)
+    if (not no_rev_seqs) & (len(files_fwd) != len(files_rev)):
+        raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
+
+    def pre_execute(workdir, args):
+        with open("%s/commands.txt" % workdir, "w") as f:
+            if not args['no_rev_seqs']:
+                for fp_fwd, fp_rev in zip(files_fwd, files_rev):
+                    f.write('cutadapt --json %s/%s.report.json -g %s -G %s -n 2 -o %s/%s -p %s/%s -m 1 %s %s\n' % (
+                        workdir, os.path.basename(fp_fwd),
+                        primerseq_fwd, primerseq_rev,
+                        workdir, os.path.basename(fp_fwd), workdir, os.path.basename(fp_rev),
+                        fp_fwd, fp_rev))
+            else:
+                for fp_fwd in files_fwd:
+                    f.write('cutadapt --json %s/%s.report.json -g %s -n 1 -o %s/%s -m 1 %s\n' % (
+                        workdir, os.path.basename(fp_fwd),
+                        primerseq_fwd,
+                        workdir, os.path.basename(fp_fwd),
+                        fp_fwd))
+
+    def commands(workdir, ppn, args):
+        commands = [
+            'var_cutadaptCMD=`head -n ${%s} %s/commands.txt | tail -n 1 | cut -f 1`' % (
+                settings.VARNAME_PBSARRAY, workdir),
+            '$var_cutadaptCMD'
+             ]
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        res = []
+        for fp_fwd in tqdm(files_fwd, 'collect trimming stats'):
+            fp_report = os.path.join(workdir, os.path.basename(fp_fwd) + '.report.json')
+            report = json.load(open(fp_report, 'r'))
+            stats = report['basepair_counts']
+            stats['sample_name'] = os.path.basename(report['input']['path1'])
+            stats['is_paired'] = report['input']['paired']
+            res.append(stats)
+        results['report'] = pd.DataFrame(res)
+        results['report'].columns = list(map(lambda x: x.replace('read1', 'forward').replace('read2', 'reverse'), results['report'].columns))
+
+        if dir_target is not None:
+            os.makedirs(dir_target, exist_ok=True)
+            for fp_orig in files_fwd + files_rev:
+                fp_src = os.path.join(workdir, os.path.basename(fp_orig))
+                fp_target = os.path.join(dir_target, os.path.basename(fp_orig))
+                if executor_args.get('verbose', sys.stderr) is not None:
+                    print("moving trimmed file '%s' into '%s'" % (os.path.basename(fp_orig), dir_target), file=executor_args.get('verbose', sys.stderr))
+                shutil.move(fp_src, fp_target)
+        return results
+
+    def post_cache(cache_results):
+        summary = pd.DataFrame(index=['forward', 'reverse'], data=np.nan, columns=['read', 'written', 'ratio'])
+        for direction in ['forward', 'reverse']:
+            summary.loc[direction, 'read'] = cache_results['results']['report']['input_%s' % direction].mean()
+            summary.loc[direction, 'written'] = cache_results['results']['report']['output_%s' % direction].mean()
+            summary.loc[direction, 'ratio'] = (cache_results['results']['report']['output_%s' % direction] / cache_results['results']['report']['input_%s' % direction]).mean()
+        summary = summary.dropna(axis=0, how='all')
+        cache_results['results']['summary'] = summary
+
+        if executor_args.get('verbose', sys.stderr) is not None:
+            for l in cache_results['conda_list']:
+                if l.startswith('cutadapt'):
+                    print(l.strip())
+
+        display(cache_results['results']['summary'])
+        return cache_results
+
+    return _executor('trim',
+                     {'primerseq_fwd': primerseq_fwd,
+                      'primerseq_rev': primerseq_rev,
+                      'dir_fastqs': os.path.abspath(dir_fastqs),
+                      'pattern_fwdfiles': pattern_fwdfiles,
+                      'r1r2_replace': r1r2_replace,
+                      'no_rev_seqs': no_rev_seqs
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=environment,
+                     ppn=ppn,
+                     pmem=pmem,
+                     array=len(files_fwd),
+                     **executor_args)
+
 
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
