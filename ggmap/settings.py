@@ -67,7 +67,7 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
 
 # stolen from https://stackoverflow.com/questions/13034496/
 # using-global-variables-between-files
-def init(err=sys.stderr):
+def init(err=sys.stderr, force_commit_msg=False):
     # load settings from file
     if os.path.exists(FP_SETTINGS):
         commit_msg = ""
@@ -75,7 +75,7 @@ def init(err=sys.stderr):
         if commit is not None:
             commit_msg = ", using commit '%s'" % commit
         global INFOS_PRINTED
-        if INFOS_PRINTED is False:
+        if (INFOS_PRINTED is False) or force_commit_msg:
             err.write('ggmap is custome code from Stefan Janssen, '
                       'download at https://github.com/sjanssen2/ggmap%s\n' % commit_msg)
             err.write("Reading settings file '%s'\n" % FP_SETTINGS)
