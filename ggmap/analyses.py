@@ -13,6 +13,8 @@ import numpy as np
 import json
 import re
 import csv
+from glob import glob
+from IPython.display import Image
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -4756,6 +4758,120 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                      pmem=pmem,
                      **executor_args)
 
+def QC(dir_fastqs:str,
+       pattern_fwdfiles:str="*_R1_*.fastq.gz",
+       r1r2_replace:(str, str)=("_R1_", "_R2_"),
+       no_rev_seq:bool=False,
+       ppn:int=1, pmem:str='2GB', environment:str=settings.SPIKE_ENV,
+       **executor_args):
+    """Generates multiQC reports for all fastq files in a directory.
+
+    Parameters
+    ----------
+    dir_fastqs : str
+        Filepath to directory which contains one or more Sequencing fastq files.
+    pattern_fwdfiles : str
+        Unix pattern identify fastq files.
+    r1r2_replace : (str, str)
+        Source and Target infix to instruct how matching reverse fastQ files
+        can be identified from forward fastQ files.
+    no_rev_seqs : Boolean
+        If True, no R2 (=reverse) reads are expected, i.e. processed
+    """
+    files_fwd = []
+    files_rev = []
+    for fp_fastq in sorted(glob(os.path.join(dir_fastqs, "**", pattern_fwdfiles), recursive=True)):
+        if os.path.basename(fp_fastq).startswith('Undetermined_S0_'):
+            continue
+
+        files_fwd.append(os.path.abspath(fp_fastq))
+        if not no_rev_seq:
+            fp_rev = os.path.join(os.path.dirname(fp_fastq), os.path.basename(fp_fastq).replace(r1r2_replace[0], r1r2_replace[1]))
+            if not os.path.exists(fp_rev):
+                raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
+            files_rev.append(os.path.abspath(fp_rev))
+    if (len(files_fwd) + len(files_rev)) <= 0:
+        raise ValueError("No fwd fastQ files found. Check dir_fastqs and pattern_fwdfiles!")
+    if (not no_rev_seq) & (len(files_fwd) != len(files_rev)):
+        raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
+
+    def pre_execute(workdir, args):
+        with open("%s/commands.txt" % workdir, "w") as f:
+            os.makedirs('%s/forward/' % workdir, exist_ok=True)
+            for fp_fwd in files_fwd:
+                f.write('fastqc --noextract --outdir %s --threads 1 %s\n' % (
+                    '%s/forward/' % workdir, fp_fwd))
+            if not args['no_rev_seq']:
+                os.makedirs('%s/reverse/' % workdir, exist_ok=True)
+                for fp_rev in files_rev:
+                    f.write('fastqc --noextract --outdir %s --threads 1 %s\n' % (
+                        '%s/reverse/' % workdir, fp_rev))
+
+    def commands(workdir, ppn, args):
+        commands = [
+            'var_fastqcCMD=`head -n ${%s} %s/commands.txt | tail -n 1 | cut -f 1`' % (
+                settings.VARNAME_PBSARRAY, workdir),
+            '$var_fastqcCMD'
+             ]
+        return commands
+
+    def post_execute(workdir, args):
+        dry = executor_args['dry'] if 'dry' in executor_args else True
+
+        directions = ['forward']
+        if not args['no_rev_seq']:
+            directions.append('reverse')
+
+        results = dict()
+        for direction in directions:
+            fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
+            fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
+            commands = ['multiqc --filename %s --outdir %s --flat %s/%s' % (
+                fp_report, fp_outdir, workdir, direction
+            )]
+            print("Compiling multiQC (%s reads): " % direction, end="", file=executor_args.get('verbose', sys.stderr))
+            cluster_run(
+                commands,
+                jobname='multiQC_%s' % direction,
+                result=fp_report,
+                ppn=ppn,
+                pmem=pmem,
+                environment=environment,
+                dry=dry,
+                use_grid=executor_args.get('use_grid', True),
+                wait=True)
+            with open(fp_report, 'r') as f:
+                results['multiqc_%s' % direction] = ''.join(f.readlines())
+            with open(fp_report, 'r') as f:
+                for line in f.readlines():
+                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line:
+                        png_search = re.search('img src="(.*)" /></div>', line)
+                        g = Image(url=png_search[1])
+                        results['mean-quality-scores_%s' % direction] = g
+
+        return results
+
+    def post_cache(cache_results):
+        display(cache_results['results']['mean-quality-scores_forward'])
+        if 'mean-quality-scores_reverse' in cache_results['results'].keys():
+            display(cache_results['results']['mean-quality-scores_reverse'])
+        return cache_results
+
+    return _executor('qc',
+                     {'dir_fastqs': os.path.abspath(dir_fastqs),
+                      'pattern_fwdfiles': pattern_fwdfiles,
+                      'r1r2_replace': r1r2_replace,
+                      'no_rev_seq': no_rev_seq
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=environment,
+                     ppn=ppn,
+                     pmem=pmem,
+                     array=(len(files_fwd) + len(files_rev)),
+                     **executor_args)
 
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
@@ -4900,11 +5016,15 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 sorted(cache_arguments[arg].index),
                 sorted(cache_arguments[arg].columns)]
         if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
-            # if argument can be used as a file path and the file actually exists...
-            # ... than use the md5sum of the file instead of the filepath for cache fingerprint
-            # Thus, moving the file will not affect the cache fingerprint
             cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = _md5(cache_arguments[arg])
+            if os.path.isfile(cache_arguments[arg]):
+                # if argument can be used as a file path and the file actually exists...
+                # ... than use the md5sum of the file instead of the filepath for cache fingerprint
+                # Thus, moving the file will not affect the cache fingerprint
+                cache_arguments[arg] = _md5(cache_arguments[arg])
+            else:
+                # assume path is directory
+                cache_arguments[arg] = os.path.abspath(cache_arguments[arg])
 
         # for better debugging, write hash sum for each input argument in result object
         if cache_arguments[arg] is None:
