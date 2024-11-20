@@ -282,7 +282,9 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
             grps = data['metrics'][metric].merge(sample_grouping, left_on='sample_name', right_index=True).groupby(sample_grouping.name)
             for grp, g in grps:
                 d = g.groupby('rarefaction depth')[metric].describe()
-                ax.errorbar(d.index, d['mean'], yerr=d['std'], label=grp, color=grp_colors[grp], ecolor=adjust_saturation(grp_colors[grp], 0.9))
+                d = d[d['count'] > 0]
+                if d.shape[0] > 0:
+                    ax.errorbar(d.index, d['mean'], yerr=[e if pd.notnull(e) else 0 for e in d['std']], label=grp, color=grp_colors[grp], ecolor=adjust_saturation(grp_colors[grp], 0.9))
             if i == 0:
                 ax.legend(title=sample_grouping.name, bbox_to_anchor=(1.05, 1))
         ax.set_ylabel(metric)
@@ -4146,8 +4148,16 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
     counts = collapseCounts_objects(counts, rank, taxonomy)[0]
 
     def pre_execute(workdir, args):
+        def _is_numeric(element):
+            try:
+                float(element)
+                return True
+            except ValueError:
+                return False
+
         pandas2biom('%s/counts.biom' % workdir, args['counts'])
         args['grouping'].name = COL
+        args['grouping'] = args['grouping'].apply(lambda x: '_%s' % x if _is_numeric(x) else x)
         args['grouping'].to_csv('%s/grouping.tsv' % workdir, sep="\t", index_label="sample_name")
 
     def commands(workdir, ppn, args):
@@ -4240,7 +4250,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
             cache_results['results']['figure'] = fig
 
         cache_results['results']['reported_features'] = srt_feat
-
+        cache_results['results']['summary'] = report_taxa
 
         return cache_results
 
