@@ -172,6 +172,7 @@ def _report_trimratio(fp_logs, no_rev_seqs=False):
         return None
 
 def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
+    """Operates on directory prj_data['paths']['demux']"""
     knownprimer = {
         'GTGCCAGCMGCCGCGGTAA': {
             'gene': '16s',
@@ -209,14 +210,29 @@ def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, force=False, ver
             'orientation': 'fwd',
             'position': '341f',
             'reference': 'Klindworth et al.',
-            'doi': ' 10.1093/nar/gks808'},
+            'doi': '10.1093/nar/gks808'},
         'GACTACHVGGGTATCTAATCC': {
             'gene': '16s',
             'region': 'V34',
             'orientation': 'rev',
             'position': '785r',
             'reference': 'Klindworth et al.',
-            'doi': ' 10.1093/nar/gks808'},
+            'doi': '10.1093/nar/gks808'},
+
+        'GTGYCAGCMGCCGCGGTAA': {
+            'gene': '16s',
+            'region': 'V45',
+            'orientation': 'fwd',
+            'position': '515f',
+            'reference': 'Parada et al. 2016',
+            'doi': '10.1111/1462-2920.13023'},
+        'CCGYCAATTYMTTTRAGTTT': {
+            'gene': '16s',
+            'region': 'V45',
+            'orientation': 'rev',
+            'position': '926r',
+            'reference': 'Parada et al. 2016',
+            'doi': '10.1111/1462-2920.13023'},
     }
 
     if primerseq_fwd.upper() not in knownprimer.keys():
@@ -283,9 +299,9 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
 
     return prj_data
 
-def project_sepp(prj_data, ppn=8, verbose=sys.stderr):
+def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True):
     # execute fragment insertion
-    res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV)
+    res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid)
     print('SEPP version number: %s' % ', '.join([line.split()[1] for line in res_sepp['conda_list'] if line.startswith('sepp') or line.startswith('q2-fragment-insertion')]))
     fp_tree = os.path.join(prj_data['paths']['tmp_workdir'], 'sepp_uncorrected_tree.tmp')
     if not os.path.exists(fp_tree):
