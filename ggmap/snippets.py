@@ -2,7 +2,7 @@ from typing import Dict
 import pandas as pd
 import biom
 from biom.util import biom_open
-from itertools import repeat, chain
+from itertools import repeat, chain, cycle
 import numpy as np
 import matplotlib as mpl
 import matplotlib.patches as mpatches
@@ -1790,7 +1790,7 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
                       if (float(data['pvalue']) < pthresh / numComp) or
                       (len(network.keys()) < 8)])
             nx.draw_networkx_edge_labels(G, new_pos, edge_labels=edge_labels,
-                                         ax=ax, label_pos=0.25)
+                                         ax=ax, label_pos=0.45)
             # , label_pos=0.5, font_size=10, font_color='k',
             # font_family='sans-serif', font_weight='normal', alpha=1.0,
             # bbox=None, ax=None, rotate=True, **kwds)
@@ -1861,15 +1861,19 @@ def plotGroup_histograms(alpha, groupings, min_group_size=21, ax=None):
     # remove groups with less than minNum samples per group
     groups = [name
               for name, counts
-              in groupings.value_counts().iteritems()
+              in groupings.value_counts().items()
               if counts >= min_group_size]
 
     if ax is None:
         fig, ax = plt.subplots(1, 1)
 
+    palette = cycle(sns.color_palette())
+
     for group in groups:
-        sns.distplot(alpha.loc[groupings[groupings == group].index],
-                     hist=False, label=group, ax=ax, rug=True)
+        color = next(palette)
+        sns.kdeplot(alpha.loc[groupings[groupings == group].index],
+                    label=group, ax=ax, color=color)
+        sns.rugplot(alpha.loc[groupings[groupings == group].index], ax=ax, color=color)
         # add legends to the histograms to know which color belongs to which
         # group
         ax.legend(loc="upper left")
@@ -2016,7 +2020,7 @@ def plotGroup_permanovas(beta, groupings,
 def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: dict, b_min_num=5, pthresh=0.05,
                  permutations=999, name=None, minnumalpha=21,
                  fct_beta_test=permanova, fct_alpha_test=mannwhitneyu, summarize=False,
-                 beta_plt_fct=sns.boxplot):
+                 beta_plt_fct=sns.boxplot, edgelabel_decimals=2):
     """Plot a series of alpha- / beta- diversity sig. difference networks.
 
     Parameters
@@ -2107,7 +2111,7 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
                 else:
                     plotDistant_groups(
                         **a, pthresh=pthresh, _type='alpha', draw_edgelabel=True,
-                        ax=_get_ax(axarr, row, 0))
+                        ax=_get_ax(axarr, row, 0), edgelabel_decimals=edgelabel_decimals)
                     plotGroup_histograms(
                         alpha[a_metric], metadata[field],
                         ax=_get_ax(axarr, row, 1),
@@ -2143,11 +2147,12 @@ def plotNetworks(field: str, metadata: pd.DataFrame, alpha: pd.DataFrame, beta: 
                 else:
                     plotDistant_groups(
                         **b, pthresh=pthresh, _type='beta', draw_edgelabel=True,
-                        ax=_get_ax(axarr, row, 0))
+                        ax=_get_ax(axarr, row, 0), edgelabel_decimals=edgelabel_decimals)
                     plotGroup_permanovas(
                         beta[b_metric], metadata[field], **b,
                         ax=_get_ax(axarr, row, 1),
-                        horizontal=True, plt_fct=beta_plt_fct)
+                        horizontal=True, plt_fct=beta_plt_fct,
+                        edgelabel_decimals=edgelabel_decimals)
                 row += 1
 
         if (summarize is False):
@@ -3970,7 +3975,7 @@ def adjust_saturation(color, amount=0.5):
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], amount, amount)
 
-def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict(), highlight_samples=set(), show_legend=True):
+def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict(), highlight_samples=set(), show_legend=True, num_rows=8, num_cols=12):
     """Draw a 96-well plate layout.
 
     meta : pd.DataFrame
@@ -3990,10 +3995,19 @@ def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type
     Returns
     -------
     """
-    ROWS = ['A','B','C','D','E','F','G','H']
-    COLS = [1,2,3,4,5,6,7,8,9,10,11,12]
+    if num_rows < 1:
+        raise ValueError("You need to have at least one row!")
+    if num_rows > 26:
+        raise ValueError("Sorry, I cannot draw more than 26 rows.")
+    if num_cols < 1:
+        raise ValueError("You need to have at least one column!")
+    if num_cols > 99:
+        raise ValueError("Sorry, I cannot draw more than 99 columns.")
 
-    fig, axes = plt.subplots(1,1,figsize=(12,8))
+    ROWS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'][:num_rows]
+    COLS = list(range(1, 99))[:num_cols]
+
+    fig, axes = plt.subplots(1,1,figsize=(num_cols, num_rows))
     for col in range(1,len(COLS)+1):
         for row in range(1,len(ROWS)+1):
             axes.add_patch(plt.Circle((col, row), 0.4, color='lightgray', fill=False))
