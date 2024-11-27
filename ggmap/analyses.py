@@ -884,7 +884,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
          #reference_phylogeny=None, reference_alignment=None,
          #reference_taxonomy=None, #reference_info=None,
          alignment_subset_size=None, placement_subset_size=None,
-         ppn=20, pmem='8GB', walltime='12:00:00',
+         ppn=20, pmem='8GB', walltime='12:00:00', debug=False,
          environment=settings.QIIME2_ENV, **executor_args):
     """Tip insertion of deblur sequences into GreenGenes backbone tree.
 
@@ -919,6 +919,8 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
         Default: 10000
         SEPP jobs seem to fail if too many sequences are submitted per job.
         Therefore, we can split your sequences in chunks of chunksize.
+    debug : boolean
+        Request --verbose and --p-debug from qiime2 plugin.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -969,11 +971,14 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
             ('qiime fragment-insertion sepp '
              '--i-representative-sequences %s/rep-seqs${%s}.qza '
              '--i-reference-database %s '
+             '%s'
              '--p-threads %i '
              '%s%s'
              '--output-dir %s/res_${%s}') %
-            (workdir, settings.VARNAME_PBSARRAY, reference_database, ppn,
-             ss_alignment, ss_placement, workdir, settings.VARNAME_PBSARRAY))
+            (workdir, settings.VARNAME_PBSARRAY, reference_database,
+             ' --p-debug --verbose ' if debug else '',
+             ppn, ss_alignment, ss_placement, workdir,
+             settings.VARNAME_PBSARRAY))
 
         # export the placements
         commands.append(

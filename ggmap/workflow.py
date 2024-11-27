@@ -160,9 +160,9 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
 
     return prj_data
 
-def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True):
+def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True, debug=False):
     # execute fragment insertion
-    res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid)
+    res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid, debug=debug)
     print('SEPP version number: %s' % ', '.join([line.split()[1] for line in res_sepp['conda_list'] if line.startswith('sepp') or line.startswith('q2-fragment-insertion')]))
     fp_tree = os.path.join(prj_data['paths']['tmp_workdir'], 'sepp_uncorrected_tree.tmp')
     if not os.path.exists(fp_tree):
