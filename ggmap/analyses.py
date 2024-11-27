@@ -4517,6 +4517,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
         Metadata about samples.
     col_concentration : str
         the column name in the metadata that gives DNA concentrations prior library construction. Used to find inverse correlations of contaminant features.
+        If None, decontam falls back to the "prevalence" mode (only using blanks), instead of "combined".
     col_sample_type : str
         the column name in the metadata that tells decontam if a sample is a negative control or true biological sample.
     cols_batch : [str]
@@ -4535,16 +4536,19 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
     check_column_presents(meta, [col_concentration, col_sampletype] + cols_batch)
 
     # sync counts and metadata + drop samples lacking col information
-    (counts_internal, meta) = sync_counts_metadata(counts_internal, meta[[col_concentration, col_sampletype] + cols_batch].dropna(axis=0, how='any'))
+    (counts_internal, meta) = sync_counts_metadata(counts_internal, meta[([col_concentration] if col_concentration is not None else []) + [col_sampletype] + cols_batch].dropna(axis=0, how='any'))
 
     # test if all values can be interpreted as concentrations
-    meta[col_concentration] = meta[col_concentration].astype(float)
-    if meta[col_concentration].min() < 0:
-        raise ValueError("Some concentrations are negative!")
+    if col_concentration is not None:
+        meta[col_concentration] = meta[col_concentration].astype(float)
+        if meta[col_concentration].min() < 0:
+            raise ValueError("Some concentrations are negative!")
 
     env_types = meta[col_sampletype].unique()
     if len(env_types) > 2:
         raise ValueError("You have %i different sample types: '%s'. Better use decontam per environment and/or remove samples that you don't want to subject to decontam!" % (len(env_types), "', '".join(env_types)))
+    if len(env_types) == 1:
+        raise ValueError("You only provide samples that you consider blanks, but not a single biological samples!")
     if name_control_sample not in env_types:
         raise ValueError("The identifier '%s' for your negative control samples cannot be found in the the metadata!" % name_control_sample)
 
@@ -4596,6 +4600,9 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
              '--output-path %s') %
             ('%s/rep-seq.fasta' % (workdir), '%s/rep-seq.qza' % (workdir)))
 
+        mode, param_concentrations = 'combined', '--p-freq-concentration-column "%s"' % col_concentration
+        if col_concentration is None:
+            mode, param_concentrations = 'prevalence', ''
         for i, (batchname, g) in enumerate(grps):
             commands.append(
                 ('qiime tools import '
@@ -4608,12 +4615,18 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                 ('qiime quality-control decontam-identify '
                  '--i-table %s '
                  '--m-metadata-file %s '
-                 '--p-method combined '
-                 '--p-freq-concentration-column "%s" '
+                 '--p-method %s '
+                 ' %s '
                  '--p-prev-control-column "%s" '
                  '--p-prev-control-indicator "%s" '
                  '--o-decontam-scores %s') %
-                ('%s/counts_%i.qza' % (workdir, i), '%s/metadata_%i.tsv' % (workdir, i), col_concentration, col_sampletype, args['name_control_sample'], '%s/decontam-score_%i.qza' % (workdir, i)))
+                ('%s/counts_%i.qza' % (workdir, i),
+                 '%s/metadata_%i.tsv' % (workdir, i),
+                 mode,
+                 param_concentrations,
+                 col_sampletype,
+                 args['name_control_sample'],
+                 '%s/decontam-score_%i.qza' % (workdir, i)))
 
             commands.append(
                 ('qiime tools export '
@@ -4637,15 +4650,10 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             results.append(res)
 
             stat = {
-                'lost_asvs': res[res['p'] < threshold].index,
                 'affected_samples': batch_counts[i].columns,
-                'lost_num_asvs': len(res[res['p'] < threshold].index),
                 'total_num_asvs': res.shape[0],
-                'percent_lost_asvs': len(res[res['p'] < threshold].index) / res.shape[0] * 100,
-                'lost_num_reads': res[res['p'] < threshold]['reads'].sum(),
                 'total_num_reads': res['reads'].sum(),
                 'non_plotted_num_reads': res[pd.isnull(res['p'])]['reads'].sum(),
-                'percent_lost_reads': res[res['p'] < threshold]['reads'].sum() / res['reads'].sum() * 100,
                 'batch_name': batchname,
                 'batch_grp': i,
                 'num_control_samples': g[g[col_sampletype] == name_control_sample].shape[0],
@@ -4665,6 +4673,17 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             verbose = sys.stderr
         else:
             verbose = executor_args['verbose']
+
+        # compute these stats dynamically, to account for changing threshold
+        for i, (batchname, g) in enumerate(grps):
+            res = cache_results['results']['decontam'][cache_results['results']['decontam']['batch_grp'] == i]
+            idx_batch = cache_results['results']['stats'][cache_results['results']['stats']['batch_grp'] == i].index[0]
+            cache_results['results']['stats'].at[idx_batch, 'lost_asvs'] = res[res['p'] < threshold].index
+            cache_results['results']['stats'].loc[idx_batch, 'lost_num_asvs'] = len(res[res['p'] < threshold].index)
+            cache_results['results']['stats'].loc[idx_batch, 'percent_lost_asvs'] = len(res[res['p'] < threshold].index) / res.shape[0] * 100
+            cache_results['results']['stats'].loc[idx_batch, 'lost_num_reads'] = res[res['p'] < threshold]['reads'].sum()
+            cache_results['results']['stats'].loc[idx_batch, 'percent_lost_reads'] = res[res['p'] < threshold]['reads'].sum() / res['reads'].sum() * 100
+
         if verbose:
             verbose.write('  loosing %i of %i = %.2f%% features\n  loosing %i of %i = %.2f%% reads\n' % (
                 cache_results['results']['stats']['lost_num_asvs'].sum(), cache_results['results']['stats']['total_num_asvs'].sum(), cache_results['results']['stats']['lost_num_asvs'].sum() / cache_results['results']['stats']['total_num_asvs'].sum() * 100,

@@ -355,15 +355,15 @@ def process_study(metadata: pd.DataFrame,
         return results
     verbose.write('In total, %i reads (%f%%) have been filtered for chloroplast/mitochondia removal.\n' % (numReadsPlantRemoval, numReadsPlantRemoval / results['counts_plantsStillIn'].sum().sum() * 100))
 
-    # perform decontam analysis to identify contaminant featurs. You need to have DNA concentrations per sample + negative control samples
-    run_decontam = (len(decontam_lowbiomass_envs) > 0) and (decontam_col_concentration is not None) and (decontam_col_sampletype is not None)
+    # perform decontam analysis to identify contaminant featurs. You need to have DNA concentrations per sample + negative control samples OR just negative control samples
+    run_decontam = (len(decontam_lowbiomass_envs) > 0) and (decontam_col_sampletype is not None)
     if run_decontam:
         counts_decontam = counts.copy()
         waiting = False
         for type_biol in decontam_lowbiomass_envs:
             m = metadata[(metadata[decontam_col_sampletype].isin([type_biol, decontam_name_control_sample]))].copy()
             # automatically drop batches with zero controls OR zero biol samples
-            grp = ('all', m)
+            grp = [('all', m)]
             if len(decontam_cols_batch) == 1:
                 grp = m.groupby(decontam_cols_batch[0])
             elif len(decontam_cols_batch) > 1:
