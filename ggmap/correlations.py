@@ -188,7 +188,6 @@ def correlate_metadata(metadata,
     meta, all_columns = _clear_metadata(
         metadata, categorials, ordinals, intervals, dates, err,
         for_metadata_correlation=True)
-
     summary = dict()
     # start computing correlations
     # if err is not None:
@@ -237,6 +236,11 @@ def correlate_metadata(metadata,
             groups = [g.dropna().values
                       for n, g
                       in meta.groupby(column_a)[column_b]]
+
+            if any(len(group) <= 1 for group in groups):
+                print(f"Info: skipping correlation due to insufficient data: {column_a} vs {column_b}")
+                continue
+
             f_, p_ = f_oneway(*groups)
 
             df_n = len(np.hstack(groups)) - len(groups)
