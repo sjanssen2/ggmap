@@ -1301,8 +1301,10 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     slurm = False
     if use_grid is False:
-        cmd_list += '%s for %s in `seq 1 %i`; do %s; done' % (
-            cmd_conda, settings.VARNAME_PBSARRAY, array, " && ".join(cmds))
+        cmd_list['SPAWN'] = '%s %s' % (cmd_conda, " && ".join(cmds['pre']))
+        cmd_list['SPAWN'] += ' && for %s in `seq 1 %i`; do %s; done;' % (
+            settings.VARNAME_PBSARRAY, array, " && ".join(cmds['main']))
+        cmd_list['SPAWN'] += ' %s' % " && ".join(cmds['post'])
     else:
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
@@ -1375,8 +1377,9 @@ def cluster_run(cmds, jobname, result, environment=None,
                     walltime)
                 if cmdtype == 'main':
                     slurm_script += '#SBATCH --array=1-%i\n' % array
-                slurm_script += '#SBATCH --mail-type=END,FAIL\n'
-                slurm_script += '#SBATCH --mail-user=stefan.janssen@uni-giessen.de\n\n'
+                if cmdtype == 'post':
+                    slurm_script += '#SBATCH --mail-type=END,FAIL\n'
+                    slurm_script += '#SBATCH --mail-user=stefan.janssen@uni-giessen.de\n\n'
                 slurm_script += 'srun uname -a\n'
 
                 for cmd in cmds[cmdtype]:
@@ -1397,10 +1400,10 @@ def cluster_run(cmds, jobname, result, environment=None,
             # variable to avoid slurm complaining about other resource requests.
             if settings.GRIDNAME == 'JLU_SLURM':
                 cmd_list['SPAWN'] = 'unset SLURM_MEM_PER_NODE && '
-
-            cmd_list['SPAWN'] += 'qid_pre=`%s %ssbatch %s`' % (fps_scripts['pre'], settings.GRIDENGINE_BINDIR, fps_scripts[cmdtype])
-            cmd_list['SPAWN'] += ' && qid_main=`%s %ssbatch %s --depend=afterany:$qid_pre`' % (fps_scripts['main'], settings.GRIDENGINE_BINDIR, fps_scripts[cmdtype])
-            cmd_list['SPAWN'] += ' && %s %ssbatch %s --depend=afterany:$qid_main' % (fps_scripts['post'], settings.GRIDENGINE_BINDIR, fps_scripts[cmdtype])
+            cmd_list['SPAWN'] += cmd_conda
+            cmd_list['SPAWN'] += ' qid_pre=`%ssbatch --parsable %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['pre'])
+            cmd_list['SPAWN'] += ' && qid_main=`%ssbatch --parsable --dependency=aftercorr:$qid_pre %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['main'])
+            cmd_list['SPAWN'] += ' && %ssbatch --parsable --depend=afterany:$qid_main %s' % (settings.GRIDENGINE_BINDIR, fps_scripts['post'])
 
     if dry is True:
         if use_grid and slurm:
@@ -1413,13 +1416,13 @@ def cluster_run(cmds, jobname, result, environment=None,
     else:
         if use_grid is True:
             with subprocess.Popen(
-                    cmd_list, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
+                    cmd_list['SPAWN'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
                 err_msg = task_qsub.stderr.read()
                 if err_msg != b"":
                     raise ValueError("Error in submitting job via qsub:\n%s" % err_msg.decode('ascii'))
                 qid = task_qsub.stdout.read().decode('ascii').rstrip()
-                if settings.GRIDNAME == 'JLU':
-                    qid = qid.split(" ")[2]
+                #if settings.GRIDNAME == 'JLU':
+                #    qid = qid.split(" ")[2]
                 if slurm:
                     qid = qid.split()[-1]
                     if file_qid is not None:
@@ -1480,7 +1483,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             #if settings.GRIDNAME == 'JLU':
             #    cmd_list = 'source ~/.profile && ' + cmd_list
-            with subprocess.Popen(cmd_list,
+            with subprocess.Popen(cmd_list['SPAWN'],
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,

@@ -604,6 +604,9 @@ def alpha_diversity(counts, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
+    if rarefaction_depth is None:
+        num_iterations = 1
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
@@ -640,51 +643,47 @@ def alpha_diversity(counts, rarefaction_depth,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        iterations = range(args['num_iterations'])
-        if args['rarefaction_depth'] is None:
-            iterations = [0]
-        for iteration in iterations:
-            file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
-                args['rarefaction_depth'], iteration)
-            if args['rarefaction_depth'] is not None:
-                commands['main'].append(
-                    ('qiime feature-table rarefy '
-                     '--i-table %s '
-                     '--p-sampling-depth %i '
-                     '--o-rarefied-table %s') %
-                    (workdir+'/input.qza', args['rarefaction_depth'],
-                     file_raretable)
-                )
-            else:
-                commands['main'].append('cp %s %s' % (
-                    workdir+'/input.qza',
-                    workdir+'/rarefaction/rare_%s_%i.qza' % (
-                        rarefaction_depth, iteration)))
-            for metric in args['metrics']:
-                file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
-                    args['rarefaction_depth'], iteration, metric)
-                plugin = 'alpha'
-                treeinput = ''
-                if metric == 'PD_whole_tree':
-                    plugin = 'alpha-phylogenetic'
-                    treeinput = '--i-phylogeny %s' % (
-                        workdir+'/reference_tree.qza')
-                commands['main'].append(
-                    ('qiime diversity %s '
-                     '--i-table %s '
-                     '--p-metric %s '
-                     ' %s '
-                     '--o-alpha-diversity %s') %
-                    (plugin, file_raretable,
-                     _update_metric_alpha(metric),
-                     treeinput,
-                     file_alpha))
-                commands['main'].append(
-                    ('qiime tools export '
-                     '--input-path %s/alpha/alpha_%s_%i_%s.qza '
-                     '--output-path %s/alpha_plain/%s/%i/%s') %
-                    (workdir, args['rarefaction_depth'], iteration, metric,
-                     workdir, args['rarefaction_depth'], iteration, metric))
+        file_raretable = workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+            args['rarefaction_depth'], settings.VARNAME_PBSARRAY)
+        if args['rarefaction_depth'] is not None:
+            commands['main'].append(
+                ('qiime feature-table rarefy '
+                 '--i-table %s '
+                 '--p-sampling-depth %i '
+                 '--o-rarefied-table %s') %
+                (workdir+'/input.qza', args['rarefaction_depth'],
+                 file_raretable)
+            )
+        else:
+            commands['main'].append('cp %s %s' % (
+                workdir+'/input.qza',
+                workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+                    rarefaction_depth, settings.VARNAME_PBSARRAY)))
+        for metric in args['metrics']:
+            file_alpha = workdir+'/alpha/alpha_%s_${%s}_%s.qza' % (
+                args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric)
+            plugin = 'alpha'
+            treeinput = ''
+            if metric == 'PD_whole_tree':
+                plugin = 'alpha-phylogenetic'
+                treeinput = '--i-phylogeny %s' % (
+                    workdir+'/reference_tree.qza')
+            commands['main'].append(
+                ('qiime diversity %s '
+                 '--i-table %s '
+                 '--p-metric %s '
+                 ' %s '
+                 '--o-alpha-diversity %s') %
+                (plugin, file_raretable,
+                 _update_metric_alpha(metric),
+                 treeinput,
+                 file_alpha))
+            commands['main'].append(
+                ('qiime tools export '
+                 '--input-path %s/alpha/alpha_%s_${%s}_%s.qza '
+                 '--output-path %s/alpha_plain/%s/${%s}/%s') %
+                (workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric,
+                 workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric))
 
         return commands
 
@@ -730,6 +729,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
+                     array=num_iterations,
                      **executor_args)
 
 
