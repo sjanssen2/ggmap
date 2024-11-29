@@ -622,9 +622,9 @@ def alpha_diversity(counts, rarefaction_depth,
                                name_analysis='alpha_diversity')
 
     def commands(workdir, ppn, args):
-        commands = []
+        commands = {'pre': [], 'main': [], 'post': []}
 
-        commands.append(
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
@@ -632,7 +632,7 @@ def alpha_diversity(counts, rarefaction_depth,
              '--output-path %s ') %
             (workdir+'/input.biom', workdir+'/input'))
         if 'PD_whole_tree' in args['metrics']:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -647,7 +647,7 @@ def alpha_diversity(counts, rarefaction_depth,
             file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
                 args['rarefaction_depth'], iteration)
             if args['rarefaction_depth'] is not None:
-                commands.append(
+                commands['main'].append(
                     ('qiime feature-table rarefy '
                      '--i-table %s '
                      '--p-sampling-depth %i '
@@ -656,7 +656,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      file_raretable)
                 )
             else:
-                commands.append('cp %s %s' % (
+                commands['main'].append('cp %s %s' % (
                     workdir+'/input.qza',
                     workdir+'/rarefaction/rare_%s_%i.qza' % (
                         rarefaction_depth, iteration)))
@@ -669,7 +669,7 @@ def alpha_diversity(counts, rarefaction_depth,
                     plugin = 'alpha-phylogenetic'
                     treeinput = '--i-phylogeny %s' % (
                         workdir+'/reference_tree.qza')
-                commands.append(
+                commands['main'].append(
                     ('qiime diversity %s '
                      '--i-table %s '
                      '--p-metric %s '
@@ -679,7 +679,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      _update_metric_alpha(metric),
                      treeinput,
                      file_alpha))
-                commands.append(
+                commands['main'].append(
                     ('qiime tools export '
                      '--input-path %s/alpha/alpha_%s_%i_%s.qza '
                      '--output-path %s/alpha_plain/%s/%i/%s') %
@@ -5159,7 +5159,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     jobname : str
     cache_arguments : []
     pre_execute : function
-    commands : []
+    commands : [] or dict:{'pre': [], 'main': [], 'post': []}
     post_execute : function
     post_cache : function
         A function that is called, after results have been loaded from cache /
@@ -5312,22 +5312,22 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 pot_workdirs.append(potwd)
     finished_workdirs = []
     for wd in pot_workdirs:
-        all_finished = True
-        for i in range(array):
-            exp_finish_suffix = ""
-            if array > 1:
-                exp_finish_suffix = str(int(i+1))
-            if (array == 1):
-                if (settings.GRIDNAME == 'JLU'):
-                    if use_grid:
-                        exp_finish_suffix = 'undefined'
-                    else:
-                        exp_finish_suffix = '1'
-                else:
-                    exp_finish_suffix = '1'
-            if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
-                all_finished = False
-                break
+        all_finished = os.path.exists('%s/finished.info' % wd)
+        # for i in range(array):
+        #     exp_finish_suffix = ""
+        #     if array > 1:
+        #         exp_finish_suffix = str(int(i+1))
+        #     if (array == 1):
+        #         if (settings.GRIDNAME == 'JLU'):
+        #             if use_grid:
+        #                 exp_finish_suffix = 'undefined'
+        #             else:
+        #                 exp_finish_suffix = '1'
+        #         else:
+        #             exp_finish_suffix = '1'
+        #     if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
+        #         all_finished = False
+        #         break
         if all_finished:
             finished_workdirs.append(wd)
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
@@ -5361,9 +5361,13 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         pre_execute(results['workdir'], cache_arguments)
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
+        # convert to new dict structure instead of flat list
+        if isinstance(lst_commands, list):
+            lst_commands = {'main': lst_commands}
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s${%s}' %
-                            (results['workdir'], FILE_STATUS, settings.VARNAME_PBSARRAY))
+        final_cmd = 'touch %s/%s' % (results['workdir'], FILE_STATUS)
+        lst_commands['post'].append(final_cmd)
+
         results['qid'] = cluster_run(
             lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
             environment, ppn=ppn, wait=wait, dry=dry,
