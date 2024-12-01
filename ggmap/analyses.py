@@ -412,16 +412,17 @@ def rarefaction_curves(counts,
                     depth, iteration))
         f.close()
 
-        commands = []
-        commands.append(
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             # '--source-format BIOMV210Format '
              '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
         if args['reference_tree'] is not None:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -429,25 +430,12 @@ def rarefaction_curves(counts,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        # use_grid = executor_args['use_grid'] \
-        #     if 'use_grid' in executor_args else True
-        dry = executor_args['dry'] if 'dry' in executor_args else True
-        cluster_run(commands, environment=settings.QIIME2_ENV,
-                    jobname='prep_rarecurves',
-                    result="%s/reference_tree.qza" % workdir,
-                    ppn=1,
-                    pmem=pmem,
-                    walltime='1:00:00',
-                    dry=dry,
-                    wait=True, use_grid=executor_args.get('use_grid', True))
-
-    def commands(workdir, ppn, args):
-        commands = [
+        commands['main'] = [
             ('var_depth=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir),
             ('var_iteration=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir)]
-        commands.append((
+        commands['main'].append((
             'qiime feature-table rarefy '
             '--i-table %s/input.qza '
             '--p-sampling-depth ${var_depth} '
@@ -460,7 +448,7 @@ def rarefaction_curves(counts,
                 plugin = 'alpha-phylogenetic'
                 treeinput = '--i-phylogeny %s' % (
                     workdir+'/reference_tree.qza')
-            commands.append(
+            commands['main'].append(
                 ('qiime diversity %s '
                  '--i-table %s/rare_${var_depth}_${var_iteration}.qza '
                  '--p-metric %s '
@@ -470,7 +458,7 @@ def rarefaction_curves(counts,
                 (plugin, workdir,
                  _update_metric_alpha(metric),
                  treeinput, workdir, metric))
-            commands.append(
+            commands['main'].append(
                 ('qiime tools export '
                  '--input-path %s/alpha_${var_depth}_${var_iteration}_%s.qza '
                  '--output-path %s/alpharaw_${var_depth}_${var_iteration}_%s')
