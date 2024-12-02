@@ -688,14 +688,6 @@ def alpha_diversity(counts, rarefaction_depth,
                 alpha_results = alpha_results.set_index(alpha_results.columns[0])
                 alpha_results = alpha_results.astype(float)
                 results_alpha[metric].append(alpha_results)
-#alphas = pd.read_csv(
-#    '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
-#    sep="\t", dtype=str
-#)
-#alphas = alphas.set_index(alphas.columns[0])
-#alphas = alphas.astype(float)
-#alphas = alphas.reindex(index=samplenames).reset_index()
-
 
         for metric in results_alpha.keys():
             results_alpha[metric] = pd.concat(
