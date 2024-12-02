@@ -412,16 +412,17 @@ def rarefaction_curves(counts,
                     depth, iteration))
         f.close()
 
-        commands = []
-        commands.append(
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             # '--source-format BIOMV210Format '
              '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
         if args['reference_tree'] is not None:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -429,25 +430,12 @@ def rarefaction_curves(counts,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        # use_grid = executor_args['use_grid'] \
-        #     if 'use_grid' in executor_args else True
-        dry = executor_args['dry'] if 'dry' in executor_args else True
-        cluster_run(commands, environment=settings.QIIME2_ENV,
-                    jobname='prep_rarecurves',
-                    result="%s/reference_tree.qza" % workdir,
-                    ppn=1,
-                    pmem=pmem,
-                    walltime='1:00:00',
-                    dry=dry,
-                    wait=True, use_grid=executor_args.get('use_grid', True))
-
-    def commands(workdir, ppn, args):
-        commands = [
+        commands['main'] = [
             ('var_depth=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir),
             ('var_iteration=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir)]
-        commands.append((
+        commands['main'].append((
             'qiime feature-table rarefy '
             '--i-table %s/input.qza '
             '--p-sampling-depth ${var_depth} '
@@ -460,7 +448,7 @@ def rarefaction_curves(counts,
                 plugin = 'alpha-phylogenetic'
                 treeinput = '--i-phylogeny %s' % (
                     workdir+'/reference_tree.qza')
-            commands.append(
+            commands['main'].append(
                 ('qiime diversity %s '
                  '--i-table %s/rare_${var_depth}_${var_iteration}.qza '
                  '--p-metric %s '
@@ -470,7 +458,7 @@ def rarefaction_curves(counts,
                 (plugin, workdir,
                  _update_metric_alpha(metric),
                  treeinput, workdir, metric))
-            commands.append(
+            commands['main'].append(
                 ('qiime tools export '
                  '--input-path %s/alpha_${var_depth}_${var_iteration}_%s.qza '
                  '--output-path %s/alpharaw_${var_depth}_${var_iteration}_%s')
@@ -604,6 +592,9 @@ def alpha_diversity(counts, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
+    if rarefaction_depth is None:
+        num_iterations = 1
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
@@ -622,9 +613,9 @@ def alpha_diversity(counts, rarefaction_depth,
                                name_analysis='alpha_diversity')
 
     def commands(workdir, ppn, args):
-        commands = []
+        commands = {'pre': [], 'main': [], 'post': []}
 
-        commands.append(
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
@@ -632,7 +623,7 @@ def alpha_diversity(counts, rarefaction_depth,
              '--output-path %s ') %
             (workdir+'/input.biom', workdir+'/input'))
         if 'PD_whole_tree' in args['metrics']:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -640,51 +631,47 @@ def alpha_diversity(counts, rarefaction_depth,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        iterations = range(args['num_iterations'])
-        if args['rarefaction_depth'] is None:
-            iterations = [0]
-        for iteration in iterations:
-            file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
-                args['rarefaction_depth'], iteration)
-            if args['rarefaction_depth'] is not None:
-                commands.append(
-                    ('qiime feature-table rarefy '
-                     '--i-table %s '
-                     '--p-sampling-depth %i '
-                     '--o-rarefied-table %s') %
-                    (workdir+'/input.qza', args['rarefaction_depth'],
-                     file_raretable)
-                )
-            else:
-                commands.append('cp %s %s' % (
-                    workdir+'/input.qza',
-                    workdir+'/rarefaction/rare_%s_%i.qza' % (
-                        rarefaction_depth, iteration)))
-            for metric in args['metrics']:
-                file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
-                    args['rarefaction_depth'], iteration, metric)
-                plugin = 'alpha'
-                treeinput = ''
-                if metric == 'PD_whole_tree':
-                    plugin = 'alpha-phylogenetic'
-                    treeinput = '--i-phylogeny %s' % (
-                        workdir+'/reference_tree.qza')
-                commands.append(
-                    ('qiime diversity %s '
-                     '--i-table %s '
-                     '--p-metric %s '
-                     ' %s '
-                     '--o-alpha-diversity %s') %
-                    (plugin, file_raretable,
-                     _update_metric_alpha(metric),
-                     treeinput,
-                     file_alpha))
-                commands.append(
-                    ('qiime tools export '
-                     '--input-path %s/alpha/alpha_%s_%i_%s.qza '
-                     '--output-path %s/alpha_plain/%s/%i/%s') %
-                    (workdir, args['rarefaction_depth'], iteration, metric,
-                     workdir, args['rarefaction_depth'], iteration, metric))
+        file_raretable = workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+            args['rarefaction_depth'], settings.VARNAME_PBSARRAY)
+        if args['rarefaction_depth'] is not None:
+            commands['main'].append(
+                ('qiime feature-table rarefy '
+                 '--i-table %s '
+                 '--p-sampling-depth %i '
+                 '--o-rarefied-table %s') %
+                (workdir+'/input.qza', args['rarefaction_depth'],
+                 file_raretable)
+            )
+        else:
+            commands['main'].append('cp %s %s' % (
+                workdir+'/input.qza',
+                workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+                    rarefaction_depth, settings.VARNAME_PBSARRAY)))
+        for metric in args['metrics']:
+            file_alpha = workdir+'/alpha/alpha_%s_${%s}_%s.qza' % (
+                args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric)
+            plugin = 'alpha'
+            treeinput = ''
+            if metric == 'PD_whole_tree':
+                plugin = 'alpha-phylogenetic'
+                treeinput = '--i-phylogeny %s' % (
+                    workdir+'/reference_tree.qza')
+            commands['main'].append(
+                ('qiime diversity %s '
+                 '--i-table %s '
+                 '--p-metric %s '
+                 ' %s '
+                 '--o-alpha-diversity %s') %
+                (plugin, file_raretable,
+                 _update_metric_alpha(metric),
+                 treeinput,
+                 file_alpha))
+            commands['main'].append(
+                ('qiime tools export '
+                 '--input-path %s/alpha/alpha_%s_${%s}_%s.qza '
+                 '--output-path %s/alpha_plain/%s/${%s}/%s') %
+                (workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric,
+                 workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric))
 
         return commands
 
@@ -701,14 +688,6 @@ def alpha_diversity(counts, rarefaction_depth,
                 alpha_results = alpha_results.set_index(alpha_results.columns[0])
                 alpha_results = alpha_results.astype(float)
                 results_alpha[metric].append(alpha_results)
-#alphas = pd.read_csv(
-#    '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
-#    sep="\t", dtype=str
-#)
-#alphas = alphas.set_index(alphas.columns[0])
-#alphas = alphas.astype(float)
-#alphas = alphas.reindex(index=samplenames).reset_index()
-
 
         for metric in results_alpha.keys():
             results_alpha[metric] = pd.concat(
@@ -730,6 +709,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
+                     array=num_iterations,
                      **executor_args)
 
 
@@ -5159,7 +5139,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     jobname : str
     cache_arguments : []
     pre_execute : function
-    commands : []
+    commands : [] or dict:{'pre': [], 'main': [], 'post': []}
     post_execute : function
     post_cache : function
         A function that is called, after results have been loaded from cache /
@@ -5312,22 +5292,22 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 pot_workdirs.append(potwd)
     finished_workdirs = []
     for wd in pot_workdirs:
-        all_finished = True
-        for i in range(array):
-            exp_finish_suffix = ""
-            if array > 1:
-                exp_finish_suffix = str(int(i+1))
-            if (array == 1):
-                if (settings.GRIDNAME == 'JLU'):
-                    if use_grid:
-                        exp_finish_suffix = 'undefined'
-                    else:
-                        exp_finish_suffix = '1'
-                else:
-                    exp_finish_suffix = '1'
-            if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
-                all_finished = False
-                break
+        all_finished = os.path.exists('%s/finished.info' % wd)
+        # for i in range(array):
+        #     exp_finish_suffix = ""
+        #     if array > 1:
+        #         exp_finish_suffix = str(int(i+1))
+        #     if (array == 1):
+        #         if (settings.GRIDNAME == 'JLU'):
+        #             if use_grid:
+        #                 exp_finish_suffix = 'undefined'
+        #             else:
+        #                 exp_finish_suffix = '1'
+        #         else:
+        #             exp_finish_suffix = '1'
+        #     if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
+        #         all_finished = False
+        #         break
         if all_finished:
             finished_workdirs.append(wd)
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
@@ -5361,9 +5341,13 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         pre_execute(results['workdir'], cache_arguments)
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
+        # convert to new dict structure instead of flat list
+        if isinstance(lst_commands, list):
+            lst_commands = {'main': lst_commands}
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s${%s}' %
-                            (results['workdir'], FILE_STATUS, settings.VARNAME_PBSARRAY))
+        final_cmd = 'touch %s/%s' % (results['workdir'], FILE_STATUS)
+        lst_commands['post'].append(final_cmd)
+
         results['qid'] = cluster_run(
             lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
             environment, ppn=ppn, wait=wait, dry=dry,
