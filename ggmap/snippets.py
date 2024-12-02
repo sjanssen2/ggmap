@@ -1250,7 +1250,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                     set(cmds.keys() - set(VALID_CMDS_KEYS))))
     elif isinstance(cmds, list):
         # no specific command category given, assume all commands shall be "main"
-        cmds = {'main': cmds}
+        cmds = {'pre': [], 'main': cmds, 'post': []}
     assert isinstance(cmds, dict)
 
     for cmdtype in VALID_CMDS_KEYS:
