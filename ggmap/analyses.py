@@ -787,6 +787,7 @@ def beta_diversity(counts,
                    reference_tree=None,
                    fix_zero_len_branches=False,
                    remove_zero_entropy_samples: bool=False,
+                   use_sklearn_parallel: bool=False,
                    **executor_args):
     """Computes beta diversity values for given BIOM table.
 
@@ -798,6 +799,11 @@ def beta_diversity(counts,
         Beta diversity metrics to be computed.
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
+    use_sklearn_parallel : bool
+        For huge feature-tables, you might want to replace the Qiime2 distance
+        computation with a more hacky one based on scikit-learn, see
+        https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise_distances.html
+        To also use parallel computation of non-phylogenetic metrics.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -862,6 +868,12 @@ def beta_diversity(counts,
                                fix_zero_len_branches, verbose=verbose,
                                name_analysis='beta_diversity')
 
+        if use_sklearn_parallel:
+            # copy the necessary helper python script into the working directory
+            # to make sure it can be called with the correct file path
+            shutil.copy(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scripts/beta_parallel.py')),
+                        '%s' % workdir)
+
     def commands(workdir, ppn, args):
         metrics_phylo = []
         metrics_nonphylo = []
@@ -874,30 +886,47 @@ def beta_diversity(counts,
         commands = {'pre': [], 'main': [], 'post': []}
         # import biom table into q2 fragment
         # commands.append('mkdir -p %s' % (workdir+'/beta_qza'))
-        commands['pre'].append(
-            ('qiime tools import '
-             '--input-path %s '
-             '--type "FeatureTable[Frequency]" '
-             '--output-path %s ') %
-            (workdir+'/input.biom', workdir+'/input'))
-        commands['pre'].append(
-            ('qiime tools import '
-             '--input-path %s '
-             '--output-path %s '
-             '--type "Phylogeny[Rooted]"') %
-            (workdir+'/reference.tree',
-             workdir+'/reference_tree.qza'))
+        if (not use_sklearn_parallel) or (len(metrics_phylo) > 0):
+            commands['pre'].append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "FeatureTable[Frequency]" '
+                 '--output-path %s ') %
+                (workdir+'/input.biom', workdir+'/input'))
+        if len(metrics_phylo) > 0:
+            commands['pre'].append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--output-path %s '
+                 '--type "Phylogeny[Rooted]"') %
+                (workdir+'/reference.tree',
+                 workdir+'/reference_tree.qza'))
         for i, metric in enumerate(metrics_nonphylo + metrics_phylo):
             if metric in metrics_nonphylo:
-                commands['main'].append(
-                    ('if [ ${%s} -eq %i ]; then qiime diversity beta '
-                     '--i-table %s '
-                     '--p-metric %s '
-                     '--p-n-jobs %i '
-                     '--o-distance-matrix %s%s; fi') %
-                    (settings.VARNAME_PBSARRAY, i+1,
-                     workdir+'/input.qza', metric, ppn,
-                     workdir+'/beta_qza/', metric))
+                if use_sklearn_parallel:
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then '
+                         'python %s/beta_parallel.py '
+                         '%s/input.biom '
+                         '%s/beta_qza/%s.qza '
+                         '%s %s; '
+                         'fi') % (
+                         settings.VARNAME_PBSARRAY, i+1,
+                         workdir,
+                         workdir,
+                         workdir, metric,
+                         metric,
+                         ppn))
+                else:
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime diversity beta '
+                         '--i-table %s '
+                         '--p-metric %s '
+                         '--p-n-jobs %i '
+                         '--o-distance-matrix %s%s; fi') %
+                        (settings.VARNAME_PBSARRAY, i+1,
+                         workdir+'/input.qza', metric, ppn,
+                         workdir+'/beta_qza/', metric))
             elif metric in metrics_phylo:
                 commands['main'].append(
                     ('if [ ${%s} -eq %i ]; then qiime diversity beta-phylogenetic '
@@ -2793,8 +2822,10 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
     metadata : Pandas.DataFrame
         The metadata about samples to be plotted. Samples not included in
         metadata will be omitted from ordination and plotting!
-    beta_diversities : dict(str: DistanceMatrix)
+    beta_diversities : dict(str: DistanceMatrix) OR dict(str: fp to qza)
         Dictionary of (multiple) beta diversity distance metrices.
+        OR a dictionary of (multiple) QZA of beta diversity distance metrics,
+        in case they are HUGE, i.e. multiple GB of filesize.
     fp_results : str
         Filepath to directory where to store generated emperor plot qzvs.
     other_beta_diversities : dict(str: DistanceMatrix)
@@ -2822,17 +2853,29 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
     def pre_execute(workdir, args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
-            samples &= set(args['beta_diversities'][metric].ids)
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                samples &= set(args['beta_diversities'][metric].ids)
+            else:
+                if (not args['beta_diversities'][metric].endswith('.qza')) or (not os.path.exists(args['beta_diversities'][metric])):
+                    raise ValueError("The file '%s' you provided as '%s' distance metric, does not end with .qza OR does not exists!" % (args['beta_diversities'][metric], metric))
         if args['other_beta_diversities'] is not None:
             if sorted(args['beta_diversities'].keys()) != sorted(args['other_beta_diversities'].keys()):
                 raise ValueError("Procrustes: reference and other beta diversity metrics do NOT contain the same metrics!")
             for metric in args['other_beta_diversities'].keys():
-                samples &= set(args['other_beta_diversities'][metric].ids)
+                if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                    samples &= set(args['other_beta_diversities'][metric].ids)
+                else:
+                    if (not args['other_beta_diversities'][metric].endswith('.qza')) or (not os.path.exists(args['other_beta_diversities'][metric])):
+                        raise ValueError("The file '%s' you provided as other '%s' distance metric, does not end with .qza OR does not exists!" % (args['other_beta_diversities'][metric], metric))
 
-        if (args['metadata'].shape[0] != len(samples)):
+        if isinstance(list(args['beta_diversities'].values())[0], DistanceMatrix):
+            if (args['metadata'].shape[0] != len(samples)):
+                sys.stderr.write(
+                    'Info: reducing number of samples for Emperor plot to %i\n' %
+                    len(samples))
+        else:
             sys.stderr.write(
-                'Info: reducing number of samples for Emperor plot to %i\n' %
-                len(samples))
+                'Info: since you provide file-paths to *.qza\'s, we cannot merge metadata and distance matrixes. Please ensure matching IDs yourself!')
 
         # write metadata to tmp file
         args['metadata'].loc[list(samples), :].to_csv(
@@ -2840,34 +2883,39 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
 
         # write distance metrices to tmp files
         for metric in args['beta_diversities'].keys():
-            os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
-            args['beta_diversities'][metric].filter(samples).write(
-                '%s/%s/distance-matrix.tsv' % (workdir, metric))
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
+                args['beta_diversities'][metric].filter(samples).write(
+                    '%s/%s/distance-matrix.tsv' % (workdir, metric))
         if args['other_beta_diversities'] is not None:
-            for metric in args['other_beta_diversities'].keys():
-                os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
-                args['other_beta_diversities'][metric].filter(samples).write(
-                    '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
+            if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                for metric in args['other_beta_diversities'].keys():
+                    os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
+                    args['other_beta_diversities'][metric].filter(samples).write(
+                        '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
 
     def commands(workdir, ppn, args):
         commands = {'pre': [], 'main': [], 'post': []}
 
         for metric in args['beta_diversities'].keys():
-            # import DistanceMatrix
-            commands['pre'].append(
-                ('qiime tools import '
-                 '--input-path %s/%s '
-                 '--type "DistanceMatrix" '
-                 '--output-path %s/beta_%s.qza ') %
-                (workdir, metric, workdir, metric))
-            if args['other_beta_diversities'] is not None:
-                # import DistanceMatrix for other
+            # note: skip importing if user provides *.qza file-paths
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                # import DistanceMatrix
                 commands['pre'].append(
                     ('qiime tools import '
-                     '--input-path %s/other_%s '
+                     '--input-path %s/%s '
                      '--type "DistanceMatrix" '
-                     '--output-path %s/other_beta_%s.qza ') %
+                     '--output-path %s/beta_%s.qza ') %
                     (workdir, metric, workdir, metric))
+            if args['other_beta_diversities'] is not None:
+                if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                    # import DistanceMatrix for other
+                    commands['pre'].append(
+                        ('qiime tools import '
+                         '--input-path %s/other_%s '
+                         '--type "DistanceMatrix" '
+                         '--output-path %s/other_beta_%s.qza ') %
+                        (workdir, metric, workdir, metric))
 
         arrayid = 1
         for metric in args['beta_diversities'].keys():
@@ -2875,10 +2923,11 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                 # compute ordination
                 commands['main'].append(
                     ('if [ ${%s} -eq %i ]; then qiime diversity %s '
-                     '--i-distance-matrix %s/beta_%s.qza '
+                     '--i-distance-matrix %s '
                      '--o-%s %s/%s_%s; fi ') %
                     (settings.VARNAME_PBSARRAY, arrayid,
-                     ordname, workdir, metric,
+                     ordname,
+                     '%s/beta_%s.qza' % (workdir, metric) if isinstance(args['beta_diversities'][metric], DistanceMatrix) else args['beta_diversities'][metric],
                      ordname, workdir, ordname, metric))
 
                 # export ordination to return insights
@@ -2894,10 +2943,11 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                     # compute other ordination
                     commands['main'].append(
                         ('if [ ${%s} -eq %i ]; then qiime diversity %s '
-                         '--i-distance-matrix %s/other_beta_%s.qza '
+                         '--i-distance-matrix %s '
                          '--o-%s %s/other_%s_%s; fi ') %
                         (settings.VARNAME_PBSARRAY, arrayid,
-                         ordname, workdir, metric,
+                         ordname,
+                         '%s/other_beta_%s.qza' % (workdir, metric) if isinstance(args['other_beta_diversities'][metric], DistanceMatrix) else args['other_beta_diversities'][metric],
                          ordname, workdir, ordname, metric))
 
                     # generate procrustes emperor plot
@@ -2952,7 +3002,7 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=ppn,
+                     ppn=1,
                      array=array,
                      **executor_args)
 
