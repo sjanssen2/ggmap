@@ -1301,8 +1301,10 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     slurm = False
     if use_grid is False:
-        cmd_list['SPAWN'] = '%s %s' % (cmd_conda, " && ".join(cmds['pre']))
-        cmd_list['SPAWN'] += ' && for %s in `seq 1 %i`; do %s; done;' % (
+        cmd_list['SPAWN'] = cmd_conda
+        if len(cmds['pre']) > 0:
+            cmd_list['SPAWN'] += " && " + " && ".join(cmds['pre'])
+        cmd_list['SPAWN'] += ' for %s in `seq 1 %i`; do %s; done;' % (
             settings.VARNAME_PBSARRAY, array, " && ".join(cmds['main']))
         cmd_list['SPAWN'] += ' %s' % " && ".join(cmds['post'])
     else:
