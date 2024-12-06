@@ -28,6 +28,9 @@ from skbio import OrdinationResults
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
 
+from biom.table import Table
+from biom.util import biom_open
+
 from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, get_conda_activate_cmd, plotTaxonomy)
 from ggmap import settings
 import seaborn as sns
@@ -141,7 +144,7 @@ def _parse_alpha_div_collated(workdir, samplenames):
     per rarefaction depth per sample.
     """
     res = []
-    for dir_alpha in next(os.walk(workdir))[1]:
+    for dir_alpha in tqdm(next(os.walk(workdir))[1], 'collect rarefaction data'):
         parts = dir_alpha.split('_')
         depth, iteration, metric = parts[1], parts[2], '_'.join(parts[3:])
         # we get parse errors if sample names are only numeric
@@ -181,7 +184,7 @@ def _parse_alpha_div_collated(workdir, samplenames):
 def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
                              control_sample_names=[],
                              sample_grouping:pd.Series=None,
-                             onlyshow=None):
+                             onlyshow=None, plot_max_samples:int=1000):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -196,6 +199,11 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
         Default: [].
         A set of samples that serve as controls, i.e. samples that we are
         willing to loose during rarefaction. Only used for plotting.
+    plot_max_samples : int
+        By default, each sample will be plotted individually. For huge feature
+        tables, this can take very long time and exceed memory. Therefore,
+        we prematurely stop iterating samples, once plot_max_samples have
+        been plotted.
 
     Returns
     -------
@@ -276,11 +284,25 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
 
         # using different drawing methods for normal grouping by sample name and alternative grouping due to speed
         if sample_grouping is None:
-            for sample, g in data['metrics'][metric].groupby('sample_name'):
+            num_total_samples = data['metrics'][metric]['sample_name'].unique().shape[0]
+            num_skipped_samples = num_total_samples - plot_max_samples
+            for ns, (sample, g) in enumerate(data['metrics'][metric].groupby('sample_name')):
                 gsorted = g.sort_values('rarefaction depth')
                 ax.errorbar(
                     gsorted['rarefaction depth'],
                     gsorted[gsorted.columns[-1]])
+                if ns >= plot_max_samples:
+                    if i == 0:
+                        print(("Abort plotting rarefaction curves, as data for %i have already been visualized.\n"
+                               "Note that you miss additional %i (=%.1f%%) samples!\n"
+                               "Either increase parameter 'plot_max_samples', but this will result in time and memory demanding computations.\n"
+                               "Alternatively, group samples by metadata - "
+                               "as each group only result in ONE line (with error bars).") % (
+                                plot_max_samples,
+                                num_skipped_samples,
+                                num_skipped_samples / num_total_samples * 100))
+                    ax.set_title("Skipped %i of %i (=%.1f%%) samples!" % (num_skipped_samples, num_total_samples, num_skipped_samples / num_total_samples * 100))
+                    break
         else:
             grps = data['metrics'][metric].merge(sample_grouping, left_on='sample_name', right_index=True).groupby(sample_grouping.name)
             for grp, g in grps:
@@ -343,12 +365,12 @@ def rarefaction_curves(counts,
                        min_depth=1000, num_iterations=10,
                        control_sample_names=[], fix_zero_len_branches=False,
                        sample_grouping:pd.Series=None, onlyshow=None,
-                       pmem='8GB', **executor_args):
+                       pmem='8GB', plot_max_samples:int=5000, **executor_args):
     """Produce rarefaction curves, i.e. reads/sample and alpha vs. depth plots.
 
     Parameters
     ----------
-    counts : Pandas.DataFrame
+    counts : Pandas.DataFrame OR biom.table.Table
         The raw read counts. Columns are samples, rows are features.
     metrics : [str]
         List of alpha diversity metrics to use.
@@ -374,6 +396,9 @@ def rarefaction_curves(counts,
     onlyshow : str
         Only return the single rarefaction graph with the given metric name.
         Default: None, i.e. return all graphs
+    plot_max_samples : int
+        Stop plotting rarefaction curves for individual samples, after
+        plot_max_samples have been plotted to avoid overallocating memory / time.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
@@ -381,9 +406,17 @@ def rarefaction_curves(counts,
     -------
     plt figure
     """
+    assert isinstance(counts, pd.DataFrame) or isinstance(counts, Table)
+    if isinstance(counts, pd.DataFrame):
+        counts = counts.fillna(0.0)
+
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        if isinstance(counts, pd.DataFrame):
+            pandas2biom(workdir+'/input.biom', args['counts'])
+        elif isinstance(counts, Table):
+            with biom_open(workdir+'/input.biom', 'w') as f:
+                counts.to_hdf5(f, "ggmap")
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
                set(['PD_whole_tree'])) > 0:
@@ -396,7 +429,12 @@ def rarefaction_curves(counts,
                                name_analysis='rarefaction_curves')
 
         # prepare execution list
-        max_rare_depth = args['counts'].sum().describe()['75%']
+        sample_count_sums = None
+        if isinstance(counts, pd.DataFrame):
+            sample_count_sums = args['counts'].sum()
+        elif isinstance(counts, Table):
+            sample_count_sums = pd.Series(args['counts'].sum(axis='sample'))
+        max_rare_depth = sample_count_sums.describe()['75%']
         if args['max_depth'] is not None:
             max_rare_depth = args['max_depth']
         if args['min_depth'] is None:
@@ -404,7 +442,7 @@ def rarefaction_curves(counts,
             # min_depth argument is None
             args['min_depth'] = 1000
         f = open("%s/commands.txt" % workdir, "w")
-        for depth in np.linspace(max(args['min_depth'], args['counts'].sum().min()),
+        for depth in np.linspace(max(args['min_depth'], sample_count_sums.min()),
                                  max_rare_depth,
                                  args['num_steps'], endpoint=True):
             for iteration in range(args['num_iterations']):
@@ -412,16 +450,17 @@ def rarefaction_curves(counts,
                     depth, iteration))
         f.close()
 
-        commands = []
-        commands.append(
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
-             # '--source-format BIOMV210Format '
              '--output-path %s') %
             (workdir+'/input.biom', workdir+'/input'))
         if args['reference_tree'] is not None:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -429,25 +468,12 @@ def rarefaction_curves(counts,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        # use_grid = executor_args['use_grid'] \
-        #     if 'use_grid' in executor_args else True
-        dry = executor_args['dry'] if 'dry' in executor_args else True
-        cluster_run(commands, environment=settings.QIIME2_ENV,
-                    jobname='prep_rarecurves',
-                    result="%s/reference_tree.qza" % workdir,
-                    ppn=1,
-                    pmem=pmem,
-                    walltime='1:00:00',
-                    dry=dry,
-                    wait=True, use_grid=executor_args.get('use_grid', True))
-
-    def commands(workdir, ppn, args):
-        commands = [
+        commands['main'] = [
             ('var_depth=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir),
             ('var_iteration=`head -n ${%s} %s/commands.txt | '
              'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir)]
-        commands.append((
+        commands['main'].append((
             'qiime feature-table rarefy '
             '--i-table %s/input.qza '
             '--p-sampling-depth ${var_depth} '
@@ -460,7 +486,7 @@ def rarefaction_curves(counts,
                 plugin = 'alpha-phylogenetic'
                 treeinput = '--i-phylogeny %s' % (
                     workdir+'/reference_tree.qza')
-            commands.append(
+            commands['main'].append(
                 ('qiime diversity %s '
                  '--i-table %s/rare_${var_depth}_${var_iteration}.qza '
                  '--p-metric %s '
@@ -470,7 +496,7 @@ def rarefaction_curves(counts,
                 (plugin, workdir,
                  _update_metric_alpha(metric),
                  treeinput, workdir, metric))
-            commands.append(
+            commands['main'].append(
                 ('qiime tools export '
                  '--input-path %s/alpha_${var_depth}_${var_iteration}_%s.qza '
                  '--output-path %s/alpharaw_${var_depth}_${var_iteration}_%s')
@@ -479,9 +505,17 @@ def rarefaction_curves(counts,
         return commands
 
     def post_execute(workdir, args):
-        sums = args['counts'].sum()
+        sample_ids = None
+        sums = None
+        if isinstance(args['counts'], pd.DataFrame):
+            sample_ids = args['counts'].columns
+            sums = args['counts'].sum()
+        elif isinstance(args['counts'], Table):
+            sample_ids = args['counts'].ids(axis='sample')
+            sums = pd.Series(args['counts'].sum(axis='sample'), index=args['counts'].ids('sample'))
+
         results = {'metrics':
-                   _parse_alpha_div_collated(workdir, args['counts'].columns),
+                   _parse_alpha_div_collated(workdir, sample_ids),
                    'readcounts': sums}
         return results
 
@@ -491,12 +525,13 @@ def rarefaction_curves(counts,
             _plot_rarefaction_curves(cache_results['results'],
                                      control_sample_names=control_sample_names,
                                      sample_grouping=sample_grouping,
-                                     onlyshow=onlyshow)
+                                     onlyshow=onlyshow,
+                                     plot_max_samples=plot_max_samples)
         return cache_results
 
 
     return _executor('rare',
-                     {'counts': counts.fillna(0.0),
+                     {'counts': counts,
                       'metrics': metrics,
                       'num_steps': num_steps,
                       'max_depth': max_depth,
@@ -520,7 +555,7 @@ def rarefy(counts, rarefaction_depth,
 
     Paramaters
     ----------
-    counts : Pandas.DataFrame
+    counts : Pandas.DataFrame OR biom.table.Table
         OTU counts
     rarefaction_depth : int
         Rarefaction depth that must be applied to counts.
@@ -531,9 +566,17 @@ def rarefy(counts, rarefaction_depth,
     -------
     Pandas.DataFrame: Rarefied OTU table."""
 
+    assert isinstance(counts, pd.DataFrame) or isinstance(counts, Table)
+    if isinstance(counts, pd.DataFrame):
+        counts = counts.fillna(0.0)
+
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'])
+        if isinstance(counts, pd.DataFrame):
+            pandas2biom(workdir+'/input.biom', args['counts'])
+        elif isinstance(counts, Table):
+            with biom_open(workdir+'/input.biom', 'w') as f:
+                counts.to_hdf5(f, "ggmap")
 
     def commands(workdir, ppn, args):
         commands = []
@@ -558,10 +601,14 @@ def rarefy(counts, rarefaction_depth,
         return commands
 
     def post_execute(workdir, args):
-        return biom2pandas(workdir+'/feature-table.biom')
+        if isinstance(counts, pd.DataFrame):
+            return biom2pandas(workdir+'/feature-table.biom')
+        else:
+            with biom_open(workdir+'/feature-table.biom', 'r') as f:
+                return Table.from_hdf5(f)
 
     return _executor('rarefy',
-                     {'counts': counts.fillna(0.0),
+                     {'counts': counts,
                       'rarefaction_depth': rarefaction_depth},
                      pre_execute,
                      commands,
@@ -604,6 +651,9 @@ def alpha_diversity(counts, rarefaction_depth,
     Pandas.DataFrame: alpha diversity values for each sample (rows) for every
     chosen metric (columns)."""
 
+    if rarefaction_depth is None:
+        num_iterations = 1
+
     def pre_execute(workdir, args):
         # store counts as a biom file
         pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
@@ -622,9 +672,9 @@ def alpha_diversity(counts, rarefaction_depth,
                                name_analysis='alpha_diversity')
 
     def commands(workdir, ppn, args):
-        commands = []
+        commands = {'pre': [], 'main': [], 'post': []}
 
-        commands.append(
+        commands['pre'].append(
             ('qiime tools import '
              '--input-path %s '
              '--type "FeatureTable[Frequency]" '
@@ -632,7 +682,7 @@ def alpha_diversity(counts, rarefaction_depth,
              '--output-path %s ') %
             (workdir+'/input.biom', workdir+'/input'))
         if 'PD_whole_tree' in args['metrics']:
-            commands.append(
+            commands['pre'].append(
                 ('qiime tools import '
                  '--input-path %s '
                  '--output-path %s '
@@ -640,51 +690,47 @@ def alpha_diversity(counts, rarefaction_depth,
                 (workdir+'/reference.tree',
                  workdir+'/reference_tree.qza'))
 
-        iterations = range(args['num_iterations'])
-        if args['rarefaction_depth'] is None:
-            iterations = [0]
-        for iteration in iterations:
-            file_raretable = workdir+'/rarefaction/rare_%s_%i.qza' % (
-                args['rarefaction_depth'], iteration)
-            if args['rarefaction_depth'] is not None:
-                commands.append(
-                    ('qiime feature-table rarefy '
-                     '--i-table %s '
-                     '--p-sampling-depth %i '
-                     '--o-rarefied-table %s') %
-                    (workdir+'/input.qza', args['rarefaction_depth'],
-                     file_raretable)
-                )
-            else:
-                commands.append('cp %s %s' % (
-                    workdir+'/input.qza',
-                    workdir+'/rarefaction/rare_%s_%i.qza' % (
-                        rarefaction_depth, iteration)))
-            for metric in args['metrics']:
-                file_alpha = workdir+'/alpha/alpha_%s_%i_%s.qza' % (
-                    args['rarefaction_depth'], iteration, metric)
-                plugin = 'alpha'
-                treeinput = ''
-                if metric == 'PD_whole_tree':
-                    plugin = 'alpha-phylogenetic'
-                    treeinput = '--i-phylogeny %s' % (
-                        workdir+'/reference_tree.qza')
-                commands.append(
-                    ('qiime diversity %s '
-                     '--i-table %s '
-                     '--p-metric %s '
-                     ' %s '
-                     '--o-alpha-diversity %s') %
-                    (plugin, file_raretable,
-                     _update_metric_alpha(metric),
-                     treeinput,
-                     file_alpha))
-                commands.append(
-                    ('qiime tools export '
-                     '--input-path %s/alpha/alpha_%s_%i_%s.qza '
-                     '--output-path %s/alpha_plain/%s/%i/%s') %
-                    (workdir, args['rarefaction_depth'], iteration, metric,
-                     workdir, args['rarefaction_depth'], iteration, metric))
+        file_raretable = workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+            args['rarefaction_depth'], settings.VARNAME_PBSARRAY)
+        if args['rarefaction_depth'] is not None:
+            commands['main'].append(
+                ('qiime feature-table rarefy '
+                 '--i-table %s '
+                 '--p-sampling-depth %i '
+                 '--o-rarefied-table %s') %
+                (workdir+'/input.qza', args['rarefaction_depth'],
+                 file_raretable)
+            )
+        else:
+            commands['main'].append('cp %s %s' % (
+                workdir+'/input.qza',
+                workdir+'/rarefaction/rare_%s_${%s}.qza' % (
+                    rarefaction_depth, settings.VARNAME_PBSARRAY)))
+        for metric in args['metrics']:
+            file_alpha = workdir+'/alpha/alpha_%s_${%s}_%s.qza' % (
+                args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric)
+            plugin = 'alpha'
+            treeinput = ''
+            if metric == 'PD_whole_tree':
+                plugin = 'alpha-phylogenetic'
+                treeinput = '--i-phylogeny %s' % (
+                    workdir+'/reference_tree.qza')
+            commands['main'].append(
+                ('qiime diversity %s '
+                 '--i-table %s '
+                 '--p-metric %s '
+                 ' %s '
+                 '--o-alpha-diversity %s') %
+                (plugin, file_raretable,
+                 _update_metric_alpha(metric),
+                 treeinput,
+                 file_alpha))
+            commands['main'].append(
+                ('qiime tools export '
+                 '--input-path %s/alpha/alpha_%s_${%s}_%s.qza '
+                 '--output-path %s/alpha_plain/%s/${%s}/%s') %
+                (workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric,
+                 workdir, args['rarefaction_depth'], settings.VARNAME_PBSARRAY, metric))
 
         return commands
 
@@ -701,14 +747,6 @@ def alpha_diversity(counts, rarefaction_depth,
                 alpha_results = alpha_results.set_index(alpha_results.columns[0])
                 alpha_results = alpha_results.astype(float)
                 results_alpha[metric].append(alpha_results)
-#alphas = pd.read_csv(
-#    '%s/%s/alpha-diversity.tsv' % (workdir, dir_alpha),
-#    sep="\t", dtype=str
-#)
-#alphas = alphas.set_index(alphas.columns[0])
-#alphas = alphas.astype(float)
-#alphas = alphas.reindex(index=samplenames).reset_index()
-
 
         for metric in results_alpha.keys():
             results_alpha[metric] = pd.concat(
@@ -730,6 +768,7 @@ def alpha_diversity(counts, rarefaction_depth,
                      post_execute,
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
+                     array=num_iterations,
                      **executor_args)
 
 
@@ -748,32 +787,54 @@ def beta_diversity(counts,
                    reference_tree=None,
                    fix_zero_len_branches=False,
                    remove_zero_entropy_samples: bool=False,
+                   use_sklearn_parallel: bool=False,
                    **executor_args):
     """Computes beta diversity values for given BIOM table.
 
     Parameters
     ----------
-    counts : Pandas.DataFrame
+    counts : Pandas.DataFrame OR biom.table.Table
         OTU counts
     metrics : [str]
         Beta diversity metrics to be computed.
     reference_tree : str
         Reference tree file name for phylogenetic metics like unifrac.
+    use_sklearn_parallel : bool
+        For huge feature-tables, you might want to replace the Qiime2 distance
+        computation with a more hacky one based on scikit-learn, see
+        https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise_distances.html
+        To also use parallel computation of non-phylogenetic metrics.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
 
     Returns
     -------
     Dict of Pandas.DataFrame, one per metric."""
+    assert isinstance(counts, pd.DataFrame) or isinstance(counts, Table)
+    if isinstance(counts, pd.DataFrame):
+        counts = counts.fillna(0.0)
+
     zeroEntropySamples = []
-    for sample in counts.columns:
-        if counts[sample].fillna(0).value_counts().shape[0] <= 1:
-            zeroEntropySamples.append(sample)
+    lst_samplenames = []
+    if isinstance(counts, pd.DataFrame):
+        lst_samplenames = counts.columns
+    elif isinstance(counts, Table):
+        lst_samplenames = counts.ids('sample')
+    for sample in lst_samplenames:
+        if isinstance(counts, pd.DataFrame):
+            if counts[sample].value_counts().shape[0] <= 1:
+                zeroEntropySamples.append(sample)
+        elif isinstance(counts, Table):
+            if len(np.unique(counts.data(sample, axis='sample'))) <= 1:
+                zeroEntropySamples.append(sample)
     if remove_zero_entropy_samples is False:
         if len(zeroEntropySamples) > 0:
             raise ValueError("%i samples have zero entropy, i.e. all features have the same value, which can lead to downstream errors and is quite unlikely to happen for real data. Please check and remove those samples:\n%s\nOr set 'remove_zero_entropy_samples=True'." % (len(zeroEntropySamples), ', '.join(map(lambda x: '"%s"' % x, zeroEntropySamples))))
     else:
-        counts = counts.loc[:, [s for s in counts.columns if s not in zeroEntropySamples]]
+        if isinstance(counts, pd.DataFrame):
+            counts = counts.loc[:, [s for s in counts.columns if s not in zeroEntropySamples]]
+        else:
+            counts = counts.filter([s for s in counts.ids('sample') if s not in zeroEntropySamples], axis='sample')
         if 'verbose' not in executor_args:
             verbose = sys.stderr
         else:
@@ -783,13 +844,18 @@ def beta_diversity(counts,
     if counts.shape[1] <= 1:
         raise ValueError("Your feature table has less than two samples!")
 
-    for sample in counts.columns:
+    for sample in lst_samplenames:
         if ',' in sample:
             raise ValueError("You sample names contain ',' character. This will hurt skbio. You need to remove/replace ','!")
 
     def pre_execute(workdir, args):
         # store counts as a biom file
-        pandas2biom(workdir+'/input.biom', args['counts'].fillna(0.0))
+        if isinstance(args['counts'], pd.DataFrame):
+            pandas2biom(workdir+'/input.biom', args['counts'])
+        elif isinstance(args['counts'], Table):
+            with biom_open(workdir+'/input.biom', 'w') as f:
+                args['counts'].to_hdf5(f, "ggmap")
+
         os.mkdir(workdir+'/beta_qza')
         # copy reference tree and correct missing branch lengths
         if len(set(args['metrics']) &
@@ -802,6 +868,12 @@ def beta_diversity(counts,
                                fix_zero_len_branches, verbose=verbose,
                                name_analysis='beta_diversity')
 
+        if use_sklearn_parallel:
+            # copy the necessary helper python script into the working directory
+            # to make sure it can be called with the correct file path
+            shutil.copy(os.path.abspath(os.path.join(os.path.dirname(__file__), '../scripts/beta_parallel.py')),
+                        '%s' % workdir)
+
     def commands(workdir, ppn, args):
         metrics_phylo = []
         metrics_nonphylo = []
@@ -811,53 +883,71 @@ def beta_diversity(counts,
             else:
                 metrics_nonphylo.append(metric)
 
-        commands = []
+        commands = {'pre': [], 'main': [], 'post': []}
         # import biom table into q2 fragment
         # commands.append('mkdir -p %s' % (workdir+'/beta_qza'))
-        commands.append(
-            ('qiime tools import '
-             '--input-path %s '
-             '--type "FeatureTable[Frequency]" '
-             '--output-path %s ') %
-            (workdir+'/input.biom', workdir+'/input'))
-        for metric in metrics_nonphylo:
-            commands.append(
-                ('qiime diversity beta '
-                 '--i-table %s '
-                 '--p-metric %s '
-                 '--p-n-jobs %i '
-                 '--o-distance-matrix %s%s ') %
-                (workdir+'/input.qza', metric, ppn,
-                 workdir+'/beta_qza/', metric))
-        for i, metric in enumerate(metrics_phylo):
-            if i == 0:
-                commands.append(
-                    ('qiime tools import '
-                     '--input-path %s '
-                     '--output-path %s '
-                     '--type "Phylogeny[Rooted]"') %
-                    (workdir+'/reference.tree',
-                     workdir+'/reference_tree.qza'))
-            commands.append(
-                ('qiime diversity beta-phylogenetic '
-                 '--i-table %s '
-                 '--i-phylogeny %s '
-                 '--p-metric %s '
-                 '--p-threads %i '
-                 '--o-distance-matrix %s%s ') %
-                (workdir+'/input.qza', workdir+'/reference_tree.qza',
-                 metric,
-                 # bug in q2 plugin: crashs 'if the number of threads requested
-                 # exceeds the approximately n / 2 samples, then an exception
-                 # is raised'
-                 min(ppn, int(args['counts'].shape[1] / 2.2)),
-                 workdir+'/beta_qza/', metric))
-        for metric in metrics_nonphylo + metrics_phylo:
-            commands.append(
-                ('qiime tools export '
+        if (not use_sklearn_parallel) or (len(metrics_phylo) > 0):
+            commands['pre'].append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--type "FeatureTable[Frequency]" '
+                 '--output-path %s ') %
+                (workdir+'/input.biom', workdir+'/input'))
+        if len(metrics_phylo) > 0:
+            commands['pre'].append(
+                ('qiime tools import '
+                 '--input-path %s '
+                 '--output-path %s '
+                 '--type "Phylogeny[Rooted]"') %
+                (workdir+'/reference.tree',
+                 workdir+'/reference_tree.qza'))
+        for i, metric in enumerate(metrics_nonphylo + metrics_phylo):
+            if metric in metrics_nonphylo:
+                if use_sklearn_parallel:
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then '
+                         'python %s/beta_parallel.py '
+                         '%s/input.biom '
+                         '%s/beta_qza/%s.qza '
+                         '%s %s; '
+                         'fi') % (
+                         settings.VARNAME_PBSARRAY, i+1,
+                         workdir,
+                         workdir,
+                         workdir, metric,
+                         metric,
+                         ppn))
+                else:
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime diversity beta '
+                         '--i-table %s '
+                         '--p-metric %s '
+                         '--p-n-jobs %i '
+                         '--o-distance-matrix %s%s; fi') %
+                        (settings.VARNAME_PBSARRAY, i+1,
+                         workdir+'/input.qza', metric, ppn,
+                         workdir+'/beta_qza/', metric))
+            elif metric in metrics_phylo:
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime diversity beta-phylogenetic '
+                     '--i-table %s '
+                     '--i-phylogeny %s '
+                     '--p-metric %s '
+                     '--p-threads %i '
+                     '--o-distance-matrix %s%s; fi') %
+                    (settings.VARNAME_PBSARRAY, i+1,
+                     workdir+'/input.qza', workdir+'/reference_tree.qza',
+                     metric,
+                     # bug in q2 plugin: crashs 'if the number of threads requested
+                     # exceeds the approximately n / 2 samples, then an exception
+                     # is raised'
+                     min(ppn, int(args['counts'].shape[1] / 2.2)),
+                     workdir+'/beta_qza/', metric))
+            commands['main'].append(
+                ('if [ ${%s} -eq %i ]; then qiime tools export '
                  '--input-path %s/beta_qza/%s.qza '
-                 '--output-path %s/beta/%s/') %
-                (workdir, metric, workdir, metric))
+                 '--output-path %s/beta/%s/; fi') %
+                (settings.VARNAME_PBSARRAY, i+1, workdir, metric, workdir, metric))
         return commands
 
     def post_execute(workdir, args):
@@ -870,12 +960,13 @@ def beta_diversity(counts,
         return results
 
     return _executor('bdiv',
-                     {'counts': counts.fillna(0.0),
+                     {'counts': counts,
                       'metrics': metrics,
                       'reference_tree': reference_tree},
                      pre_execute,
                      commands,
                      post_execute,
+                     array=len(metrics),
                      environment=settings.QIIME2_ENV,
                      **executor_args)
 
@@ -890,10 +981,11 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
 
     Parameters
     ----------
-    counts : Pandas.DataFrame | Pandas.Series
+    counts : Pandas.DataFrame | Pandas.Series | biom.table.Table
         a) OTU counts in form of a Pandas.DataFrame.
         b) If providing a Pandas.Series, we expect the index to be a fasta
            headers and the colum the fasta sequences.
+        c) a biom table
     reference_database : str
         Package holding reference phylogeny+alignment+taxonomy+info for SEPP.
         Should point by default to Greengenes 13.8 99% tree.
@@ -932,7 +1024,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
             raise ValueError("Reference database is not given!")
         if (not os.path.exists(reference_database)):
             raise ValueError("Reference database cannot be found at '%s'" % reference_database)
-        chunks = range(0, seqs.shape[0], args['chunksize'])
+        chunks = range(0, len(seqs), args['chunksize'])
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
             chunkname = chunk + 1
@@ -942,9 +1034,9 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                chunkname = 'undefined'
             file_fragments = workdir + '/sequences%s.mfa' % chunkname
             f = open(file_fragments, 'w')
-            chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.items():
-                f.write('>%s\n%s\n' % (header, sequence))
+            chunk_seqs = seqs[i:i + args['chunksize']]
+            for sequence in chunk_seqs:
+                f.write('>%s\n%s\n' % (sequence, sequence))
             f.close()
 
     def commands(workdir, ppn, args):
@@ -1104,16 +1196,19 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                 'tree': tree,
                 'placements': plt_content['placements']}
 
-    inp = sorted(counts.index)
-    if type(counts) == pd.Series:
+    seqs = []
+    if isinstance(counts, pd.DataFrame):
+        seqs = sorted(counts.index)
+    elif isinstance(counts, pd.Series):
         # typically, the input is an OTU table with index holding sequences.
         # However, if provided a Pandas.Series, we expect index are sequence
         # headers and single column holds sequences.
-        inp = counts.sort_index()
-
-    seqs = inp
-    if type(inp) != pd.Series:
-        seqs = pd.Series(inp, index=inp).sort_index()
+        asvs = counts.values()
+        seqs = pd.Series(index=asvs, data=asvs).sort_index()
+    elif isinstance(counts, Table):
+        seqs = pd.Series(index=counts.ids('observation'), data=counts.ids('observation')).sort_index()
+    else:
+        raise ValueError("unexpected data type for counts!")
     args = {'seqs': seqs,
             'reference_database': reference_database,
             #'reference_phylogeny': reference_phylogeny,
@@ -1128,7 +1223,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                      commands,
                      post_execute,
                      ppn=ppn, pmem=pmem, walltime=walltime,
-                     array=len(range(0, seqs.shape[0], chunksize)),
+                     array=len(range(0, len(seqs), chunksize)),
                      environment=environment,
                      **executor_args)
 
@@ -2440,96 +2535,89 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         m.to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
 
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
         # import beta distance matrix into Qiime2 artifacts
-        dry = executor_args['dry'] if 'dry' in executor_args else True
         if args['beta'] is not None:
             for metric in args['beta'].keys():
-                cluster_run([
-                    ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
-                     ' %s/beta_%s.qza --type "DistanceMatrix"') % (
-                        workdir, metric, workdir, metric)],
-                    jobname='import_dm',
-                    result="%s/beta_%s.qza" % (workdir, metric),
-                    ppn=1, pmem='8GB', walltime='1:00:00',
-                    environment=settings.QIIME2_ENV,
-                    dry=dry,
-                    wait=True, use_grid=False)
+                commands['pre'].append(
+                    ('qiime tools import'
+                     ' --input-path %s/beta_%s.tsv'
+                     ' --output-path %s/beta_%s.qza'
+                     ' --type "DistanceMatrix"') % (
+                        workdir, metric, workdir, metric))
 
-            # write a file that can provide metric, column and method values for
-            # an array job
-            with open('%s/fields.txt' % workdir, 'w') as f:
-                f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
-                for metric in args['beta'].keys():
-                    for column in args['cols_cat']:
-                        for method in METHODS_BETA:
-                            f.write('\t'.join([metric, column, method])+'\n')
-
-    def commands(workdir, ppn, args):
-        commands = []
+        array_i = 1
+        if args['beta'] is not None:
+            for metric in args['beta'].keys():
+                for column in args['cols_cat']:
+                    for method in METHODS_BETA:
+                        commands['main'].append(
+                            ('if [ ${%s} -eq %i ]; then qiime diversity beta-group-significance '
+                             '--i-distance-matrix %s/beta_%s.qza '
+                             '--m-metadata-file %s/meta.tsv '
+                             '--m-metadata-column %s '
+                             '--p-method %s '
+                             '--output-dir %s/beta-group-significance_%s_%s_%s/; fi') % (
+                                settings.VARNAME_PBSARRAY, array_i,
+                                workdir, metric,
+                                workdir,
+                                column,
+                                method,
+                                workdir, metric, column, method))
+                        commands['main'].append(
+                             ('if [ ${%s} -eq %i ]; then qiime tools export '
+                             '--input-path %s/beta-group-significance_%s_%s_%s/visualization.qzv '
+                             '--output-path %s/beta-group-significance_%s_%s_%s/raw/; fi') % (
+                                settings.VARNAME_PBSARRAY, array_i,
+                                workdir, metric, column, method,
+                                workdir, metric, column, method))
+                        array_i += 1
 
         # store alpha diversities as Qiime2 artifacts
         if args['alpha'] is not None:
             for metric in args['alpha'].keys():
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime tools import '
+                commands['pre'].append(
+                    ('qiime tools import '
                      '--input-path %s/alpha_%s.tsv '
                      '--output-path %s/alpha_%s.qza '
-                     '--type "SampleData[AlphaDiversity]"; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime diversity alpha-group-significance '
+                     '--type "SampleData[AlphaDiversity]"') % (
+                        workdir, metric, workdir, metric))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime diversity alpha-group-significance '
                      '--i-alpha-diversity %s/alpha_%s.qza '
                      '--m-metadata-file %s/meta.tsv '
                      '--output-dir %s/alpha-group-significance_%s/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, workdir, metric))
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime tools export '
+                        settings.VARNAME_PBSARRAY, array_i,
+                        workdir, metric, workdir, workdir, metric))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime tools export '
                      '--input-path %s/alpha-group-significance_%s/'
                      'visualization.qzv '
                      '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
+                        settings.VARNAME_PBSARRAY, array_i,
+                        workdir, metric, workdir, metric))
+                array_i += 1
+            for metric in args['alpha'].keys():
                 for method in METHODS_ALPHA:
-                    commands.append(
-                        ('if [ $%s -eq 1 ]; then '
-                         'qiime diversity alpha-correlation '
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime diversity alpha-correlation '
                          '--i-alpha-diversity %s/alpha_%s.qza '
                          '--m-metadata-file %s/meta.tsv '
                          '--p-method %s '
                          '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
-                            settings.VARNAME_PBSARRAY, workdir, metric, workdir, method,
+                            settings.VARNAME_PBSARRAY, array_i,
+                            workdir, metric, workdir, method,
                             workdir, metric, method))
-                    commands.append(
-                        ('if [ $%s -eq 1 ]; then '
-                         'qiime tools export '
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime tools export '
                          '--input-path %s/alpha-correlation_%s_%s/'
                          'visualization.qzv '
                          '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
-                            settings.VARNAME_PBSARRAY, workdir, metric, method, workdir, metric, method))
-
-        commands.append(('var_METRIC=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(('var_COLUMN=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(('var_METHOD=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 3`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(
-            ('if [ $%s -ne 1 ]; then '
-             'qiime diversity beta-group-significance '
-             '--i-distance-matrix %s/beta_${var_METRIC}.qza '
-             '--m-metadata-file %s/meta.tsv '
-             '--m-metadata-column ${var_COLUMN} '
-             '--p-method ${var_METHOD} '
-             '--output-dir %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/; '
-             'qiime tools export '
-             '--input-path %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
-             '--output-path %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
-             'fi') % (settings.VARNAME_PBSARRAY, workdir, workdir, workdir, workdir, workdir))
+                            settings.VARNAME_PBSARRAY, array_i,
+                            workdir, metric, method, workdir, metric, method))
+                    array_i += 1
 
         return commands
 
@@ -2695,6 +2783,11 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                     if len(metadata.loc[idx_samples, col].unique()) ==
                     metadata.loc[idx_samples, col].shape[0]]
 
+    array_alpha = len(alpha_diversities.keys()) * (1 + len(METHODS_ALPHA))
+    array_beta = len(beta_diversities.keys()) * \
+        len(set(categorial) - set(cols_alldiff) - set(cols_onevalue)) * \
+        len(METHODS_BETA)
+
     return _executor('corr-divmeta',
                      {'alpha': alpha_diversities.loc[idx_samples, :] if alpha_diversities is not None else None,
                       'beta': {k: m.filter(idx_samples)
@@ -2711,10 +2804,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      commands,
                      post_execute,
                      ppn=1,
-                     array=len(beta_diversities.keys()) * len(
-                         set(categorial) - set(cols_alldiff) -
-                         set(cols_onevalue)) *
-                     len(METHODS_BETA) + 1,
+                     array=array_alpha + array_beta,
                      environment=settings.QIIME2_ENV,
                      **executor_args)
 
@@ -2727,8 +2817,10 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
     metadata : Pandas.DataFrame
         The metadata about samples to be plotted. Samples not included in
         metadata will be omitted from ordination and plotting!
-    beta_diversities : dict(str: DistanceMatrix)
+    beta_diversities : dict(str: DistanceMatrix) OR dict(str: fp to qza)
         Dictionary of (multiple) beta diversity distance metrices.
+        OR a dictionary of (multiple) QZA of beta diversity distance metrics,
+        in case they are HUGE, i.e. multiple GB of filesize.
     fp_results : str
         Filepath to directory where to store generated emperor plot qzvs.
     other_beta_diversities : dict(str: DistanceMatrix)
@@ -2751,20 +2843,34 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
     if run_tsne_umap:
         ORDINATIONS.extend(['tsne', 'umap'])
 
+    array = len(ORDINATIONS) * len(beta_diversities)
+
     def pre_execute(workdir, args):
         samples = set(args['metadata'].index)
         for metric in args['beta_diversities'].keys():
-            samples &= set(args['beta_diversities'][metric].ids)
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                samples &= set(args['beta_diversities'][metric].ids)
+            else:
+                if (not args['beta_diversities'][metric].endswith('.qza')) or (not os.path.exists(args['beta_diversities'][metric])):
+                    raise ValueError("The file '%s' you provided as '%s' distance metric, does not end with .qza OR does not exists!" % (args['beta_diversities'][metric], metric))
         if args['other_beta_diversities'] is not None:
             if sorted(args['beta_diversities'].keys()) != sorted(args['other_beta_diversities'].keys()):
                 raise ValueError("Procrustes: reference and other beta diversity metrics do NOT contain the same metrics!")
             for metric in args['other_beta_diversities'].keys():
-                samples &= set(args['other_beta_diversities'][metric].ids)
+                if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                    samples &= set(args['other_beta_diversities'][metric].ids)
+                else:
+                    if (not args['other_beta_diversities'][metric].endswith('.qza')) or (not os.path.exists(args['other_beta_diversities'][metric])):
+                        raise ValueError("The file '%s' you provided as other '%s' distance metric, does not end with .qza OR does not exists!" % (args['other_beta_diversities'][metric], metric))
 
-        if (args['metadata'].shape[0] != len(samples)):
+        if isinstance(list(args['beta_diversities'].values())[0], DistanceMatrix):
+            if (args['metadata'].shape[0] != len(samples)):
+                sys.stderr.write(
+                    'Info: reducing number of samples for Emperor plot to %i\n' %
+                    len(samples))
+        else:
             sys.stderr.write(
-                'Info: reducing number of samples for Emperor plot to %i\n' %
-                len(samples))
+                'Info: since you provide file-paths to *.qza\'s, we cannot merge metadata and distance matrixes. Please ensure matching IDs yourself!')
 
         # write metadata to tmp file
         args['metadata'].loc[list(samples), :].to_csv(
@@ -2772,98 +2878,97 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
 
         # write distance metrices to tmp files
         for metric in args['beta_diversities'].keys():
-            os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
-            args['beta_diversities'][metric].filter(samples).write(
-                '%s/%s/distance-matrix.tsv' % (workdir, metric))
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                os.makedirs('%s/%s' % (workdir, metric), exist_ok=True)
+                args['beta_diversities'][metric].filter(samples).write(
+                    '%s/%s/distance-matrix.tsv' % (workdir, metric))
         if args['other_beta_diversities'] is not None:
-            for metric in args['other_beta_diversities'].keys():
-                os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
-                args['other_beta_diversities'][metric].filter(samples).write(
-                    '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
-        with open("%s/commands.txt" % workdir, "w") as f:
-            for metric in args['beta_diversities'].keys():
-                f.write(metric+"\n")
+            if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                for metric in args['other_beta_diversities'].keys():
+                    os.makedirs('%s/other_%s' % (workdir, metric), exist_ok=True)
+                    args['other_beta_diversities'][metric].filter(samples).write(
+                        '%s/other_%s/distance-matrix.tsv' % (workdir, metric))
 
     def commands(workdir, ppn, args):
-        commands = [
-            # ensure VARNAME_PBSARRAY variable falls back to 1 if run on cluster AND we are not having an array job since beta_distances has only one metric
-            ('var_metric=`(head -n ${%s} %s/commands.txt || head -n 1 %s/commands.txt) | tail -n 1`') % (
-                settings.VARNAME_PBSARRAY, workdir, workdir)]
+        commands = {'pre': [], 'main': [], 'post': []}
 
-        #for metric in args['beta_diversities'].keys():
-        # import diversity matrix as qiime2 artifact
-        commands.append(
-            ('qiime tools import '
-             '--input-path %s '
-             '--type "DistanceMatrix" '
-             # '--source-format DistanceMatrixDirectoryFormat '
-             '--output-path %s ') %
-            ('%s/${var_metric}' % workdir,
-             # " % Properties([\"phylogenetic\"])"
-             # if 'unifrac' in metric else '',
-             '%s/beta_${var_metric}.qza' % workdir))
-        # compute ordination
-        for ordname in ORDINATIONS:
-            commands.append(
-                ('qiime diversity %s '
-                 '--i-distance-matrix %s '
-                 '--o-%s %s ') %
-                (ordname, '%s/beta_${var_metric}.qza' % workdir,
-                 ordname, '%s/%s_${var_metric}' % (workdir, ordname))
-            )
-            commands.append(
-                ('qiime tools export '
-                 '--input-path %s '
-                 '--output-path %s ') %
-                ('%s/%s_${var_metric}.qza' % (workdir, ordname),
-                 '%s/%s_${var_metric}' % (workdir, ordname))
-            )
+        for metric in args['beta_diversities'].keys():
+            # note: skip importing if user provides *.qza file-paths
+            if isinstance(args['beta_diversities'][metric], DistanceMatrix):
+                # import DistanceMatrix
+                commands['pre'].append(
+                    ('qiime tools import '
+                     '--input-path %s/%s '
+                     '--type "DistanceMatrix" '
+                     '--output-path %s/beta_%s.qza ') %
+                    (workdir, metric, workdir, metric))
+            if args['other_beta_diversities'] is not None:
+                if isinstance(args['other_beta_diversities'][metric], DistanceMatrix):
+                    # import DistanceMatrix for other
+                    commands['pre'].append(
+                        ('qiime tools import '
+                         '--input-path %s/other_%s '
+                         '--type "DistanceMatrix" '
+                         '--output-path %s/other_beta_%s.qza ') %
+                        (workdir, metric, workdir, metric))
 
-        if args['other_beta_diversities'] is not None:
-            # import diversity matrix as qiime2 artifact
-            commands.append(
-                ('qiime tools import '
-                 '--input-path %s '
-                 '--type "DistanceMatrix" '
-                 # '--source-format DistanceMatrixDirectoryFormat '
-                 '--output-path %s ') %
-                ('%s/other_${var_metric}' % workdir,
-                 # " % Properties([\"phylogenetic\"])"
-                 # if 'unifrac' in metric else '',
-                 '%s/other_beta_${var_metric}.qza' % workdir))
-            # compute other ordination
+        arrayid = 1
+        for metric in args['beta_diversities'].keys():
             for ordname in ORDINATIONS:
-                commands.append(
-                    ('qiime diversity %s '
+                # compute ordination
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime diversity %s '
                      '--i-distance-matrix %s '
-                     '--o-%s %s ') %
-                    (ordname, '%s/other_beta_${var_metric}.qza' % workdir,
-                     ordname, '%s/other_%s_${var_metric}' % (workdir, ordname))
-                )
-                # generate procrustes emperor plot
-                commands.append(
-                    ('qiime emperor procrustes-plot '
-                     '--i-reference-pcoa %s '
-                     '--i-other-pcoa %s '
-                     '--m-metadata-file %s '
-                     '--o-visualization %s ') %
-                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
-                     '%s/other_%s_${var_metric}.qza' % (workdir, ordname),
-                     '%s/metadata.tsv' % workdir,
-                     '%s/emperor-%s-procrustes_${var_metric}.qzv' % (workdir, ordname))
-                )
-        else:
-            for ordname in ORDINATIONS:
-                # generate emperor plot
-                commands.append(
-                    ('qiime emperor plot '
-                     '--i-pcoa %s '
-                     '--m-metadata-file %s '
-                     '--o-visualization %s ') %
-                    ('%s/%s_${var_metric}.qza' % (workdir, ordname),
-                     '%s/metadata.tsv' % workdir,
-                     '%s/emperor-%s_${var_metric}.qzv' % (workdir, ordname))
-                )
+                     '--o-%s %s/%s_%s; fi ') %
+                    (settings.VARNAME_PBSARRAY, arrayid,
+                     ordname,
+                     '%s/beta_%s.qza' % (workdir, metric) if isinstance(args['beta_diversities'][metric], DistanceMatrix) else args['beta_diversities'][metric],
+                     ordname, workdir, ordname, metric))
+
+                # export ordination to return insights
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime tools export '
+                     '--input-path %s/%s_%s.qza '
+                     '--output-path %s/%s_%s; fi ') %
+                     (settings.VARNAME_PBSARRAY, arrayid,
+                      workdir, ordname, metric,
+                      workdir, ordname, metric))
+
+                if args['other_beta_diversities'] is not None:
+                    # compute other ordination
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime diversity %s '
+                         '--i-distance-matrix %s '
+                         '--o-%s %s/other_%s_%s; fi ') %
+                        (settings.VARNAME_PBSARRAY, arrayid,
+                         ordname,
+                         '%s/other_beta_%s.qza' % (workdir, metric) if isinstance(args['other_beta_diversities'][metric], DistanceMatrix) else args['other_beta_diversities'][metric],
+                         ordname, workdir, ordname, metric))
+
+                    # generate procrustes emperor plot
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime emperor procrustes-plot '
+                         '--i-reference-pcoa %s/%s_%s.qza '
+                         '--i-other-pcoa %s/other_%s_%s.qza '
+                         '--m-metadata-file %s/metadata.tsv '
+                         '--o-visualization %s/emperor-%s-procrustes_%s.qzv; fi') %
+                        (settings.VARNAME_PBSARRAY, arrayid,
+                         workdir, ordname, metric,
+                         workdir, ordname, metric,
+                         workdir,
+                         workdir, ordname, metric))
+                else:
+                    # generate emperor plot
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime emperor plot '
+                         '--i-pcoa %s/%s_%s.qza '
+                         '--m-metadata-file %s/metadata.tsv '
+                         '--o-visualization %s/emperor-%s_%s.qzv; fi') %
+                         (settings.VARNAME_PBSARRAY, arrayid,
+                          workdir, ordname, metric,
+                          workdir,
+                          workdir, ordname, metric))
+                arrayid += 1
 
         return commands
 
@@ -2892,8 +2997,8 @@ def emperor(metadata, beta_diversities, fp_results, other_beta_diversities=None,
                      commands,
                      post_execute,
                      environment=settings.QIIME2_ENV,
-                     ppn=ppn,
-                     array=len(beta_diversities.keys()),
+                     ppn=1,
+                     array=array,
                      **executor_args)
 
 
@@ -4833,11 +4938,24 @@ def QC(dir_fastqs:str,
                         '%s/reverse/' % workdir, fp_rev))
 
     def commands(workdir, ppn, args):
-        commands = [
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['main'] = [
             'var_fastqcCMD=`head -n ${%s} %s/commands.txt | tail -n 1 | cut -f 1`' % (
                 settings.VARNAME_PBSARRAY, workdir),
             '$var_fastqcCMD'
              ]
+
+        directions = ['forward']
+        if not args['no_rev_seqs']:
+            directions.append('reverse')
+        for direction in directions:
+            fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
+            fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
+            commands['post'].append('multiqc --filename %s --outdir %s --flat %s/%s' % (
+                fp_report, fp_outdir, workdir, direction
+            ))
+
         return commands
 
     def post_execute(workdir, args):
@@ -4848,23 +4966,8 @@ def QC(dir_fastqs:str,
             directions.append('reverse')
 
         results = dict()
-        for direction in directions:
-            fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
-            fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
-            commands = ['multiqc --filename %s --outdir %s --flat %s/%s' % (
-                fp_report, fp_outdir, workdir, direction
-            )]
-            print("Compiling multiQC (%s reads): " % direction, end="", file=executor_args.get('verbose', sys.stderr))
-            cluster_run(
-                commands,
-                jobname='multiQC_%s' % direction,
-                result=fp_report,
-                ppn=ppn,
-                pmem=pmem,
-                environment=environment,
-                dry=dry,
-                use_grid=executor_args.get('use_grid', True),
-                wait=True)
+        for fp_report in glob('%s/**/multiqc_report.html' % workdir, recursive=True):
+            direction = os.path.dirname(fp_report).split('/')[-1]
             with open(fp_report, 'r') as f:
                 results['multiqc_%s' % direction] = ''.join(f.readlines())
             with open(fp_report, 'r') as f:
@@ -5159,7 +5262,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     jobname : str
     cache_arguments : []
     pre_execute : function
-    commands : []
+    commands : [] or dict:{'pre': [], 'main': [], 'post': []}
     post_execute : function
     post_cache : function
         A function that is called, after results have been loaded from cache /
@@ -5254,6 +5357,11 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             cache_arguments[arg] = cache_arguments[arg].loc[
                 sorted(cache_arguments[arg].index),
                 sorted(cache_arguments[arg].columns)]
+        if isinstance(cache_arguments[arg], Table):
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = sorted(list(cache_arguments[arg].ids('sample'))) + \
+                                   sorted(list(cache_arguments[arg].ids('observation'))) + \
+                                   [cache_arguments[arg].get_table_density()]
         if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
             cache_args_original[arg] = cache_arguments[arg]
             if os.path.isfile(cache_arguments[arg]):
@@ -5312,31 +5420,31 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
                 pot_workdirs.append(potwd)
     finished_workdirs = []
     for wd in pot_workdirs:
-        all_finished = True
-        for i in range(array):
-            exp_finish_suffix = ""
-            if array > 1:
-                exp_finish_suffix = str(int(i+1))
-            if (array == 1):
-                if (settings.GRIDNAME == 'JLU'):
-                    if use_grid:
-                        exp_finish_suffix = 'undefined'
-                    else:
-                        exp_finish_suffix = '1'
-                else:
-                    exp_finish_suffix = '1'
-            if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
-                all_finished = False
-                break
+        all_finished = os.path.exists('%s/finished.info' % wd)
+        # for i in range(array):
+        #     exp_finish_suffix = ""
+        #     if array > 1:
+        #         exp_finish_suffix = str(int(i+1))
+        #     if (array == 1):
+        #         if (settings.GRIDNAME == 'JLU'):
+        #             if use_grid:
+        #                 exp_finish_suffix = 'undefined'
+        #             else:
+        #                 exp_finish_suffix = '1'
+        #         else:
+        #             exp_finish_suffix = '1'
+        #     if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
+        #         all_finished = False
+        #         break
         if all_finished:
             finished_workdirs.append(wd)
     if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
         if verbose:
             verbose.write(
                 ('Found %i temporary working directories, but non of '
-                 'them have finished (missing "finished.info%s" file). If no job is currently running,'
+                 'them have finished (missing "finished.info" file). If no job is currently running,'
                  ' you might want to delete these directories and res'
-                 'tart:\n  %s\n') % (len(pot_workdirs), exp_finish_suffix,
+                 'tart:\n  %s\n') % (len(pot_workdirs),
                                      "\n  ".join(pot_workdirs)))
         return results
     if len(finished_workdirs) > 0:
@@ -5361,9 +5469,13 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         pre_execute(results['workdir'], cache_arguments)
 
         lst_commands = commands(results['workdir'], ppn, cache_arguments)
+        # convert to new dict structure instead of flat list
+        if isinstance(lst_commands, list):
+            lst_commands = {'main': lst_commands, 'pre': [], 'post': []}
         # device creation of a file _after_ execution of the job in workdir
-        lst_commands.append('touch %s/%s${%s}' %
-                            (results['workdir'], FILE_STATUS, settings.VARNAME_PBSARRAY))
+        final_cmd = 'touch %s/%s' % (results['workdir'], FILE_STATUS)
+        lst_commands['post'].append(final_cmd)
+
         results['qid'] = cluster_run(
             lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
             environment, ppn=ppn, wait=wait, dry=dry,

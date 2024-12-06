@@ -1215,6 +1215,7 @@ def cluster_run(cmds, jobname, result, environment=None,
     -------
     Cluster job ID as str.
     """
+    VALID_CMDS_KEYS = ['pre', 'main', 'post']
 
     if result is None:
         raise ValueError("You need to specify a result path.")
@@ -1234,20 +1235,44 @@ def cluster_run(cmds, jobname, result, environment=None,
     if len(jobname) <= 1:
         raise ValueError("You need to set non empty jobname!")
 
-    if not isinstance(cmds, list):
+    if isinstance(cmds, str):
         cmds = [cmds]
-    for cmd in cmds:
-        if "'" in cmd:
-            raise ValueError("One of your commands contain a ' char. "
-                             "Please remove!")
-    if timing:
-        if file_timing is None:
-            file_timing = '${PBS_JOBNAME}.t${PBS_JOBID}'
-        cmds = _add_timing_cmds(cmds, file_timing)
+    # new mechanism: I want to enable job dependencies, i.e. some commands need
+    # to finish (e.g. prepare command input files) before an array job can
+    # highly parallel be executed e.g. rarefaction iterations.
+    # Therefore, I expect cmds to be a dictionary with keys 'pre' 'main' and
+    # 'post'
+    if isinstance(cmds, dict):
+        if set(cmds.keys() - set(VALID_CMDS_KEYS)) != set([]):
+            raise ValueError(
+                ("your command dictionary has unknown keys: '%s'. "
+                 "Please only use 'pre', 'main', and 'post'!") % "','".join(
+                    set(cmds.keys() - set(VALID_CMDS_KEYS))))
+    elif isinstance(cmds, list):
+        # no specific command category given, assume all commands shall be "main"
+        cmds = {'pre': [], 'main': cmds, 'post': []}
+    assert isinstance(cmds, dict)
 
-    cmd_list = ""
+    for cmdtype in VALID_CMDS_KEYS:
+        for cmd in cmds[cmdtype]:
+            if "'" in cmd:
+                raise ValueError("One of your commands contain a ' char. "
+                                 "Please remove!")
+
+    fps_timing = {k: None for k in VALID_CMDS_KEYS}
+    if timing:
+        for cmdtype in VALID_CMDS_KEYS:
+            if file_timing is None:
+                fps_timing[cmdtype] = '${PBS_JOBNAME}.t${PBS_JOBID}.%s' % cmdtype
+            fps_timing[cmdtype] = '%s.%s' % (file_timing, cmdtype)
+            if cmdtype != 'main':
+                fps_timing[cmdtype] = fps_timing[cmdtype].replace('${%s}' % settings.VARNAME_PBSARRAY, '')
+            cmds[cmdtype] = _add_timing_cmds(cmds[cmdtype], fps_timing[cmdtype])
+
+    cmd_list = {k: "" for k in VALID_CMDS_KEYS}
     cmd_conda = ""
     env_present = None
+    fps_scripts = dict()
     if environment is not None:
         if file_condaenvinfo is None:
             file_condaenvinfo = ""
@@ -1276,8 +1301,12 @@ def cluster_run(cmds, jobname, result, environment=None,
 
     slurm = False
     if use_grid is False:
-        cmd_list += '%s for %s in `seq 1 %i`; do %s; done' % (
-            cmd_conda, settings.VARNAME_PBSARRAY, array, " && ".join(cmds))
+        cmd_list['SPAWN'] = cmd_conda
+        if len(cmds['pre']) > 0:
+            cmd_list['SPAWN'] += " && " + " && ".join(cmds['pre'])
+        cmd_list['SPAWN'] += ' for %s in `seq 1 %i`; do %s; done;' % (
+            settings.VARNAME_PBSARRAY, array, " && ".join(cmds['main']))
+        cmd_list['SPAWN'] += ' %s' % " && ".join(cmds['post'])
     else:
         pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
 
@@ -1336,55 +1365,66 @@ def cluster_run(cmds, jobname, result, environment=None,
                  "-d '%s'" % pwd if settings.GRIDNAME == 'barnqacle' else '',
                  resources,
                  jobname, flag_array, files_loc))
-            cmd_list += "echo '%s%s' | %s" % (cmd_conda, " && ".join(cmds), ge_cmd)
+            cmd_list['main'] += "echo '%s%s' | %s" % (cmd_conda, " && ".join(cmds), ge_cmd)
         else:
-            slurm_script = "#!/bin/bash\n\n"
-            slurm_script += '#SBATCH --job-name=cr_%s\n' % jobname
-            slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a.log\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)))
-            slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
-            slurm_script += '#SBATCH --ntasks=1\n'
-            slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
-            slurm_script += '#SBATCH --mem-per-cpu=%s\n' % (pmem.upper() if pmem is not None else '8GB')
-            slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(
-                walltime)
-            slurm_script += '#SBATCH --array=1-%i\n' % array
-            slurm_script += '#SBATCH --mail-type=END,FAIL\n'
-            slurm_script += '#SBATCH --mail-user=sjanssen@ucsd.edu\n\n'
-            slurm_script += 'srun uname -a\n'
+            for cmdtype in VALID_CMDS_KEYS:
+                slurm_script = "#!/bin/bash\n\n"
+                slurm_script += '#SBATCH --job-name=cr_%s_%s\n' % (jobname, cmdtype)
+                slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a_%s.log\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)), cmdtype)
+                slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
+                slurm_script += '#SBATCH --ntasks=1\n'
+                slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
+                slurm_script += '#SBATCH --mem-per-cpu=%s\n' % (pmem.upper() if pmem is not None else '8GB')
+                slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(
+                    walltime)
+                if cmdtype == 'main':
+                    slurm_script += '#SBATCH --array=1-%i\n' % array
+                if cmdtype == 'post':
+                    slurm_script += '#SBATCH --mail-type=END,FAIL\n'
+                    slurm_script += '#SBATCH --mail-user=stefan.janssen@uni-giessen.de\n\n'
+                slurm_script += 'srun uname -a\n'
 
-            for cmd in cmds:
-                slurm_script += '%s\n' % (cmd.replace(
-                    '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}'))
-            if file_qid is not None:
-                file_script = os.path.dirname(file_qid) + '/slurm_script.sh'
-            else:
-                _, file_script = mkstemp(suffix='.slurm.sh')
-            f = open(file_script, 'w')
-            f.write(slurm_script)
-            f.close()
+                for cmd in cmds[cmdtype]:
+                    if cmdtype != 'main':
+                        assert settings.VARNAME_PBSARRAY not in cmd, "array job can only be used in 'main'"
+                    slurm_script += '%s\n' % (cmd.replace(
+                        '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}'))
+                if file_qid is not None:
+                    file_script = os.path.dirname(file_qid) + '/slurm_script_%s.sh' % cmdtype
+                else:
+                    _, file_script = mkstemp(suffix='.slurm.sh')
+                fps_scripts[cmdtype] = file_script
+                f = open(fps_scripts[cmdtype], 'w')
+                f.write(slurm_script)
+                f.close()
             # if on jupyterlab from BCF@JLU, some slurm vars are predefined for the
             # spawner process of the jupyterlab. We need to unset this specific
             # variable to avoid slurm complaining about other resource requests.
             if settings.GRIDNAME == 'JLU_SLURM':
-                cmd_list += 'unset SLURM_MEM_PER_NODE && '
-            cmd_list += '%s %ssbatch %s' % (cmd_conda, settings.GRIDENGINE_BINDIR, file_script)
+                cmd_list['SPAWN'] = 'unset SLURM_MEM_PER_NODE && '
+            cmd_list['SPAWN'] += cmd_conda
+            cmd_list['SPAWN'] += ' qid_pre=`%ssbatch --parsable %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['pre'])
+            cmd_list['SPAWN'] += ' && qid_main=`%ssbatch --parsable --dependency=aftercorr:$qid_pre %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['main'])
+            cmd_list['SPAWN'] += ' && %ssbatch --parsable --depend=afterany:$qid_main %s' % (settings.GRIDENGINE_BINDIR, fps_scripts['post'])
 
     if dry is True:
         if use_grid and slurm:
-            out.write('CONTENT OF %s:\n' % file_script)
-            out.write(slurm_script + "\n\n")
-        out.write(cmd_list + "\n")
+            for cmdtype in VALID_CMDS_KEYS:
+                out.write('CONTENT OF %s:\n' % fps_scripts[cmdtype])
+                with open(fps_scripts[cmdtype], 'r') as f:
+                    out.write(''.join(f.readlines()) + "\n\n")
+        out.write(cmd_list['SPAWN'] + "\n")
         return None
     else:
         if use_grid is True:
             with subprocess.Popen(
-                    cmd_list, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
+                    cmd_list['SPAWN'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
                 err_msg = task_qsub.stderr.read()
                 if err_msg != b"":
                     raise ValueError("Error in submitting job via qsub:\n%s" % err_msg.decode('ascii'))
                 qid = task_qsub.stdout.read().decode('ascii').rstrip()
-                if settings.GRIDNAME == 'JLU':
-                    qid = qid.split(" ")[2]
+                #if settings.GRIDNAME == 'JLU':
+                #    qid = qid.split(" ")[2]
                 if slurm:
                     qid = qid.split()[-1]
                     if file_qid is not None:
@@ -1445,7 +1485,7 @@ def cluster_run(cmds, jobname, result, environment=None,
         else:
             #if settings.GRIDNAME == 'JLU':
             #    cmd_list = 'source ~/.profile && ' + cmd_list
-            with subprocess.Popen(cmd_list,
+            with subprocess.Popen(cmd_list['SPAWN'],
                                   shell=True,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
