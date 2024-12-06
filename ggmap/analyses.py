@@ -1024,7 +1024,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
             raise ValueError("Reference database is not given!")
         if (not os.path.exists(reference_database)):
             raise ValueError("Reference database cannot be found at '%s'" % reference_database)
-        chunks = range(0, seqs.shape[0], args['chunksize'])
+        chunks = range(0, len(seqs), args['chunksize'])
         for chunk, i in enumerate(chunks):
             # write all deblur sequences into one file per chunk
             chunkname = chunk + 1
@@ -1034,9 +1034,9 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                chunkname = 'undefined'
             file_fragments = workdir + '/sequences%s.mfa' % chunkname
             f = open(file_fragments, 'w')
-            chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.items():
-                f.write('>%s\n%s\n' % (header, sequence))
+            chunk_seqs = seqs[i:i + args['chunksize']]
+            for sequence in chunk_seqs:
+                f.write('>%s\n%s\n' % (sequence, sequence))
             f.close()
 
     def commands(workdir, ppn, args):
@@ -1223,7 +1223,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                      commands,
                      post_execute,
                      ppn=ppn, pmem=pmem, walltime=walltime,
-                     array=len(range(0, seqs.shape[0], chunksize)),
+                     array=len(range(0, len(seqs), chunksize)),
                      environment=environment,
                      **executor_args)
 
@@ -2535,96 +2535,89 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
         m.to_csv(
             '%s/meta.tsv' % workdir, sep='\t', index_label='sample_name')
 
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
         # import beta distance matrix into Qiime2 artifacts
-        dry = executor_args['dry'] if 'dry' in executor_args else True
         if args['beta'] is not None:
             for metric in args['beta'].keys():
-                cluster_run([
-                    ('qiime tools import --input-path %s/beta_%s.tsv --output-path'
-                     ' %s/beta_%s.qza --type "DistanceMatrix"') % (
-                        workdir, metric, workdir, metric)],
-                    jobname='import_dm',
-                    result="%s/beta_%s.qza" % (workdir, metric),
-                    ppn=1, pmem='8GB', walltime='1:00:00',
-                    environment=settings.QIIME2_ENV,
-                    dry=dry,
-                    wait=True, use_grid=False)
+                commands['pre'].append(
+                    ('qiime tools import'
+                     ' --input-path %s/beta_%s.tsv'
+                     ' --output-path %s/beta_%s.qza'
+                     ' --type "DistanceMatrix"') % (
+                        workdir, metric, workdir, metric))
 
-            # write a file that can provide metric, column and method values for
-            # an array job
-            with open('%s/fields.txt' % workdir, 'w') as f:
-                f.write('#'+'\t'.join(['Metric', 'Column', 'Method'])+'\n')
-                for metric in args['beta'].keys():
-                    for column in args['cols_cat']:
-                        for method in METHODS_BETA:
-                            f.write('\t'.join([metric, column, method])+'\n')
-
-    def commands(workdir, ppn, args):
-        commands = []
+        array_i = 1
+        if args['beta'] is not None:
+            for metric in args['beta'].keys():
+                for column in args['cols_cat']:
+                    for method in METHODS_BETA:
+                        commands['main'].append(
+                            ('if [ ${%s} -eq %i ]; then qiime diversity beta-group-significance '
+                             '--i-distance-matrix %s/beta_%s.qza '
+                             '--m-metadata-file %s/meta.tsv '
+                             '--m-metadata-column %s '
+                             '--p-method %s '
+                             '--output-dir %s/beta-group-significance_%s_%s_%s/; fi') % (
+                                settings.VARNAME_PBSARRAY, array_i,
+                                workdir, metric,
+                                workdir,
+                                column,
+                                method,
+                                workdir, metric, column, method))
+                        commands['main'].append(
+                             ('if [ ${%s} -eq %i ]; then qiime tools export '
+                             '--input-path %s/beta-group-significance_%s_%s_%s/visualization.qzv '
+                             '--output-path %s/beta-group-significance_%s_%s_%s/raw/; fi') % (
+                                settings.VARNAME_PBSARRAY, array_i,
+                                workdir, metric, column, method,
+                                workdir, metric, column, method))
+                        array_i += 1
 
         # store alpha diversities as Qiime2 artifacts
         if args['alpha'] is not None:
             for metric in args['alpha'].keys():
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime tools import '
+                commands['pre'].append(
+                    ('qiime tools import '
                      '--input-path %s/alpha_%s.tsv '
                      '--output-path %s/alpha_%s.qza '
-                     '--type "SampleData[AlphaDiversity]"; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime diversity alpha-group-significance '
+                     '--type "SampleData[AlphaDiversity]"') % (
+                        workdir, metric, workdir, metric))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime diversity alpha-group-significance '
                      '--i-alpha-diversity %s/alpha_%s.qza '
                      '--m-metadata-file %s/meta.tsv '
                      '--output-dir %s/alpha-group-significance_%s/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, workdir, metric))
-                commands.append(
-                    ('if [ $%s -eq 1 ]; then '
-                     'qiime tools export '
+                        settings.VARNAME_PBSARRAY, array_i,
+                        workdir, metric, workdir, workdir, metric))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then qiime tools export '
                      '--input-path %s/alpha-group-significance_%s/'
                      'visualization.qzv '
                      '--output-path %s/alpha-group-significance_%s/raw/; fi') % (
-                        settings.VARNAME_PBSARRAY, workdir, metric, workdir, metric))
+                        settings.VARNAME_PBSARRAY, array_i,
+                        workdir, metric, workdir, metric))
+                array_i += 1
+            for metric in args['alpha'].keys():
                 for method in METHODS_ALPHA:
-                    commands.append(
-                        ('if [ $%s -eq 1 ]; then '
-                         'qiime diversity alpha-correlation '
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime diversity alpha-correlation '
                          '--i-alpha-diversity %s/alpha_%s.qza '
                          '--m-metadata-file %s/meta.tsv '
                          '--p-method %s '
                          '--output-dir %s/alpha-correlation_%s_%s/; fi') % (
-                            settings.VARNAME_PBSARRAY, workdir, metric, workdir, method,
+                            settings.VARNAME_PBSARRAY, array_i,
+                            workdir, metric, workdir, method,
                             workdir, metric, method))
-                    commands.append(
-                        ('if [ $%s -eq 1 ]; then '
-                         'qiime tools export '
+                    commands['main'].append(
+                        ('if [ ${%s} -eq %i ]; then qiime tools export '
                          '--input-path %s/alpha-correlation_%s_%s/'
                          'visualization.qzv '
                          '--output-path %s/alpha-correlation_%s_%s/raw/; fi') % (
-                            settings.VARNAME_PBSARRAY, workdir, metric, method, workdir, metric, method))
-
-        commands.append(('var_METRIC=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 1`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(('var_COLUMN=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 2`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(('var_METHOD=`head -n $%s %s/fields.txt | '
-                         'tail -n 1 | cut -f 3`') % (settings.VARNAME_PBSARRAY, workdir))
-        commands.append(
-            ('if [ $%s -ne 1 ]; then '
-             'qiime diversity beta-group-significance '
-             '--i-distance-matrix %s/beta_${var_METRIC}.qza '
-             '--m-metadata-file %s/meta.tsv '
-             '--m-metadata-column ${var_COLUMN} '
-             '--p-method ${var_METHOD} '
-             '--output-dir %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/; '
-             'qiime tools export '
-             '--input-path %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/visualization.qzv '
-             '--output-path %s/beta-group-significance_'
-             '${var_METRIC}_${var_COLUMN}_${var_METHOD}/raw/; '
-             'fi') % (settings.VARNAME_PBSARRAY, workdir, workdir, workdir, workdir, workdir))
+                            settings.VARNAME_PBSARRAY, array_i,
+                            workdir, metric, method, workdir, metric, method))
+                    array_i += 1
 
         return commands
 
@@ -2790,6 +2783,11 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                     if len(metadata.loc[idx_samples, col].unique()) ==
                     metadata.loc[idx_samples, col].shape[0]]
 
+    array_alpha = len(alpha_diversities.keys()) * (1 + len(METHODS_ALPHA))
+    array_beta = len(beta_diversities.keys()) * \
+        len(set(categorial) - set(cols_alldiff) - set(cols_onevalue)) * \
+        len(METHODS_BETA)
+
     return _executor('corr-divmeta',
                      {'alpha': alpha_diversities.loc[idx_samples, :] if alpha_diversities is not None else None,
                       'beta': {k: m.filter(idx_samples)
@@ -2806,10 +2804,7 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                      commands,
                      post_execute,
                      ppn=1,
-                     array=len(beta_diversities.keys()) * len(
-                         set(categorial) - set(cols_alldiff) -
-                         set(cols_onevalue)) *
-                     len(METHODS_BETA) + 1,
+                     array=array_alpha + array_beta,
                      environment=settings.QIIME2_ENV,
                      **executor_args)
 
@@ -4943,11 +4938,24 @@ def QC(dir_fastqs:str,
                         '%s/reverse/' % workdir, fp_rev))
 
     def commands(workdir, ppn, args):
-        commands = [
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['main'] = [
             'var_fastqcCMD=`head -n ${%s} %s/commands.txt | tail -n 1 | cut -f 1`' % (
                 settings.VARNAME_PBSARRAY, workdir),
             '$var_fastqcCMD'
              ]
+
+        directions = ['forward']
+        if not args['no_rev_seqs']:
+            directions.append('reverse')
+        for direction in directions:
+            fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
+            fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
+            commands['post'].append('multiqc --filename %s --outdir %s --flat %s/%s' % (
+                fp_report, fp_outdir, workdir, direction
+            ))
+
         return commands
 
     def post_execute(workdir, args):
@@ -4958,23 +4966,8 @@ def QC(dir_fastqs:str,
             directions.append('reverse')
 
         results = dict()
-        for direction in directions:
-            fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
-            fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
-            commands = ['multiqc --filename %s --outdir %s --flat %s/%s' % (
-                fp_report, fp_outdir, workdir, direction
-            )]
-            print("Compiling multiQC (%s reads): " % direction, end="", file=executor_args.get('verbose', sys.stderr))
-            cluster_run(
-                commands,
-                jobname='multiQC_%s' % direction,
-                result=fp_report,
-                ppn=ppn,
-                pmem=pmem,
-                environment=environment,
-                dry=dry,
-                use_grid=executor_args.get('use_grid', True),
-                wait=True)
+        for fp_report in glob('%s/**/multiqc_report.html' % workdir, recursive=True):
+            direction = os.path.dirname(fp_report).split('/')[-1]
             with open(fp_report, 'r') as f:
                 results['multiqc_%s' % direction] = ''.join(f.readlines())
             with open(fp_report, 'r') as f:
