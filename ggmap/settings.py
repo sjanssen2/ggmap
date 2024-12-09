@@ -45,8 +45,10 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             'prefer_slurm': {'default': True, 'variable_name': 'PREFER_SLURM'},
             # some grids, like HPC@HHU "bill" compute time to projects
             # we have to specify with -A for qsub which project should be used.
-            'grid_account': {'default': '',
+            'grid_account': {'default': 'bcf',
                              'variable_name': 'GRID_ACCOUNT'},
+            'grid_email_notification': {'default': 'me@uni-giessen.de',
+                             'variable_name': 'GRID_EMAIL_NOTIFICATION'},
             'fp_reference_phylogeny': {'default': None,
                                        'variable_name': 'FILE_REFERENCE_TREE'},
             'fp_reference_sepp': {'default': None,
@@ -88,7 +90,12 @@ def init(err=sys.stderr, force_commit_msg=False):
     # if variable is not set in settings file, fall back to default
     for field in DEFAULTS.keys():
         if field not in config:
-            config[field] = DEFAULTS[field]['default']
+            if field == 'grid_email_notification':
+                # guessing your email address here!
+                username = subprocess.run(['getent passwd | grep $USER | cut -d ":" -f 5 | tr " " "."'], shell=True, capture_output=True).stdout.decode('utf-8').strip()
+                config[field] = '%s@uni-giessen.de' % username
+            else:
+                config[field] = DEFAULTS[field]['default']
 
     # set global variables to values from config file or fall back to defaults
     global QIIME_ENV

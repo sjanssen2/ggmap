@@ -1382,7 +1382,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                     slurm_script += '#SBATCH --array=1-%i\n' % array
                 if cmdtype == 'post':
                     slurm_script += '#SBATCH --mail-type=END,FAIL\n'
-                    slurm_script += '#SBATCH --mail-user=stefan.janssen@uni-giessen.de\n\n'
+                    slurm_script += '#SBATCH --mail-user=%s\n\n' % settings.GRID_EMAIL_NOTIFICATION
                 slurm_script += 'srun uname -a\n'
 
                 for cmd in cmds[cmdtype]:

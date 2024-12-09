@@ -24,11 +24,11 @@ ggmap shall convert MetaPhlAn profiles into GreenGenes OTU based profiles.
 
 ### Configure
  After the first use, ggmap will create a file called `.ggmaprc` in your home directory, (look at the content via `cat $HOME/.ggmaprc`). Through this file, you can set some default to save typing in the python function calls like conda environment names.
- 
+
  8. I assume you already installed qiime2 through miniconda (https://docs.qiime2.org/2021.8/install/). A `~/.ggmaprc` file will be generated the first time you load ggmap code in your python program / jupyter notebook. To do so, execute Challenge 1 below. Then come back and edit your `~/.ggmaprc` to replace an potentially outdated qiime2 environment name with the one you installed (in our example 2021.8). There is a row starting with `condaenv_qiime2: `, replace the given name with your actual one.
- 9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP` 
+ 9. If you are going to use a cluster to execute jobs (default), you need to create a directory: `mkdir $HOME/TMP`
  10. ggmap needs to know the location of your miniconda3 prefix. This is typically located in $HOME/miniconda3. However, in the BCF system, we encuraged people to install it in the prefix $HOME/no_backup/miniconda3 (to avoid flooding our backup with millions of unimportant files). You need to adapt the `dir_conda: ` entry in your `~/.ggmaprc` file accordingly.
- 
+
 ### Tests
 #### Challenge 1: load python code
 Create a new jupyter notebook with the ggmap kernel and type the following two lines in a cell:
@@ -46,7 +46,7 @@ Reading settings file '/homes/sjanssen/.ggmaprc'
 #### Challenge 2: locally execute wrapped Qiime2 code
 Create a dummy feature table like
 ```
-counts = pd.DataFrame([{'sample': "sample.A", 'bact1': 10, 'bact2': 7, 'bact3': 0}, 
+counts = pd.DataFrame([{'sample': "sample.A", 'bact1': 10, 'bact2': 7, 'bact3': 0},
                        {'sample': "sample.B", 'bact1':  5, 'bact2': 3, 'bact3': 8},
                        {'sample': "sample.C", 'bact1': 10, 'bact2': 0, 'bact3': 1}]).set_index('sample').T
 ```                       
@@ -62,6 +62,8 @@ As above, but now we want to distribute computation as a cluster job via `res = 
 Result should be the same as above, but the system should submit the job to the SGE grid engine and poll every 10 seconds for the result. You might want to use another terminal and observe the job status via `qstat` and/or look into the sub-directory `$HOME/TMP/`. Don't forget to draw the results by repeating the second command from Challenge 2, i.e. `res['results']['jaccard']`.
 
 11. You might encounter issues with conda environment activation if the job runs through the SGE cluster. This is likely due to the fact that an SGE job does **not** load information from your `~/.bashrc`. You can try to copy all conda relevant lines in your `~/.bashrc` file (I will show mine below) and paste those into a new file names `~/.bash_profile`:
+12. Our slurm cluster might also complain about a missing or wrong "partition". This is basically for compute time accounting. Check that the `grid_account` variable has a valid partition name. Ask our BCF for this name, but most likely it should be either `bcf` or `chaos`.
+13. Slurm can send email notifications once jobs are finished. This is useful for very long jobs. You might therefore want check what email address was guessed for the variable `grid_email_notification`. Enter an empty value, if you don't want to get notified!
 
 ```
 # >>> conda initialize >>>
