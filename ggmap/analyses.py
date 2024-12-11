@@ -4972,7 +4972,7 @@ def QC(dir_fastqs:str,
                 results['multiqc_%s' % direction] = ''.join(f.readlines())
             with open(fp_report, 'r') as f:
                 for line in f.readlines():
-                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line:
+                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line or 'id="mqc_fastqc_per_base_sequence_quality_plot' in line:
                         png_search = re.search('img src="(.*)" /></div>', line)
                         g = Image(url=png_search[1])
                         results['mean-quality-scores_%s' % direction] = g
