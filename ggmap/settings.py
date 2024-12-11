@@ -140,6 +140,8 @@ def init(err=sys.stderr, force_commit_msg=False):
     R_MODULE = config['R_module']
     global GRID_ACCOUNT
     GRID_ACCOUNT = config['grid_account']
+    global GRID_EMAIL_NOTIFICATION
+    GRID_EMAIL_NOTIFICATION = config['grid_email_notification']
 
 
     global GRIDNAME
