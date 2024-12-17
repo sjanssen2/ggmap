@@ -121,7 +121,7 @@ def _getremaining(counts_sums:pd.Series, sample_grouping:pd.Series=None):
         return remainings
     else:
         # 2023-03-06: fillna ... leads to additional horizontal lines when sample group switches, nut sure why I used fillna before?!
-        return remainings.fillna(method='ffill').fillna(method='bfill').astype(int)
+        return remainings.ffill().bfill().astype(int)
 
 
 def _parse_alpha_div_collated(workdir, samplenames):
@@ -4824,7 +4824,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             ax.set_xlabel('Score')
             if i == 0:
                 ax.legend()
-            ax.set_title('%s\n%i Non-Contaminant reads with p=NA (not plotted)' % (str(batchname), stats['non_plotted_num_reads']))
+            ax.set_title('%s\n%i Non-Contaminant reads with p=NA (not plotted)' % (str(batchname), stats['non_plotted_num_reads'].iloc[0]))
 
             ax = None
             if len(grps) > 1:
@@ -4853,8 +4853,8 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
             ax.legend(comb, [l.get_label() for l in comb], loc=0)
             ax.set_xlabel("Score")
             ax.set_title('loosing %i of %i = %.2f%% features\nloosing %i of %i = %.2f%% reads' % (
-                stats['lost_num_asvs'], stats['total_num_asvs'], stats['percent_lost_asvs'],
-                stats['lost_num_reads'], stats['total_num_reads'], stats['percent_lost_reads']
+                stats['lost_num_asvs'].iloc[0], stats['total_num_asvs'].iloc[0], stats['percent_lost_asvs'].iloc[0],
+                stats['lost_num_reads'].iloc[0], stats['total_num_reads'].iloc[0], stats['percent_lost_reads'].iloc[0]
             ))
 
             ax = None
