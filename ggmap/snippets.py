@@ -1543,7 +1543,7 @@ def detect_distant_groups_alpha(alpha, groupings,
     # remove groups with less than minNum samples per group
     groups = sorted([name
                      for name, counts
-                     in groupings.value_counts().iteritems()
+                     in groupings.value_counts().items()
                      if counts >= min_group_size])
 
     network = dict()
@@ -1788,8 +1788,8 @@ def plotDistant_groups(network, n_per_group, min_group_size, num_permutations,
 
     # ignore warnings of matplotlib due to outdated networkx calls
     with warnings.catch_warnings():
-        warnings.filterwarnings("ignore",
-                                category=matplotlib.cbook.mplDeprecation)
+        #warnings.filterwarnings("ignore",
+        #                        category=matplotlib.cbook.mplDeprecation)
         warnings.filterwarnings("ignore",
                                 category=UserWarning,
                                 module="matplotlib")
@@ -1954,7 +1954,7 @@ def plotGroup_permanovas(beta, groupings,
     # remove groups with less than minNum samples per group
     groups = sorted([name
                      for name, counts
-                     in groupings.value_counts().iteritems()
+                     in groupings.value_counts().items()
                      if counts >= min_group_size])
 
     if ax is None:
