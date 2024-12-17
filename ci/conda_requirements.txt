@@ -23,5 +23,9 @@ ipykernel
 fuzzywuzzy
 lxml
 openpyxl
+wordcloud
+tqdm
+ipykernel
+ipython_genutils
 # trevismd/statannotations  # use `pip install git+git://github.com/trevismd/statannotations@master` to install
 # webermarcolivier/statannot  # use `pip install git+git://github.com/webermarcolivier/statannot@master` to install
