@@ -1110,7 +1110,7 @@ def _add_timing_cmds(commands, file_timing):
                 timing_cmds.append(cmd)
         elif cmd.startswith('if [ '):
             ifcon, rest = re.findall(
-                '(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+                r'(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
             timing_cmds.append(('%s '
                                 '%s '
                                 '-v '
