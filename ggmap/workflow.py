@@ -118,15 +118,40 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     return prj_data
 
-def project_trimprimers(primerseq_fwd, primerseq_rev, prj_data, verbose=sys.stderr, pattern_fwdfiles="*_R1_001.fastq.gz", r1r2_replace=("_R1_", "_R2_"), use_grid=True, no_rev_seqs=False):
-    """Operates on directory prj_data['paths']['demux']"""
+def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=sys.stderr, pattern_fwdfiles:str="*_R1_001.fastq.gz", r1r2_replace:(str, str)=("_R1_", "_R2_"), use_grid:bool=True, no_rev_seqs:bool=False, environment:str=settings.SPIKE_ENV, dirty:bool=False):
+    """Operates on directory prj_data['paths']['demux']
+
+    Parameters
+    ----------
+    primerseq_fwd : str
+        Forward primer nucleotide sequence.
+    primerseq_rev : str
+        Reverse primer nucleotide sequence.
+    prj_data : dict
+        All data for the project, basically a bunch of file paths and metadata
+    verbose : file handle
+        file handle to write error / warning messages to. Set to None to surpress any error/warning messages
+    pattern_fwdfiles : str
+        Unix pattern identify fastq files.
+    r1r2_replace : (str, str)
+        Source and Target infix to instruct how matching reverse fastQ files
+        can be identified from forward fastQ files.
+    no_rev_seqs : Boolean
+        If True, no R2 (=reverse) reads are expected, i.e. processed
+    use_grid : bool
+        Set to False if you want to execute the command locally, e.g. if Slurm cluster is crowded.
+    environment : str
+        Name of the conda environment to be activated prior to calling cutadapt.
+    dirty : bool
+        Do NOT remove the temporary working directory. Nice for debugging.
+    """
 
     prj_data['paths']['trimmed'] = os.path.join(prj_data['paths']['tmp_workdir'], 'trimmed')
 
     res_trimming = trimprimers(
         prj_data['paths']['demux'], primerseq_fwd, primerseq_rev, prj_data['paths']['trimmed'],
         pattern_fwdfiles=pattern_fwdfiles, r1r2_replace=r1r2_replace, no_rev_seqs=no_rev_seqs,
-        verbose=verbose, use_grid=use_grid, dry=False)
+        verbose=verbose, use_grid=use_grid, dry=False, dirty=dirty, environment=environment)
 
     return prj_data
 
