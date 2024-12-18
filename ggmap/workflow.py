@@ -84,7 +84,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
     fp_tmp_dir = None
     if os.path.isfile(fp_illuminadata) and fp_illuminadata.endswith('.tgz'):
         fp_tmp_dir = os.path.join(prj_data['paths']['tmp_workdir'], os.path.basename(fp_demuxsheet)[:-4])
-        verbose.write("Found a compressed tar archive. Extracing into temporary directory '%s'" % fp_tmp_dir)
+        verbose.write("Found a compressed tar archive. Extracting into temporary directory '%s'" % fp_tmp_dir)
         os.makedirs(fp_tmp_dir, exist_ok=True)
         cluster_run(['tar xzf %s -C %s/' % (fp_illuminadata, prj_data['paths']['tmp_workdir'])],
             'untar_seqdata',
