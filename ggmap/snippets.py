@@ -2413,7 +2413,7 @@ def _find_diff_taxa_runpfdr(calour_experiment, metadata, field, diffTaxa=None,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
+    metadata = metadata.loc[list(set(calour_experiment.sample_metadata.index) & set(metadata.index)), :]
 
     ns = metadata[field].value_counts()
     e = calour_experiment.filter_ids(metadata.index, axis='s')
@@ -2478,7 +2478,7 @@ def _find_diff_taxa_singlelevel(calour_experiment, metadata,
     if diffTaxa is None:
         diffTaxa = dict()
 
-    metadata = metadata.loc[set(calour_experiment.sample_metadata.index) & set(metadata.index), :]
+    metadata = metadata.loc[list(set(calour_experiment.sample_metadata.index) & set(metadata.index)), :]
 
     if len(groups) > 1:
         e = calour_experiment.filter_ids(

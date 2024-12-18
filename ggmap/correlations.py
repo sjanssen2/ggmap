@@ -316,7 +316,7 @@ def redundancy_analysis_alpha(metadata, alpha,
             args['intervals'], args['dates'], for_metadata_correlation=False)
         _alpha = args['alpha'].copy()
         _alpha.name = COL_NAME_ALPHA
-        meta_alpha = meta.loc[:, all_columns].merge(
+        meta_alpha = meta.loc[:, list(all_columns)].merge(
             _alpha.to_frame(), left_index=True, right_index=True)
         if args['metadata'].shape[0] != args['alpha'].shape[0]:
             sys.stderr.write(
