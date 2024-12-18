@@ -4966,13 +4966,16 @@ def QC(dir_fastqs:str,
             directions.append('reverse')
 
         results = dict()
-        for fp_report in glob('%s/**/multiqc_report.html' % workdir, recursive=True):
+        fps_reports = glob('%s/**/multiqc_report.html' % workdir, recursive=True)
+        if len(fps_reports) < 1:
+            raise ValueError("Cannot find any multiqc HTML report. Something must be broken. Please inspect your log files and/or re-execute.")
+        for fp_report in fps_reports:
             direction = os.path.dirname(fp_report).split('/')[-1]
             with open(fp_report, 'r') as f:
                 results['multiqc_%s' % direction] = ''.join(f.readlines())
             with open(fp_report, 'r') as f:
                 for line in f.readlines():
-                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line or 'id="mqc_fastqc_per_base_sequence_quality_plot' in line:
+                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line or 'id="fastqc_per_base_sequence_quality_plot' in line:
                         png_search = re.search('img src="(.*)" /></div>', line)
                         g = Image(url=png_search[1])
                         results['mean-quality-scores_%s' % direction] = g
