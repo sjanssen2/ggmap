@@ -170,7 +170,7 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
 
     # link input fastq files, but only fwd
     # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
-    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -v -s $f %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
+    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -v -s `readlink -f $f` %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
 
     # deblur
     cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
