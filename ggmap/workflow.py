@@ -15,7 +15,7 @@ from ggmap.correlations import *
 
 JLU_PROXY = 'http://proxy.computational.bio.uni-giessen.de:3128'
 
-def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Projects/', verbose=sys.stderr, force=False, tmp_dir='tmp_workdir/no_backup'):
+def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAnalyses/Projects/', verbose=sys.stderr, force=False, tmp_dir='tmp_workdir_%s/no_backup' % os.getenv('USER')):
     if (pi is None) or (pi.strip() == ""):
         raise ValueError("Abort: No Principle Investigator last name given!")
     if (name is None) or (name.strip() == ""):
@@ -33,12 +33,11 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
         if verbose:
             print('Creating project directory structure:', file=verbose)
+    prj_data['paths']['tmp_workdir'] = tmp_dir
     for subdir in ['', 'Incoming', 'Outgoing', 'FromQiita', tmp_dir, os.path.join('Generated', 'Emperor'), 'Figures']:
         fp_subdir = os.path.join(fp_path_project, subdir)
-        if subdir.startswith('tmp_workdir'):
-            subdir = subdir.split('/')[0]
         prj_data['paths']['root' if subdir == '' else subdir] = os.path.abspath(fp_subdir)
-        if force is False:
+        if (force is False) or (subdir == tmp_dir):
             os.makedirs(fp_subdir, exist_ok=True)
             print('  %s' % fp_subdir, file=verbose)
 
