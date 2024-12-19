@@ -246,7 +246,7 @@ def process_study(metadata: pd.DataFrame,
                   decontam_lowbiomass_envs:[str]=[],
                   decontam_cols_batch:[str]=[],
                   decontam_threshold:float=0.5,
-                  conda_env_decontam:str='qiime2-amplicon-2024.5'
+                  conda_env_decontam:str=settings.QIIME2_ENV
                   ):
     """
     parameters
