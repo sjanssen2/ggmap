@@ -245,7 +245,8 @@ def process_study(metadata: pd.DataFrame,
                   decontam_name_control_sample:str=None,
                   decontam_lowbiomass_envs:[str]=[],
                   decontam_cols_batch:[str]=[],
-                  decontam_threshold:float=0.5
+                  decontam_threshold:float=0.5,
+                  conda_env_decontam:str='qiime2-amplicon-2024.5'
                   ):
     """
     parameters
@@ -408,7 +409,7 @@ def process_study(metadata: pd.DataFrame,
                 col_concentration=decontam_col_concentration,
                 col_sampletype=decontam_col_sampletype,
                 name_control_sample=decontam_name_control_sample,
-                dry=dry, wait=True, environment='qiime2-amplicon-2024.5', use_grid=use_grid,
+                dry=dry, wait=True, environment=conda_env_decontam, use_grid=use_grid,
                 cols_batch=decontam_cols_batch,
                 threshold=decontam_threshold,
                 taxonomy=results['taxonomy']['RDP']['results']['Taxon'],
