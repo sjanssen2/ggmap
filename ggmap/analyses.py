@@ -18,6 +18,7 @@ from IPython.display import Image
 from tqdm import tqdm
 
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.ticker import FuncFormatter
@@ -2436,7 +2437,7 @@ def bugbase(counts, **executor_args):
     ./bin/run.bugbase.r
     """
     def pre_execute(workdir, args):
-        if (type(args['counts'].index) == pd.core.indexes.numeric.Int64Index) \
+        if is_numeric_dtype(args['counts'].index) \
                 or all(map(lambda x: x.isdigit(), args['counts'].index)):
             args['counts'].to_csv('%s/input.txt' % workdir, sep="\t")
         else:
