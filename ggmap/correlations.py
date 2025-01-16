@@ -236,7 +236,14 @@ def correlate_metadata(metadata,
 
             groups = [g.dropna().values
                       for n, g
-                      in meta.groupby(column_a)[column_b]]
+                      in meta.dropna(subset=column_b).groupby(column_a)[column_b]]
+            if len(groups) < 2:
+                # too little data
+                # print(f"Info: skipping correlation due to insufficient data: {column_a} vs {column_b}")
+                continue
+            if max(map(lambda x: len(set(x)), groups)) == 1:
+                # all arrays have only one or a constant value
+                continue
             f_, p_ = f_oneway(*groups)
 
             df_n = len(np.hstack(groups)) - len(groups)
