@@ -185,7 +185,8 @@ def _parse_alpha_div_collated(workdir, samplenames):
 def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
                              control_sample_names=[],
                              sample_grouping:pd.Series=None,
-                             onlyshow=None, plot_max_samples:int=1000):
+                             onlyshow=None, plot_max_samples:int=1000,
+                             max_depth=None):
     """Plot rarefaction curves along with loosing sample stats + read count
        histogram.
 
@@ -268,8 +269,13 @@ def _plot_rarefaction_curves(data, _plot_rarefaction_curves=None,
     lostHalf = abs(data['remaining'].sum(axis=1) - lost)
     lostHalf = lostHalf[lostHalf == lostHalf.min()].index[0]
     maxX = lostHalf * 1.1
+
     if maxX < data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].mean():
         maxX = data['metrics'][list(data['metrics'].keys())[0]]['rarefaction depth'].max() * 1.1
+    if max_depth is not None:
+        # if user gives maximal rarefaction depth (which is NOT the default),
+        # also plot this region!
+        maxX = max_depth * 1.1
     if onlyshow is None:
         ax.set_xlim(0, maxX)
 
@@ -527,7 +533,8 @@ def rarefaction_curves(counts,
                                      control_sample_names=control_sample_names,
                                      sample_grouping=sample_grouping,
                                      onlyshow=onlyshow,
-                                     plot_max_samples=plot_max_samples)
+                                     plot_max_samples=plot_max_samples,
+                                     max_depth=max_depth)
         return cache_results
 
 
