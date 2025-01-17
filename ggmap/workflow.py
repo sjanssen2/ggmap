@@ -303,6 +303,10 @@ def process_study(metadata: pd.DataFrame,
     if pd.Series(counts.columns).value_counts().max() > 1:
         raise ValueError("Your Deblur biom table has at least one sample duplicate!")
 
+    # sync metadata with feature table as an easy mechanism to subset the
+    # processed samples 
+    counts, metadata = sync_counts_metadata(counts, metadata, verbose)
+
     if deblur_remove_features_lessthanXreads > 0:
         num_features_original = counts.shape[0]
         counts = counts[counts.sum(axis=1) >= deblur_remove_features_lessthanXreads]
