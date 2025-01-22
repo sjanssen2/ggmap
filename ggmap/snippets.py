@@ -3218,7 +3218,9 @@ def ganttChart(metadata: pd.DataFrame,
     for col in col_phases_start + col_phases_end:
         if col is not None and col not in cols:
             cols.append(col)
-    plot_entities = meta.sort_values(COL_GROUP)[cols].drop_duplicates()
+
+    plot_entities = meta.groupby([COL_GROUP, col_entities], sort=False).head(1)[cols]
+
     plot_entities = plot_entities.reset_index().set_index(col_entities)
     if order_entities is not None:
         if set(order_entities) & set(plot_entities.index) == set(plot_entities.index):
