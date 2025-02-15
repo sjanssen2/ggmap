@@ -30,6 +30,8 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
                                         'variable_name': 'SOURCETRACKER2_ENV'},
             'condaenv_tempted': {'default': 'ggmap_tempted',
                                  'variable_name': 'TEMPTED_ENV'},
+            'condaenv_isolateasvs': {'default': 'ggmap_isolateasvs',
+                                     'variable_name': 'ISOLATEASVS_ENV'},
             # since condas init magic, activating an environment failes if
             # .bashrc is not read, which is the case when executing a
             # subprocess from python :-(
@@ -60,7 +62,7 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             'fp_binary_time': {'default': '/usr/bin/time',
                                'variable_name': 'EXEC_TIME'},
             'list_ranks': {'default': ['Kingdom', 'Phylum', 'Class', 'Order',
-                                       'Family', 'Genus', 'Species'],
+                                       'Family', 'Genus', 'Species', 'Isolate'],
                            'variable_name': 'RANKS'},
             'R_module': {'default': 'R/3.3.2',
                          'variable_name': 'R_MODULE'}
@@ -120,6 +122,8 @@ def init(err=sys.stderr, force_commit_msg=False):
     SOURCETRACKER2_ENV = config['condaenv_sourcetracker2']
     global TEMPTED_ENV
     TEMPTED_ENV = config['condaenv_tempted']
+    global ISOLATEASVS_ENV
+    ISOLATEASVS_ENV = config['condaenv_isolateasvs']
     global FILE_REFERENCE_TREE
     FILE_REFERENCE_TREE = config['fp_reference_phylogeny']
     global FILE_REFERENCE_SEPP

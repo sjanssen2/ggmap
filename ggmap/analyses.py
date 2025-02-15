@@ -28,6 +28,8 @@ from skbio import OrdinationResults
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
+from skbio.io import read
+from skbio import DNA
 
 from biom.table import Table
 from biom.util import biom_open
@@ -5223,6 +5225,406 @@ def trimprimers(dir_fastqs:str,
                      ppn=ppn,
                      pmem=pmem,
                      array=len(files_fwd),
+                     **executor_args)
+
+
+def blast_isolates(fp_fasta_isolates:str,
+       counts:pd.DataFrame, fp_taxonomy_trained_classifier_isolates:str=None,
+       taxonomy_asvs:pd.Series=None,
+       ppn:int=2, pmem:str='4GB', environment:str=settings.ISOLATEASVS_ENV,
+       **executor_args):
+    """Takes one multiple fastA file and searchs ASVs against these isolate sequences.
+
+    Parameters
+    ----------
+    fp_taxonomy_trained_classifier_isolates : str
+        Optional, but highly recommended! File path to sklearn pre-trained taxonomy classifier
+        to assign lineages to isolate sequences. This might help identify isolates that are
+        reverse complements!
+    """
+    INFIX_REVCOM='reverse_complement__'
+    min_isolate_length = max(150, len(counts.index[0]) * 2)
+
+    def __external_select_isolate_sequences(workdir):
+        import pandas as pd
+        with open('%s/isolate_clusters.clstr' % workdir, 'r') as f:
+            sequse = []
+            # collect information about sequence use in clusters
+            cluster = None
+            cluster_sizes = dict()
+            current_cluster_size = 0
+            # get cluster size in terms of number of sequences
+            for line in f.readlines():
+                if line.strip() == "":
+                    continue
+                elif line.startswith('>Cluster '):
+                    if cluster is not None:
+                        cluster_sizes[cluster] = current_cluster_size
+                        current_cluster_size = 0
+                    cluster = line[1:].strip()
+                else:
+                    seqname = line.split('>')[1].split('...')[0]
+                    is_reverse_complement = seqname.startswith('reverse_complement__')
+                    seqname = seqname.replace('reverse_complement__', '')
+                    is_representative = line.strip().endswith('... *')
+                    sequse.append({'cluster': cluster, 'escaped_sequence_id': seqname, 'is_cluster_representative': is_representative, 'is_reverse_complement': is_reverse_complement})
+                    current_cluster_size += 1
+            sequse = pd.DataFrame(sequse).merge(pd.Series(cluster_sizes, name='cluster_size'), left_on='cluster', right_index=True)
+
+            # sort sequences by 1) cluster size 2) being representative and 3) preferring original direction
+            # group by cluster, start with largest, pick representative sequence as first member of positive set; all other cluster member as negative set
+            # iterate clusters but only add new positive sequences, if not already used by other clusters, i.e. being member in the negative set
+            seqs_positive = set()
+            seqs_negative = set()
+            for cluster, g in sequse.sort_values(by=['cluster_size', 'is_cluster_representative', 'is_reverse_complement'], ascending=[False, False, True]).groupby('cluster', sort=False):
+                g_filtered = g[~g['escaped_sequence_id'].isin(seqs_negative)]
+                seqs_positive |= set(g_filtered['escaped_sequence_id'][:1])
+                seqs_negative |= set(g_filtered['escaped_sequence_id'][1:])
+
+            # once we know the positive isolate sequence, we go back to all isolate sequence use (original and rev comp are in these list)
+            # keep the above sorting and pick the "better" version (forward or reverse complement) per isolate sequence
+            sequse = sequse[sequse['escaped_sequence_id'].isin(seqs_positive)].groupby('escaped_sequence_id').head(1)
+
+        with open('%s/selected_isolate_sequences.fasta' % workdir, 'w') as w:
+            with open('%s/intermediate_isolates.fasta' % workdir, 'r') as f:
+                name, seq = None, None
+                for line in f.readlines():
+                    if line.startswith('>'):
+                        name = line.strip()[1:]
+                    else:
+                        seq = line.strip()
+                        if name in sequse['escaped_sequence_id'].values:
+                            w.write('>%s\n%s\n' % (name, seq))
+
+    def _create_length_warning(too_short, fp_fasta_isolates, num_ok_seqs):
+        return ("WARNING: Your isolate sequence collection (%s) contains %i of %i "
+                "sequences that are too short (<%i bases)! They won't be used for analysis. Please consider pruning your "
+                "collection!\n\n%s") % (
+                    os.path.basename(fp_fasta_isolates),
+                    len(too_short),
+                    len(too_short) + num_ok_seqs,
+                    min_isolate_length,
+                    '\n'.join(map(lambda seq: '>%s%s\n%s\n' % (seq.metadata['id'], seq.metadata['description'], str(seq)), too_short)))
+
+    def pre_execute(workdir, args):
+        # double check that fasta names are unique in library
+        map_isolate_names = []
+        too_short = []
+        for i, seq in enumerate(read(args['fp_fasta_isolates'], format='fasta')):
+            if len(str(seq)) < min_isolate_length:
+                too_short.append(seq)
+                continue
+            map_isolate_names.append(' '.join([seq.metadata['id'], seq.metadata['description']]))
+        id_occurrences = pd.Series(map_isolate_names).value_counts()
+        if id_occurrences[id_occurrences > 1].shape[0] > 0:
+            raise ValueError("Your isolate collection contains the following %i duplicate names:\n%s" % (
+                id_occurrences[id_occurrences > 1].shape[0],
+                '  \n'.join(sorted(id_occurrences[id_occurrences > 1].index))))
+
+        # write new fasta files with escaped sequence names
+        info_isolates = pd.DataFrame(index=map_isolate_names, data=None)
+        info_isolates.index.name = 'original_name'
+        with open('%s/intermediate_isolates.fasta' % workdir, 'w') as f:
+            for i, seq in enumerate(read(args['fp_fasta_isolates'], format='fasta')):
+                if len(str(seq)) < min_isolate_length:
+                    continue
+                orig_seq_id = ' '.join([seq.metadata['id'], seq.metadata['description']])
+                info_isolates.loc[orig_seq_id, 'escaped_id'] = 'isolate_seq_%i' % (i+1)
+                info_isolates.loc[orig_seq_id, 'escaped_id_reverse_complement'] = INFIX_REVCOM + info_isolates.loc[orig_seq_id, 'escaped_id']
+                info_isolates.loc[orig_seq_id, 'sequence'] = str(seq)
+                info_isolates.loc[orig_seq_id, 'sequence_reverse_complement'] = str(DNA(seq).reverse_complement())
+                f.write('>%s\n%s\n' % (info_isolates.loc[orig_seq_id, 'escaped_id'], str(seq)))
+        if len(too_short) > 0:
+            msg = _create_length_warning(too_short, args['fp_fasta_isolates'], len(map_isolate_names))
+            print(msg)
+            with open('%s/length_warning.txt' % workdir, 'w') as f:
+                f.write(msg)
+
+        if fp_taxonomy_trained_classifier_isolates is not None:
+            seqs = []
+            for seq in read(args['fp_fasta_isolates'], format='fasta'):
+                if len(str(seq)) < min_isolate_length:
+                    continue
+                seqs.append(str(seq))
+                seqs.append(str(DNA(str(seq).upper()).reverse_complement()))
+
+            res_tax_isolates = taxonomy_RDP(pd.Series(seqs, index=seqs), args['fp_taxonomy_trained_classifier_isolates'], dry=executor_args.get('dry', True), wait=True, use_grid=executor_args.get('use_grid', True), dirty=executor_args.get('dirty', False))
+            for seq, lineage in res_tax_isolates['results']['Taxon'].items():
+                taxa_idx = info_isolates[info_isolates['sequence'] == seq].index
+                if len(taxa_idx) > 0:
+                    info_isolates.loc[taxa_idx, 'lineage'] = lineage
+                taxa_idx = info_isolates[info_isolates['sequence_reverse_complement'] == seq].index
+                if len(taxa_idx) > 0:
+                    info_isolates.loc[taxa_idx, 'lineage_reverse_complement'] = lineage
+            for idx, row in info_isolates.iterrows():
+                info_isolates.loc[idx, 'probably_reverse_complement'] = row['lineage'].split(';') < row['lineage_reverse_complement'].split(';')
+        else:
+            print("You might want to provide a pre-trained sklearn taxonomy classifier file path via 'fp_taxonomy_trained_classifier_isolates', such that isolate sequences can be assigned a lineage. It also helps to identify reverse complement isolate sequences!", file=sys.stderr)
+        # dump all information about isolate sequences in one file
+        info_isolates.to_csv('%s/info_isolates.csv' % workdir, sep="\t")
+
+        map_asv_names = dict()
+        with open('%s/asvs.fasta' % workdir, "w") as f:
+            for i, asv in enumerate(sorted(args['asvs'].values)):
+                f.write('>asv_%i\n%s\n' % (i+1, asv))
+                map_asv_names['asv_%i' % (i+1)] = asv
+        map_asv_names = pd.Series(map_asv_names)
+        map_asv_names.to_frame().rename(columns={0: 'asv_sequences'}).to_csv('%s/map_asv_names.csv' % workdir, index_label='escaped_asv', sep="\t")
+
+        with open('%s/awk_prog.txt' % workdir, 'w') as f:
+            f.write('BEGIN{RS=">Cluster ";FS="\\n"}NR>1{if (($0!~/reverse_complement.+\*/) && (NF > 3))print ">Cluster "$0}\n')
+
+        with open('%s/script_align.sh' % workdir, 'w') as f:
+            f.write(
+"""
+#!/bin/bash
+
+IFS=$'\\x0a'
+for cluster in `cat %s/dubious_clusters.seqids`
+do
+	clusterID=`echo "$cluster" | cut -d " " -f 1`
+	seqIDs=`echo "$cluster" | cut -d " " -f 2-`
+
+	echo "Processing $clusterID";
+
+	fp_seqs="%s/${clusterID}.mfa"
+	echo "" > $fp_seqs
+	for seqid in `echo "$seqIDs" | tr " " "\\n"`
+	do
+		grep "^>$seqid$" -A 1 %s/both_isolates.fasta >> $fp_seqs
+	done
+
+	fp_alignment="%s/${clusterID}.msa"
+	mafft $fp_seqs > $fp_alignment
+done
+""" % (workdir, workdir, workdir, workdir) + "\n")
+
+        with open('%s/select_isolate_sequences.py' % workdir, 'w') as f:
+            f.write('import sys\n')
+            import inspect
+            f.write(inspect.getsource(__external_select_isolate_sequences).replace('\n    ', '\n').replace('    def ', 'def '))
+            f.write('__external_select_isolate_sequences(sys.argv[1])\n')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        # create reverse complement sequences of isolates and merge with isolates
+        commands.append((
+            'seqtk '
+            'seq '
+            '-r '
+            '%s/intermediate_isolates.fasta '
+            '> %s/revcomp_isolates.fasta') % (workdir, workdir))
+
+        # fix names of revcomp isolate sequences
+        commands.append((
+            'sed '
+            '-e \"s/^>isolate_seq_/>reverse_complement__isolate_seq_/\" '
+            '%s/revcomp_isolates.fasta '
+            '> %s/revcomp_isolates_renamed.fasta') % (workdir, workdir))
+
+        # merge isolates and revcomp-isolates into one file
+        commands.append('cat %s/intermediate_isolates.fasta %s/revcomp_isolates_renamed.fasta > %s/both_isolates.fasta' % (workdir, workdir, workdir))
+
+        # cluster sequences via cd-hit
+        commands.append(
+            ('cd-hit '
+             '-i %s/both_isolates.fasta ' # input filename in fasta format, required, can be in .gz format
+             '-o %s/isolate_clusters ' # output filename, required
+             '-c 0.99 ' # sequence identity threshold, default 0.9 this is the default cd-hit's "global sequence identity" calculated as: number of identical amino acids or bases in alignment divided by the full length of the shorter sequence
+             '-T %i ' # number of threads
+             '-d 999 ' # length of description in .clstr file, default 20
+             '-p 1 ' # print alignment overlap in .clstr file
+             '-g 1 ' # by cd-hit's default algorithm, a sequence is clustered to the first cluster that meet the threshold (fast cluster). If set to 1, the program will cluster it into the most similar cluster that meet the threshold
+             '-aS 0.95 ' # alignment coverage for the shorter sequence, default 0.0 if set to 0.9, the alignment must covers 90% of the sequence
+             '-A 50 ' # minimal alignment coverage control for the both sequences
+             '-uL 0.05 ' # maximum unmatched percentage for the longer sequence, default 1.0 if set to 0.1, the unmatched region (excluding leading and tailing gaps) must not be more than 10% of the sequence
+             '-uS 0.05 ' # maximum unmatched percentage for the shorter sequence, default 1.0 if set to 0.1, the unmatched region (excluding leading and tailing gaps) must not be more than 10% of the sequence
+             '-sc 1 ' # sort clusters by size (number of sequences), default 0, output clusters by decreasing length if set to 1, output clusters by decreasing size
+             ) % (workdir, workdir, ppn))
+
+        # filter cd-hit clusters such that they are not represented by reverse complement sequences AND have more than one member
+        commands.append(
+            ('awk -f %s/awk_prog.txt '
+             '%s/isolate_clusters.clstr '
+             '> %s/dubious_clusters.clstr') % (workdir, workdir, workdir))
+
+        # collect cluster member names
+        commands.append('sed -e "s#Cluster \\(.*\\)#Cluster\\1#" %s/dubious_clusters.clstr | sed -e "s#.*>\\(.*\\)\\.\\.\\..*#\\1#g" | tr "\\n" " " | tr ">" "\\n" > %s/dubious_clusters.seqids' % (workdir, workdir))
+
+        # use grep to extract all sequences for each cluster and mafft to create multiple sequence alignments
+        commands.append('bash %s/script_align.sh' % workdir)
+
+        ## extract only forward cluster representatives
+        #commands.append('grep "^>isolate_seq_" -A 1 %s/both_isolates.fasta > %s/fwd_cluster_repseq.fasta' % (workdir, workdir))
+        commands.append('python3 %s/select_isolate_sequences.py %s' % (workdir, workdir))
+
+        # construct blast database
+        commands.append(
+            ('makeblastdb '
+             '-in %s/selected_isolate_sequences.fasta '
+             '-dbtype nucl '
+             '-input_type fasta '
+             '-title isolates '
+             '-out %s/selected_isolate_sequences_blastDB') % (workdir, workdir))
+
+        # the actual isolate asv search
+        commands.append(
+            ('blastn '
+             '-query %s/asvs.fasta '
+             '-task blastn '
+             '-db %s/selected_isolate_sequences_blastDB '
+             '-out %s/asv_search.tsv '
+             '-outfmt \"6 std qlen slen nident qcovs\" '
+             '-max_target_seqs 5 '
+             '-num_threads %i') % (workdir, workdir, workdir, ppn))
+
+        # # the actual isolate asv search
+        # commands.append(
+        #     ('blastn '
+        #      '-query %s/asvs.fasta '
+        #      '-task blastn -db %s/isolates_blastDB -out %s/asv_search.tsv -outfmt 6 -max_target_seqs 5 -num_threads %i') % (workdir, workdir, workdir, ppn))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        def _get_dubious_cluster(workdir, info_isolates):
+            def __get_original_seq_name(escaped_id, info_isolates):
+                seqlabel = ''.join(map(str.strip, info_isolates[info_isolates['escaped_id'] == escaped_id.replace(INFIX_REVCOM, '')].index))
+                if INFIX_REVCOM in escaped_id:
+                    return 'reverse complement of "%s"' % seqlabel
+                else:
+                    return seqlabel
+
+            max_label_len = max(map(len, info_isolates.index)) + len('reverse complement of ')
+
+            res = ""
+            dubious_cluster_files = sorted(glob('%s/Cluster*.msa' % workdir), key=lambda x: int(os.path.basename(x).replace('Cluster', '').replace('.msa', '')))
+            num_members = 0
+            for fp_cluster_msa in dubious_cluster_files:
+                newmsa = "# ==== " + os.path.basename(fp_cluster_msa) + " "
+                newmsa += '=' * (max_label_len - len(newmsa) + 3) + "\n"
+
+                if 'lineage' in info_isolates.columns:
+                    seqlabel_lineages = []
+                    for seq in read(fp_cluster_msa, format='fasta'):
+                        idx_isolate = info_isolates[info_isolates['escaped_id'] == seq.metadata['id'].replace(INFIX_REVCOM, '')].index
+                        assert len(idx_isolate) == 1
+                        idx_isolate = idx_isolate[0]
+
+                        orig_name = __get_original_seq_name(seq.metadata['id'], info_isolates)
+                        if info_isolates.loc[idx_isolate, 'probably_reverse_complement']:
+                            seqlabel_lineages.append((orig_name, info_isolates.loc[idx_isolate, 'lineage_reverse_complement'] + '  -- lineage inferred from reverse complement!'))
+                        else:
+                            seqlabel_lineages.append((orig_name, info_isolates.loc[idx_isolate, 'lineage']))
+
+                    max_len_labels = max(map(lambda x: len(x[0]), seqlabel_lineages))
+                    for seqlabel, lineage in seqlabel_lineages:
+                        newmsa += '## %s%s : %s\n' % (seqlabel, ' ' * (max_len_labels - len(seqlabel)), lineage)
+
+                for seq in read(fp_cluster_msa, format='fasta'):
+                    num_members += 1
+                    seqlabel = __get_original_seq_name(seq.metadata['id'], info_isolates)
+                    newmsa += '>%s%s%s\n' % (seqlabel, ' ' * (max_label_len-len(seqlabel)+1), str(seq))
+                newmsa += '\n'
+
+                res += newmsa
+
+            if len(dubious_cluster_files) > 0:
+                print(("WARNING: Your isolate sequence collection (%s) contains %i "
+                       "sequences (we used forward and reverse complement versions) that are dubiously similar to each other. "
+                       "We clustered those into %i clusters. Please carefully "
+                       "inspect clustering results and consider pruning your "
+                       "collection!\nE.g. print(res['results']['dubious_cluster'])") % (os.path.basename(fp_fasta_isolates), num_members, len(dubious_cluster_files)))
+
+            return res
+
+        results['info_isolates'] = pd.read_csv('%s/info_isolates.csv' % workdir, sep="\t", index_col=0)
+        results['info_asvs'] = pd.read_csv('%s/map_asv_names.csv' % workdir, sep="\t", index_col=0)
+
+        results['dubious_cluster'] = _get_dubious_cluster(workdir, results['info_isolates'])
+
+        results['blast_hits'] = pd.read_csv('%s/asv_search.tsv' % workdir, sep="\t",
+                            names=['qaccver', 'saccver', 'pident', 'length', 'mismatch', 'gapopen', 'qstart', 'qend',
+                                   'sstart', 'send', 'evalue', 'bitscore', 'qlen', 'slen', 'nident', 'qcovs'])
+
+        fp_length_warning = '%s/length_warning.txt' % workdir
+        if os.path.exists(fp_length_warning):
+            with open(fp_length_warning, 'r') as f:
+                results['too_short_isolate_sequences'] = ''.join(f.readlines())
+
+        return results
+
+    def post_cache(cache_results):
+        if 'too_short_isolate_sequences' in cache_results['results'].keys():
+            print(cache_results['results']['too_short_isolate_sequences'])
+
+        hits = cache_results['results']['blast_hits']
+        filtered_hits = hits[(hits['evalue'] < 10**-10) &           # ignore too bad hits
+                             (hits['length'] > hits['qlen'] - 10) & # at most 10 nucleotids of ASV shall be missing in match
+                             (hits['mismatch'] <= 5) &              # no more than 2 mismatches
+                             (hits['pident'] >= 97)]                # assuming 97% sequence identity is species radius
+
+        cols_hitquality = ['evalue', 'bitscore', 'qlen', 'pident', 'nident', 'qcovs', 'mismatch', 'gapopen', 'qaccver']
+        sort_hitquality = [True, False, False, False, False, False, True, True, True]
+        cache_results['results']['blast_hits_filtered'] = filtered_hits.sort_values(by=cols_hitquality, ascending=sort_hitquality).groupby('qaccver').head(1)
+
+        def _get_taxonomy(row):
+            lineage = row['lineage']
+            if row['probably_reverse_complement']:
+                lineage = row['lineage_reverse_complement']
+            lineage += "; i__%s" % row.name.strip()
+            return lineage
+
+        if fp_taxonomy_trained_classifier_isolates is not None:
+            cache_results['results']['info_isolates']['taxonomy'] = cache_results['results']['info_isolates'].apply(_get_taxonomy, axis=1).values
+        else:
+            cache_results['results']['info_isolates']['taxonomy'] = cache_results['results']['info_isolates'].reset_index()['original_name'].apply(lambda x: 'd__; p__; c__; o__; f__; g__; s__; i__%s' % x).values
+
+        cache_results['results']['taxonomy'] = cache_results['results']['info_asvs'].merge(
+            cache_results['results']['blast_hits_filtered'][['qaccver', 'saccver']].merge(
+                cache_results['results']['info_isolates'][['escaped_id', 'taxonomy']],
+                left_on='saccver',
+                right_on='escaped_id',
+                how='left')[['qaccver', 'taxonomy']],
+            left_index=True,
+            right_on='qaccver',
+            how='left').fillna('').reset_index().set_index('asv_sequences')[['qaccver', 'taxonomy']].rename(columns={'taxonomy': 'Taxon_isolate'})
+
+        if taxonomy_asvs is not None:
+            cache_results['results']['taxonomy']['Taxon'] = cache_results['results']['taxonomy'].merge(taxonomy_asvs.rename('Taxon_asv'), left_index=True, right_index=True).apply(lambda row: row['Taxon_isolate'] if row['Taxon_isolate'] != "" else row['Taxon_asv'] + '; i__', axis=1)
+            del cache_results['results']['taxonomy']['Taxon_isolate']
+        else:
+            cache_results['results']['taxonomy'].rename(columns={'Taxon_isolate': 'Taxon'})
+        # else:
+        #     help = cache_results['results']['info_isolates'].reset_index()
+        #     help['original_name'] = help['original_name'].apply(lambda x: 'd__; p__; c__; o__; f__; g__; s__; i__%s' % x)
+        #     cache_results['results']['taxonomy'] = cache_results['results']['info_asvs'].merge(
+        #         cache_results['results']['blast_hits_filtered'][['qaccver', 'saccver']].merge(
+        #             help[['original_name','escaped_id']],
+        #             left_on='saccver',
+        #             right_on='escaped_id')[['qaccver', 'original_name']],
+        #         left_index=True,
+        #         right_on='qaccver',
+        #         how='left').fillna('').reset_index().set_index('asv_sequences').rename(columns={'original_name': 'Taxon'})
+        #     del cache_results['results']['taxonomy']['index']
+
+        return cache_results
+
+    return _executor('blastASVs',
+                     {'fp_fasta_isolates': os.path.abspath(fp_fasta_isolates),
+                      'asvs': counts.index,
+                      'fp_taxonomy_trained_classifier_isolates': None if fp_taxonomy_trained_classifier_isolates is None else os.path.abspath(fp_taxonomy_trained_classifier_isolates),
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=environment,
+                     ppn=ppn,
+                     pmem=pmem,
                      **executor_args)
 
 

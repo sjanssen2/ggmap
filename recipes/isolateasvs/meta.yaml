@@ -10,6 +10,8 @@ requirements:
     - blast
     - cd-hit
     - mafft
+    - seqtk
+    - pandas
 
 test:
   commands:
