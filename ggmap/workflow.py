@@ -71,7 +71,7 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
     return prj_data
 
-def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr):
+def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr, demux_dirname='demultiplex'):
     # peek into demux sheet
     with open(fp_demuxsheet, 'r') as f:
         firstlines = f.readlines()[:2]
@@ -96,7 +96,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
         if not os.path.exists(os.path.join(fp_illuminadata, 'RunInfo.xml')) or not os.path.exists(os.path.join(fp_illuminadata, 'Data', 'Intensities', 'BaseCalls')):
             raise ValueError("Your path '%s' does not look like a typical Illumina raw data directory. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_illuminadata)
 
-    prj_data['paths']['demux'] = os.path.join(prj_data['paths']['tmp_workdir'], 'demultiplex')
+    prj_data['paths']['demux'] = os.path.join(prj_data['paths']['tmp_workdir'], demux_dirname)
     os.makedirs(prj_data['paths']['demux'], exist_ok=True)
     prj_data['paths']['illumina_rawdata'] = os.path.abspath(fp_illuminadata)
     prj_data['paths']['illumina_demuxsheet'] = os.path.abspath(fp_demuxsheet)
