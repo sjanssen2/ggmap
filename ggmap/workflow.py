@@ -76,12 +76,12 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
     with open(fp_demuxsheet, 'r') as f:
         firstlines = f.readlines()[:2]
         if not force:
-            if '[Header]' not in firstlines[0] or 'IEMFileVersion' not in firstlines[1]:
+            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1])):
                 raise ValueError("Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_demuxsheet)
 
     # peek into Illumina data directory
     fp_tmp_dir = None
-    if os.path.isfile(fp_illuminadata) and fp_illuminadata.endswith('.tgz'):
+    if os.path.isfile(fp_illuminadata) and (fp_illuminadata.endswith('.tgz') or fp_illuminadata.endswith('.tar.gz')):
         fp_tmp_dir = os.path.join(prj_data['paths']['tmp_workdir'], os.path.basename(fp_demuxsheet)[:-4])
         verbose.write("Found a compressed tar archive. Extracting into temporary directory '%s'" % fp_tmp_dir)
         os.makedirs(fp_tmp_dir, exist_ok=True)
@@ -304,7 +304,7 @@ def process_study(metadata: pd.DataFrame,
         raise ValueError("Your Deblur biom table has at least one sample duplicate!")
 
     # sync metadata with feature table as an easy mechanism to subset the
-    # processed samples 
+    # processed samples
     counts, metadata = sync_counts_metadata(counts, metadata, verbose)
 
     if deblur_remove_features_lessthanXreads > 0:
