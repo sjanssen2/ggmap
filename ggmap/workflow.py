@@ -110,7 +110,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
     print('Since bcl2fastq opens a LOT of file handles, I recommand you copy and paste the below command and ssh into machine `hp-dl560.internal.computational.bio.uni-giessen.de` where you execute the command:\n')
     cluster_run(["bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
         prj_data['paths']['illumina_rawdata'],
-        prj_data['paths']['demux'],
+        os.path.abspath(prj_data['paths']['demux']),
         prj_data['paths']['illumina_demuxsheet'],
         ppn, ppn, ppn)], "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment=settings.SPIKE_ENV, ppn=ppn,
         use_grid=False, dry=True)
