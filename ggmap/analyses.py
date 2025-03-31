@@ -5564,7 +5564,7 @@ done
         hits = cache_results['results']['blast_hits']
         filtered_hits = hits[(hits['evalue'] < 10**-10) &           # ignore too bad hits
                              (hits['length'] > hits['qlen'] - 10) & # at most 10 nucleotids of ASV shall be missing in match
-                             (hits['mismatch'] <= 5) &              # no more than 2 mismatches
+                             (hits['mismatch'] <= 5) &              # no more than 5 mismatches
                              (hits['pident'] >= 97)]                # assuming 97% sequence identity is species radius
 
         cols_hitquality = ['evalue', 'bitscore', 'qlen', 'pident', 'nident', 'qcovs', 'mismatch', 'gapopen', 'qaccver']
