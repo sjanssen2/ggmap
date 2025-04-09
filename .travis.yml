@@ -1,5 +1,5 @@
 # Check on http://lint.travis-ci.org/ after modifying it!
-sudo: false
+sudo: required
 language: c
 os:
   - linux
@@ -22,6 +22,11 @@ before_install:
   - conda update -q conda
   # Useful for debugging any issues with conda
   - conda info -a
+  # install a grid system in Travis
+  - travis/install_sge.sh
+  - export SGE_ROOT=/var/lib/gridengine
+  - export SGE_CELL=default
+  - export DRMAA_LIBRARY_PATH=/usr/lib/libdrmaa.so.1.0
 install:
   #- conda create -n qiime_env python=2.7 qiime matplotlib=1.4.3 mock nose -c bioconda
   - conda create -n test_env python=$PYVERSION
