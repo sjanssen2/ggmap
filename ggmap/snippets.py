@@ -1,3 +1,4 @@
+import decimal
 from typing import Dict
 import pandas as pd
 import biom
@@ -476,7 +477,7 @@ def _collapse_counts(counts_taxonomy, rank, out=sys.stdout):
             out.write('%i taxa left after collapsing to %s.\n' %
                       (counts_taxonomy.shape[0], label))
     else:
-        sample_cols = set(counts_taxonomy.columns) - set(['taxonomy'])
+        sample_cols = list(set(counts_taxonomy.columns) - set(['taxonomy']))
         counts_taxonomy = counts_taxonomy.loc[:, sample_cols]
 
     return counts_taxonomy
@@ -604,7 +605,9 @@ def plotTaxonomy(file_otutable,
                  min_abundance_grayscale=0,
                  legend_use_last_X_labels=None,
                  ax=None,
-                 horizontal_spacer=None):
+                 horizontal_spacer:float=[None, None, None],
+                 legend_remove_rank_prefix=False,
+                 dont_normalize=False, normalize_to=None):
     """Plot taxonomy.
 
     Parameters
@@ -623,6 +626,7 @@ def plotTaxonomy(file_otutable,
     reorder_taxa : Bool
         Default = True.
         Orders taxa by mean abundance across all samples.
+        Otherwise, samples are ordered according to metadata (not counts)!
     print_sample_labels : Bool
         True = print sample names on x-axis. Use only for small numbers of
         samples!
@@ -669,6 +673,20 @@ def plotTaxonomy(file_otutable,
     ax : plt.axis
         Plot on this axis instead of creating a new figure. Only works if
         number of group levels is <= 2.
+    horizontal_spacer : float
+        Default 1.0
+        Draw spacer between sample groups, in relation to sample bar width.
+    legend_remove_rank_prefix : Bool
+        Default: False
+        Do not print 'g__' like prefixes in legend. Also rename 'g__' into
+        'unclassified xxx' where xxx is the rank.
+    dont_normalize : Bool
+        Default: False
+        Only in very specific circumstances, counts might not be interpreted as
+        relative abundances, e.g. after cytometry sorting.
+    normalize_to : Float
+        Default: None
+        Use this value as 100%.
 
     Returns
     -------
@@ -723,7 +741,9 @@ def plotTaxonomy(file_otutable,
                                     minreadnr)].index
 
     # normalize to 1 in each sample
-    rank_counts /= rank_counts.sum(axis=0)
+    if dont_normalize is False:
+        rank_counts /= rank_counts.sum(axis=0)
+
 
     # filter low abundant taxa
     if (grayscale is False) & (len(lowAbundandTaxa) > 0):
@@ -772,6 +792,7 @@ def plotTaxonomy(file_otutable,
         num_samples = meta.groupby(levels).size().reset_index()
 
     # aggregate over samples
+    eff_group_l0, eff_group_l1, eff_group_l2 = group_l0, group_l1, group_l2
     if fct_aggregate is not None:
         if len(levels) < 1:
             raise ValueError("Cannot aggregate samples, "
@@ -779,7 +800,7 @@ def plotTaxonomy(file_otutable,
         # return rank_counts, meta, levels, None
         grs = dict()
         newmeta = dict()
-        for n, g in meta.groupby(list(reversed(levels))):
+        for n, g in meta.groupby(list(reversed(levels)), sort=False):
             for sampleid in g.index:
                 if isinstance(n, tuple):
                     grs[sampleid] = "###".join(list(map(str, n)))
@@ -796,45 +817,51 @@ def plotTaxonomy(file_otutable,
                 newmeta[str(n)] = x
         rank_counts = rank_counts.T.groupby(by=grs).agg(fct_aggregate).T
         meta = pd.DataFrame(newmeta).T
-        group_l0, group_l1, group_l2 = None, group_l0, group_l1
+        eff_group_l0, eff_group_l1, eff_group_l2 = None, group_l0, group_l1
 
     # prepare abundances for plot
     vals = rank_counts.cumsum()
 
+    def _drange(x:float, y:float, jump:int=1):
+        # a float version of range()
+        while x < y:
+            yield float(x)
+            x += jump
+
     # collect information about how to plot data
     graphinfo = pd.DataFrame(data=None, index=vals.columns)
-    if group_l0 is None:
+    if eff_group_l0 is None:
         meta['help_plottaxonomy_level_0'] = 'all'
         grps0 = meta.groupby('help_plottaxonomy_level_0')
     else:
-        grps0 = meta.groupby(group_l0)
+        grps0 = meta.groupby(eff_group_l0)
     for i0, (n0, g0) in enumerate(grps0):
         graphinfo.loc[g0.index, 'group_l0'] = n0
 
         grps1 = [('all', g0)]
-        if group_l1 is not None:
-            grps1 = g0.groupby(group_l1, sort=False)
+        if eff_group_l1 is not None:
+            grps1 = g0.groupby(eff_group_l1, sort=False)
         offset = 0
         for i1, (n1, g1) in enumerate(grps1):
             sample_idxs = vals.iloc[0, :].loc[g1.index]
             if reorder_samples:
                 sample_idxs = sample_idxs.sort_values(ascending=False)
             sample_idxs = sample_idxs.index
-            if group_l2 is not None:
+            if eff_group_l2 is not None:
                 help_sample_idxs = []
-                for n2, g2 in g0.loc[g1.index, :].groupby(group_l2, sort=False):
+                for n2, g2 in g0.loc[g1.index, :].groupby(eff_group_l2, sort=False):
                     reorderd = [idx for idx in sample_idxs if idx in g2.index]
                     help_sample_idxs.extend(reorderd)
                     graphinfo.loc[reorderd, 'group_l2'] = n2
                 sample_idxs = help_sample_idxs
             graphinfo.loc[sample_idxs, 'group_l1'] = n1
-            graphinfo.loc[sample_idxs, 'xpos'] = range(offset,
-                                                       offset+len(sample_idxs))
+            graphinfo.loc[sample_idxs, 'xpos'] = list(
+                _drange(offset, offset+len(sample_idxs), 1))
             offset += len(sample_idxs)
             if i1 < len(grps1):
                 spacer = max(1, int(g0.shape[0]*0.05))
-                if horizontal_spacer is not None:
-                    spacer = horizontal_spacer
+                if (horizontal_spacer is not None) and (len(horizontal_spacer) > 0) and (horizontal_spacer[0] is not None):
+                    spacer = horizontal_spacer[0]
                 offset += spacer
 
     # define colors for taxons
@@ -863,7 +890,7 @@ def plotTaxonomy(file_otutable,
         fig, axarr = plt.subplots(len(grps0), 1)
     num_saved_boxes = 0
     for ypos, (n0, g0) in enumerate(graphinfo.groupby('group_l0')):
-        if group_l0 is None:
+        if eff_group_l0 is None:
             ax = axarr
         else:
             ax = axarr[ypos]
@@ -899,6 +926,12 @@ def plotTaxonomy(file_otutable,
                                                      'group_l1'].unique())
                 break
 
+        # draw vertical lines between individual sample bars
+        if (horizontal_spacer is not None) and (len(horizontal_spacer) > 2) and (horizontal_spacer[2] is not None):# and fct_aggregate is not None:
+            for (name_g1, name_g2), g2 in g0.groupby(['group_l1', 'group_l2']):
+                for x in g2['xpos'].iloc[:-1 if fct_aggregate is not None else None]:
+                    ax.axvline(x, color = 'white', linewidth=horizontal_spacer[2]*100)
+
         # decorate graph with axes labels ...
         if print_sample_labels:
             ax.set_xticks(graphinfo.loc[g0.index, :]
@@ -931,16 +964,19 @@ def plotTaxonomy(file_otutable,
 
         # crop graph to actually plotted bars
         ax.set_xlim(0, graphinfo.loc[g0.index, 'xpos'].max()+1)
-        ax.set_ylim(0, rank_counts.sum().max())
+        ax.set_ylim(0, rank_counts.sum().max() if normalize_to is None else normalize_to)
         ax.set_facecolor('white')
 
-        if group_l0 is None:
-            ax.set_ylabel('relative abundance')
+        if eff_group_l0 is None:
+            if dont_normalize is False:
+                ax.set_ylabel('relative abundance')
+            else:
+                ax.set_ylabel('absolute abundance')
         else:
             label = n0
             if no_sample_numbers is False:
                 label = "%s\n(n=%i)" % (label, _get_sample_numbers(
-                    num_samples, [group_l0], [n0]))
+                    num_samples, [eff_group_l0], [n0]))
             ax.set_ylabel(label)
 
         # print labels on top of the groups
@@ -954,7 +990,7 @@ def plotTaxonomy(file_otutable,
                     label = str(n)
                     if no_sample_numbers is False:
                         label += "\n(n=%i)" % _get_sample_numbers(
-                            num_samples, [group_l0, group_l1], [n0, n])
+                            num_samples, [eff_group_l0, eff_group_l1], [n0, n])
                     labels.append(label)
                 ax2.set_xticks(pos)
                 ax2.set_xlim(ax.get_xlim())
@@ -963,7 +999,7 @@ def plotTaxonomy(file_otutable,
                 ax2.xaxis.grid()
 
         # print labels for group level 2
-        if group_l2 is not None:
+        if eff_group_l2 is not None:
             ax3 = ax.twiny()
             ax3.set_xlim(ax.get_xlim())
             pos = []
@@ -977,7 +1013,7 @@ def plotTaxonomy(file_otutable,
                 if no_sample_numbers is False:
                     label += "\n(n=%i)" % _get_sample_numbers(
                         num_samples,
-                        [group_l0, group_l1, group_l2],
+                        [eff_group_l0, eff_group_l1, eff_group_l2],
                         [n0, n[0], n[1]])
                 labels.append(label)
             ax3.set_xticks(np.array(poslabel)+.5, minor=False)
@@ -985,7 +1021,14 @@ def plotTaxonomy(file_otutable,
             ax3.set_xticklabels(labels, rotation='vertical')
             ax3.xaxis.set_ticks_position("bottom")
             ax3.xaxis.grid(False, which='major')
-            ax3.xaxis.grid(True, which='minor', color="black")
+            if (horizontal_spacer is not None) and (len(horizontal_spacer) > 1) and (horizontal_spacer[1] is not None) and fct_aggregate is not None:
+                ax3.xaxis.grid(True, which='minor', color="white", linewidth=horizontal_spacer[1]*100)
+                if group_l2 is not None:
+                    ax3.xaxis.set_ticks_position('none')
+                    if print_sample_labels:
+                        ax2.xaxis.set_ticks_position('none')
+            else:
+                ax3.xaxis.grid(True, which='minor', color="black")
 
         # draw boxes around each group
         if len(graphinfo.loc[g0.index, 'group_l1'].unique()) > 1:
@@ -1013,9 +1056,17 @@ def plotTaxonomy(file_otutable,
                         else:
                             raise ValueError("taxon '%s' not included in taxonomy" % tax)
                     label_text = tax_name
+                    if legend_remove_rank_prefix:
+                        label_text = tax_name[3:]
+                        if label_text == "":
+                            label_text = 'unclassified %s' % rank.lower()
                     if print_meanrelabunances:
-                        label_text = "%.2f %%: %s" % (
-                            rank_counts.loc[tax, :].mean()*100, tax_name)
+                        if dont_normalize is False:
+                            label_text = "%.2f %%: %s" % (
+                                rank_counts.loc[tax, :].mean()*100, tax_name)
+                        else:
+                            label_text = "%.0f mean counts: %s" % (
+                                rank_counts.loc[tax, :].mean(), tax_name)
                     l_patches.append(mpatches.Patch(color=colors[tax],
                                                     label=label_text))
             label_low_abundant = "+%i %s taxa" % (len(lowAbundandTaxa),
@@ -1146,7 +1197,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 file_qid=None, file_condaenvinfo=None, out=sys.stdout,
                 err=sys.stderr, timing=False, file_timing=None, array=1,
                 use_grid=settings.USE_GRID,
-                force_slurm=False):
+                force_slurm=False, no_mail=False):
     """ Submits a job to the cluster.
 
     Paramaters
@@ -1210,6 +1261,9 @@ def cluster_run(cmds, jobname, result, environment=None,
         Default: False.
         If True, cluster_run is enforeced to choose slurm instead of auto
         detection based on machine node name.
+    no_mail : bool
+        Default: False
+        If True, will not send emails about exit status when complete.
 
     Returns
     -------
@@ -1263,8 +1317,9 @@ def cluster_run(cmds, jobname, result, environment=None,
     if timing:
         for cmdtype in VALID_CMDS_KEYS:
             if file_timing is None:
-                fps_timing[cmdtype] = '${PBS_JOBNAME}.t${PBS_JOBID}.%s' % cmdtype
-            fps_timing[cmdtype] = '%s.%s' % (file_timing, cmdtype)
+                fps_timing[cmdtype] = '%s.t${%s}.%s' % (jobname, settings.VARNAME_PBSARRAY, cmdtype)
+            else:
+                fps_timing[cmdtype] = '%s.%s' % (file_timing, cmdtype)
             if cmdtype != 'main':
                 fps_timing[cmdtype] = fps_timing[cmdtype].replace('${%s}' % settings.VARNAME_PBSARRAY, '')
             cmds[cmdtype] = _add_timing_cmds(cmds[cmdtype], fps_timing[cmdtype])
@@ -1372,6 +1427,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 slurm_script = "#!/bin/bash\n\n"
                 slurm_script += '#SBATCH --job-name=cr_%s_%s\n' % (jobname, cmdtype)
                 slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a_%s.log\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)), cmdtype)
+                slurm_script += '#SBATCH --error=%s/slurmlog-%%x-%%A.%%a_%s.err\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)), cmdtype)
                 slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
                 slurm_script += '#SBATCH --ntasks=1\n'
                 slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
@@ -1380,7 +1436,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                     walltime)
                 if cmdtype == 'main':
                     slurm_script += '#SBATCH --array=1-%i\n' % array
-                if cmdtype == 'post':
+                if cmdtype == 'post' and (no_mail is False):
                     slurm_script += '#SBATCH --mail-type=END,FAIL\n'
                     slurm_script += '#SBATCH --mail-user=%s\n\n' % settings.GRID_EMAIL_NOTIFICATION
                 slurm_script += 'srun uname -a\n'
