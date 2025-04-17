@@ -4982,17 +4982,23 @@ def QC(dir_fastqs:str,
         for fp_report in fps_reports:
             direction = os.path.dirname(fp_report).split('/')[-1]
             with open(fp_report, 'r') as f:
+                # save full html report here ...
                 results['multiqc_%s' % direction] = ''.join(f.readlines())
-            with open(fp_report, 'r') as f:
-                for line in f.readlines():
-                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line or 'id="fastqc_per_base_sequence_quality_plot' in line:
-                        png_search = re.search('img src="(.*)" /></div>', line)
-                        g = Image(url=png_search[1])
-                        results['mean-quality-scores_%s' % direction] = g
 
         return results
 
     def post_cache(cache_results):
+        for direction in ['forward', 'reverse']:
+            if 'multiqc_%s' % direction in cache_results['results'].keys():
+                # ... and parse after cache for better debugging should HTML tags change with multiQC version changes.
+                for line in cache_results['results']['multiqc_%s' % direction].split('\n'):
+                    if 'id="mqc_fastqc_per_base_sequence_quality_plot' in line or \
+                       'id="mqc_fastqc_per_base_sequence_quality_plot_1' in line or \
+                       'id="fastqc_per_base_sequence_quality_plot' in line:
+                        png_search = re.search('img src="(.*?)".*/></div>', line)
+                        g = Image(url=png_search[1])
+                        cache_results['results']['mean-quality-scores_%s' % direction] = g
+
         display(cache_results['results']['mean-quality-scores_forward'])
         if 'mean-quality-scores_reverse' in cache_results['results'].keys():
             display(cache_results['results']['mean-quality-scores_reverse'])
