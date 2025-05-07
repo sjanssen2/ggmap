@@ -3164,8 +3164,8 @@ def ganttChart(metadata: pd.DataFrame,
     Returns
     -------
     """
-    if timeresolution not in ['days', 'seconds', 'weeks']:
-        raise ValueError('timeresolution must either be "weeks", "days" or "seconds"!')
+    if timeresolution not in ['days', 'seconds', 'weeks', 'years']:
+        raise ValueError('timeresolution must either be "years", "weeks", "days" or "seconds"!')
 
     COL_DEATH = '_death'
     COL_GROUP = '_group'
@@ -3219,6 +3219,9 @@ def ganttChart(metadata: pd.DataFrame,
         if (timeresolution == 'weeks'):
             date_resolution = 'days'
             factor = 7
+        elif (timeresolution == 'years'):
+            date_resolution = 'days'
+            factor = 365
         meta[col] = meta[col].apply(lambda x: getattr((x - date_baseline), date_resolution) / factor)
     # try to find end date for entities
     if col_death is not None:
