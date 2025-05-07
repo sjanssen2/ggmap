@@ -155,6 +155,8 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
     return prj_data
 
 def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB'):
+    """Expects to find fastq files in prj_data['paths']['trimmed']
+       Writes results into prj_data['paths']['deblur'] and prj_data['paths']['deblur_table']"""
     prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur')
 
     _, fp_tmp = tempfile.mkstemp()
@@ -185,6 +187,9 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
     return prj_data
 
 def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True, debug=False):
+    """Expects to find feature table in prj_data['paths']['deblur_table']
+       Writes results into prj_data['paths']['insertion_tree'] and prj_data['insertion_tree']"""
+
     # execute fragment insertion
     res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid, debug=debug)
     print('SEPP version number: %s' % ', '.join([line.split()[1] for line in res_sepp['conda_list'] if line.startswith('sepp') or line.startswith('q2-fragment-insertion')]))
@@ -445,7 +450,13 @@ def process_study(metadata: pd.DataFrame,
             display(results['rarefaction_curves']['results'])
 
     # run: rarefy counts 1x
-    results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
+    if skip_rarefaction_curves and (rarefaction_depth is None):
+        # if user wants to skip creation of rarefaction counts AND chooses to set rarefaction depth to None
+        # he/she probably wants to operate on non-rarefied counts. We thus pass the current counts here
+        # instead of performing actual rarefaction
+        results['rarefaction'] = {'results': counts}
+    else:
+        results['rarefaction'] = rarefy(counts, rarefaction_depth=rarefaction_depth, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
 
     # run: alpha diversity
     results['alpha_diversity'] = alpha_diversity(counts, rarefaction_depth=rarefaction_depth, reference_tree=fp_insertiontree, dry=dry, metrics=alpha_metrics, wait=False, use_grid=use_grid, fix_zero_len_branches=fix_zero_len_branches, ppn=ppn)
@@ -457,10 +468,13 @@ def process_study(metadata: pd.DataFrame,
         raise ValueError("Be patient and wait/poll for rarefaction results!")
 
     # run: emperor plot
-    if results['beta_diversity']['results'] is not None:
-        results['emperor'] = emperor(metadata, results['beta_diversity']['results'], './' if emperor_fp is None else emperor_fp, infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid, walltime='00:40:00', pmem='8GB', run_tsne_umap=(not emperor_skip_tsne_umap))
+    if emperor_fp is None:
+        print("As you did not provide an 'emperor_fp' we are skipping creation of Emperor plots!", file=sys.stderr)
     else:
-        raise ValueError("Be patient and wait/poll for beta diversity results!")
+        if results['beta_diversity']['results'] is not None:
+            results['emperor'] = emperor(metadata, results['beta_diversity']['results'], emperor_fp, infix=emperor_infix, dry=dry, wait=False, use_grid=use_grid, walltime='00:40:00', pmem='8GB', run_tsne_umap=(not emperor_skip_tsne_umap))
+        else:
+            raise ValueError("Be patient and wait/poll for beta diversity results!")
 
     # run: picrust
     if fp_closedref_biom is not None:
