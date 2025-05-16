@@ -3286,6 +3286,8 @@ def ganttChart(metadata: pd.DataFrame,
             plot_entities = plot_entities.loc[reversed(order_entities),:]#.sort_values(COL_GROUP)
         else:
             raise ValueError("Given order of entities does not match entities in data!")
+    else:
+        plot_entities = plot_entities.sort_values(by=COL_GROUP)
 
     # delete old sample_name based index
     del plot_entities[plot_entities.columns[0]]
