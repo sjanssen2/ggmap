@@ -918,6 +918,7 @@ def plotTaxonomy(file_otutable,
                                 _repMiddleValues(y_prev),
                                 _repMiddleValues(y_curr),
                                 linewidth=0,  # no outline, just area
+                                gid='bar_%s' % taxon,  # for manipulating a SVG version
                                 color=color)
 
             if grayscale & \
@@ -1124,7 +1125,7 @@ def _time_torque2slurm(t_time):
     if (s_days == 0) and (s_hours == 0) and (s_minutes == 0):
         s_minutes = 1
 
-    return "%i-%i:%i" % (s_days, s_hours, s_minutes)
+    return "%i-%02i:%02i:00" % (s_days, s_hours, s_minutes)
 
 
 def _add_timing_cmds(commands, file_timing):
@@ -3082,6 +3083,7 @@ def ganttChart(metadata: pd.DataFrame,
                col_entity_colors: str = None,
                col_phases_start: str = None,
                col_phases_end: str = None,
+               col_sex: str = None,
                height_ratio: float = 0.3,
                event_line_width: int = 1,
                colors_events: dict = None,
@@ -3127,6 +3129,10 @@ def ganttChart(metadata: pd.DataFrame,
         Default: None.
         Column name(s), holding end date for phase,
         e.g. "antibiotics_treatment_end_timestamp"
+    col_sex : str
+        Default: None.
+        A column name that holds values "male" or "female", which shall be
+        made part of the y-axis labels for subjects.
     height_ratio : float
         Default: 0.3
         Height for figure per entity.
@@ -3278,7 +3284,16 @@ def ganttChart(metadata: pd.DataFrame,
         if col is not None and col not in cols:
             cols.append(col)
 
+    # sex
+    if col_sex is not None:
+        if col_sex not in meta.columns:
+            raise ValueError("column '%s' not in metadata!" % col_sex)
+        cols.append(col_sex)
+
     plot_entities = meta.groupby([COL_GROUP, col_entities], sort=False).head(1)[cols]
+    if col_sex in plot_entities.columns:
+        plot_entities[col_sex] = plot_entities[col_sex].apply(
+            lambda x: {'male': '♂ ', 'female': '♀ '}.get(x.lower(), x))
 
     plot_entities = plot_entities.reset_index().set_index(col_entities)
     if order_entities is not None:
@@ -3321,16 +3336,24 @@ def ganttChart(metadata: pd.DataFrame,
             legend_entities_entries.append(
                 mpatches.Patch(color=colors_phases[start], label=start))
 
+    entity_labels = plot_entities.index
+    if col_sex in plot_entities.columns:
+        entity_labels = list(map(
+            lambda x: '%s%s' % (plot_entities.loc[x, col_sex], x), entity_labels))
     plt.barh(
         plot_entities[COL_YPOS],
         width=plot_entities[COL_DEATH] - plot_entities[col_birth],
         height=0.6,
         left=plot_entities[col_birth],
-        tick_label=plot_entities.index,
+        tick_label=entity_labels,
         linewidth=0,
         color=plot_entities[COL_ENTITY_COLOR].apply(
             lambda x: colors_entities.get(x, 'black')),
     )
+    if col_sex in plot_entities.columns:
+        for label, color in zip(plt.gca().get_yticklabels(), plot_entities[col_sex].apply(lambda x: {'♂': 'blue', '♀': 'magenta'}.get(x[0], 'black')).values):
+            label.set_color(color)
+
     plt.xlabel(timeresolution)
     plt.ylabel(col_entities)
     # improve tick frequency, which is not easy!
