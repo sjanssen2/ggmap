@@ -676,7 +676,7 @@ def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
                 if executor_args['ppn'] > 1:
                     flag_parallel = 'parallel=%i' % executor_args['ppn']
             f.write('res <- adonis2(dm ~ %s, data=meta, %s permutations=%i %s)\n' % (args['formula'], flag_strat, args['permutations'], flag_parallel))
-            f.write('write.table(res$aov.tab, "%s/result.tsv", sep="\\t", append=F, quote=FALSE)\n' % workdir)
+            f.write('write.table(res, "%s/result.tsv", sep="\\t", append=F, quote=FALSE)\n' % workdir)
         if 'dry' in executor_args:
             if executor_args['dry']:
                 print('R SCRIPT:\n----------------')
