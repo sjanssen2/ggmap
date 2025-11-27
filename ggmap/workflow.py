@@ -154,7 +154,7 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
 
     return prj_data
 
-def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB'):
+def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB', walltime='4:00:00'):
     """Expects to find fastq files in prj_data['paths']['trimmed']
        Writes results into prj_data['paths']['deblur'] and prj_data['paths']['deblur_table']"""
     prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur')
@@ -182,7 +182,7 @@ def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.f
         ppn,
     ))
     prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
-    cluster_run(cmds, 'deblur', prj_data['paths']['deblur_table'], environment=settings.QIIME2_ENV, dry=False, ppn=ppn, pmem=pmem)
+    cluster_run(cmds, 'deblur', prj_data['paths']['deblur_table'], environment=settings.QIIME2_ENV, dry=False, ppn=ppn, pmem=pmem, walltime=walltime)
 
     return prj_data
 
