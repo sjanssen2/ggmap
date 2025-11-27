@@ -660,7 +660,7 @@ def adonis(metadata: pd.DataFrame, dm: DistanceMatrix,
         if len(idx_samples) < 2:
             raise ValueError('You must provide at least 2 samples!')
 
-        args['metadata'].loc[idx_samples, :].to_csv('%s/metadata.tsv' % workdir, sep="\t",
+        args['metadata'].loc[list(idx_samples), :].to_csv('%s/metadata.tsv' % workdir, sep="\t",
                                 index=True)
         args['dm'].filter(idx_samples, strict=False).write('%s/beta.tsv' % workdir)
 
