@@ -36,6 +36,10 @@ from skbio.sequence import DNA
 from skbio.tree import TreeNode
 from wordcloud import WordCloud
 import requests
+from tqdm import tqdm
+import calour as ca
+ca.set_log_level(40)
+from statannotations.Annotator import Annotator
 
 if 'PROJ_LIB' not in os.environ:
     os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
@@ -3090,6 +3094,7 @@ def ganttChart(metadata: pd.DataFrame,
                colors_entities: dict = None,
                colors_phases: dict = None,
                align_to_event_title: str = None,
+               align_to_metadata_column: str = None,
                counts: pd.DataFrame = None,
                order_entities: list = None,
                timeresolution: str = 'days',
@@ -3155,6 +3160,11 @@ def ganttChart(metadata: pd.DataFrame,
         Default: None
         Align all dates according to a baseline event, instead of using real
         chronologic distances.
+    align_to_metadata_columns : str
+        Default : None.
+        Can't use both `align_to_event_title` and `align_to_metadata_columns`.
+        You can chose to align entities by a date provided in a extra metadata
+        column, which does NOT describe sample collection events.
     counts : pd.DataFrame
         Default: None
         Samples might be missue due to rarefaction or other QC procedures.
@@ -3172,6 +3182,9 @@ def ganttChart(metadata: pd.DataFrame,
     """
     if timeresolution not in ['days', 'seconds', 'weeks', 'years']:
         raise ValueError('timeresolution must either be "years", "weeks", "days" or "seconds"!')
+
+    if (align_to_event_title is not None) and (align_to_metadata_column is not None):
+        raise ValueError("You cannot align entities to a) a certain sample collection event via 'align_to_event_title' AND at the same time b) to a date provided through an additional metadata colum via 'align_to_metadata_column'!")
 
     COL_DEATH = '_death'
     COL_GROUP = '_group'
@@ -3200,15 +3213,23 @@ def ganttChart(metadata: pd.DataFrame,
 
     for col in [COL_DEATH, COL_GROUP]:
         assert(col not in metadata.columns)
+
+    for col in [col_birth, col_events, col_death, align_to_metadata_column] + col_phases_start + col_phases_end:
+        if col is not None:
+            if col not in metadata.columns:
+                raise ValueError("Column '%s' is not in your metadata table!" % col)
+
     cols_dates = list(set([
         col
         for col
         in [col_birth, col_events, col_death] +
+           ([] if align_to_metadata_column is None else [align_to_metadata_column]) +
            [col
             for col
             in (col_phases_start + col_phases_end)
             if col is not None]
         if col in metadata.columns]))
+    #return cols_dates, align_to_metadata_column
 
     meta = metadata.copy()
     if col_entities is not None:
@@ -3219,6 +3240,7 @@ def ganttChart(metadata: pd.DataFrame,
     # convert dates into internal coordinate system
     date_baseline = meta[cols_dates].stack().min()
     #return date_baseline, cols_dates, meta
+
     for col in cols_dates:
         date_resolution = timeresolution
         factor = 1
@@ -3248,6 +3270,15 @@ def ganttChart(metadata: pd.DataFrame,
                 (meta[col_events_title] == align_to_event_title)][col_events]\
                     .iloc[0]
             idxs_entity = meta[meta[col_entities] == entity].index
+            for col in cols_dates + [COL_DEATH]:
+                meta.loc[idxs_entity, col] -= offset
+    elif align_to_metadata_column is not None:
+        entities_without_aligntitle = [k for k, dates in (meta.groupby(col_entities)[align_to_metadata_column].unique().dropna()).items() if len([date for date in dates if pd.notnull(date)]) != 1]
+        if len(entities_without_aligntitle) > 0:
+            raise ValueError("Cannot align all %ss, because the following %i do not have any date or have contradicting dates for %s: \n\t%s" % (col_entities, len(entities_without_aligntitle), align_to_event_title, "\n\t".join(entities_without_aligntitle)))
+        for entity in meta[col_entities].unique():
+            idxs_entity = meta[meta[col_entities] == entity].index
+            offset = meta.loc[idxs_entity[0], align_to_metadata_column]
             for col in cols_dates + [COL_DEATH]:
                 meta.loc[idxs_entity, col] -= offset
 
@@ -3371,6 +3402,10 @@ def ganttChart(metadata: pd.DataFrame,
                     len(colors_events) % len(AVAILCOLORS)]
             legend_entries.append(
                 mpatches.Patch(color=colors_events[title], label=title))
+    if align_to_metadata_column is not None:
+        legend_entries.append(
+                Line2D([0], [0], color="black", linewidth=2, label=align_to_metadata_column, linestyle=(0, (1, 1)))
+                )
 
     def _get_event_color(colors_events, data, col_events_title):
         if col_events_title is None:
@@ -3379,6 +3414,13 @@ def ganttChart(metadata: pd.DataFrame,
 
     for entity in plot_entities.index:
         pos_y = plot_entities.loc[entity, COL_YPOS]
+        # if provided, draw a vertical line to indicate alignment event, which is NOT a sampling event
+        if align_to_metadata_column is not None:
+            plt.vlines(x=meta[meta[col_entities] == entity][align_to_metadata_column].iloc[0],
+                       color='black',
+                       linestyle=(0, (1, 1)),
+                       lw=event_line_width,
+                       ymin=pos_y-1/2, ymax=pos_y+1/2)
         for idx, row in meta[meta[col_entities] == entity].iterrows():
             linestyle = 'solid'
             if (counts is not None) and (idx not in counts.columns):
@@ -3400,6 +3442,7 @@ def ganttChart(metadata: pd.DataFrame,
         ax2.set_yticklabels(group_labels.index)
         ax2.set_ylabel(col_entity_groups)
         ax2.set_ylim(axes.get_ylim())
+        ax2.grid()
         legends_left_pos += 0.05
 
     if len(legend_entries) > 0:
@@ -3830,7 +3873,7 @@ def predict_timecourse(counts: pd.DataFrame, meta: pd.DataFrame, col_time: str, 
 
 def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iterations: int=10, train_test_ratio: float=0.5, title=None):
     results = []
-    for i in range(iterations):
+    for i in tqdm(range(iterations), 'perform RF prediction'):
         if i == 0:
             random_state=42
         else:
@@ -3855,8 +3898,8 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
 
     plot_confusion_matrix(results.loc[chosen_iteration, 'test'],
                           results.loc[chosen_iteration, 'prediction'],
-                          title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().iteritems()]),
-                                                                                ', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'test'].value_counts().sort_index().iteritems()]),
+                          title='training: %s\ntesting: %s\nmedian accurracy: %.3f' % (', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'train'].value_counts().sort_index().items()]),
+                                                                                ', '.join(['n=%i %s' % (n, phenotype) for phenotype, n in results.loc[chosen_iteration, 'test'].value_counts().sort_index().items()]),
                                                                                 results.loc[chosen_iteration, 'accurracy']),
                           xtickrotation=0, ax=ax, verbose=None)
 
@@ -3871,7 +3914,7 @@ def randomForest_phenotype(counts: pd.DataFrame, phenotype: pd.Series, iteration
 
     reported_prediction = results.loc[chosen_iteration, 'prediction']
     reported_prediction.name = 'prediction'
-    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy'], {'training': y_train, 'testing': y_test, 'prediction': reported_prediction}
+    return fig, results.loc[chosen_iteration, 'clf'], results['accurracy'], {'training': results.loc[chosen_iteration, 'train'], 'testing': results.loc[chosen_iteration, 'test'], 'prediction': results.loc[chosen_iteration, 'prediction']}
 
 
 def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, verbose=sys.stderr):
@@ -4276,3 +4319,305 @@ def dbbact_wordcloud(counts: pd.DataFrame, min_sample_ratio: float=1/3, title=No
         ax.imshow(cloud, aspect='auto')
 
     return {'figure': fig, 'f-scores': fscores, 'sel_asvs': sel_features}
+
+def _listify(vals):
+    """Make the input a list IF not already a list."""
+    if isinstance(vals, list):
+        return vals
+    else:
+        return [vals]
+
+def calour_diffabundance_tests(counts:pd.DataFrame, metadata:pd.DataFrame, col_field:str, 
+        cols_stratify:[str]=[], rank='raw', taxonomy:pd.Series=None,
+        method:str='meandiff', random_seed:int=None, significance_niveau:float=0.05):
+    """Use Calour for differential abundance testing.
+    
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Raw feature table with integer values as counts
+    metadata : pd.DataFrame
+        Metadata of experiment with sample names as index, which should match
+        with column names in counts.
+    col_field : str
+        The metadata column that splits samples into groups, which are tested
+        for differential abundance.
+    cols_statify : [str]
+        Optional.
+        Samples might first be "stratified" according to values in the given
+        metadata colum names. Differential abundance tests will then be
+        executed for each "stratum" according to col_field independently.
+    rank : str
+        Collapse your count table along a taxonomic rank.
+    taxonomy : pd.Series
+        Taxonomy to collapse count table. Index must hold feature names as
+        given in the counts table.
+    method : str
+        Calours method used for differential abundance tests
+    random_seed : int
+        If given, Calour will use this initial integer value as first
+        random seed and add +1 for each stratum.
+    significance_niveau : float
+        Significance niveau for Calor q-values.
+
+    Returns
+    -------
+    A tuple containing the following elements:
+    1. A pd.DataFrame containing results of differential abundance tests per
+       feature, stratum and comparison
+    2. The ...
+    """
+    
+    # limit analysis to samples present in metadata AND read counts
+    (counts, metadata) = sync_counts_metadata(counts.copy(), metadata.copy())
+    # ensure user selected metadata-columns are actually present in provided metadata dataframe
+    check_column_presents(metadata, [col_field] + cols_stratify)
+
+    # collapse counts according to a taxonomy
+    if (rank != 'raw'):
+        if taxonomy is None:
+            raise ValueError("You can only collapse counts at a specific rank IF you provide a taxonomy")
+        counts = collapseCounts_objects(counts, rank, taxonomy)[0]
+    else:
+        rank = 'feature'
+        counts.index.name = rank
+
+    # load counts and metadata in Calour
+    e = ca.amplicon_experiment.AmpliconExperiment(counts.T, metadata, feature_metadata=pd.Series(counts.index).to_frame())
+    # normalize as Amnon suggested
+    e.normalize(10000, inplace=True)
+
+    # generate pairwise comparisons as col_field might contain more than two different "states", like red, green, blue
+    pairwise_states = list(combinations(metadata[col_field].unique(), 2))
+    if len(pairwise_states) < 1:
+        raise ValueError("Your metadata column 's%' holds all the same values, i.e. we cannot run any comparision!")
+
+    grps = [('all', metadata)]
+    if len(cols_stratify) == 1:
+        grps = metadata.groupby(cols_stratify[0])
+    elif len(cols_stratify) > 1:
+        grps = metadata.groupby(cols_stratify)
+    
+    diff_features = dict()
+    rs_add = 0
+    pg_bar = tqdm(desc='executing dsFDR', total=len(pairwise_states) * len(grps))
+    for strat, g in grps:
+        # reduce Colour experiment to those samples contained in the current statum
+        e_strat = e
+        for col, val in zip(cols_stratify, _listify(strat)):
+            e_strat = e_strat.filter_by_metadata(col, [val])
+
+        # perform diff abundance test
+        for (val_a, val_b) in pairwise_states:
+            if len(set([val_a, val_b]) - set(g[col_field].unique())) > 0:
+                # one or both group values are not present in samples
+                continue
+            ediff = e_strat.filter_by_metadata(col_field, [val_a, val_b]).diff_abundance(
+                col_field, val_a, val_b,
+                fdr_method='dsfdr', method=method, random_seed=None if random_seed is None else random_seed+rs_add)
+            pg_bar.update(1)
+            rs_add += 1
+            for feature, qval in ediff.feature_metadata[ediff.feature_metadata['_calour_qval'] < significance_niveau].reset_index().set_index(rank)['_calour_qval'].items():
+                diff_features[(feature, tuple(sorted((val_a, val_b))), strat)] = qval
+
+    # re-format results
+    diff_features = pd.pivot_table(
+        data=pd.DataFrame([(feature, value, cmp, *(strat if isinstance(strat, tuple) else [strat]))
+                           for (feature, cmp, strat), value in
+                           diff_features.items()],
+                          columns=[rank, '_calour_qval', col_field] + cols_stratify),
+        index=[rank]+cols_stratify,
+        columns=col_field,
+        values='_calour_qval',
+        aggfunc=np.max)
+
+    return diff_features, counts, metadata
+
+def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFrame, metadata:pd.DataFrame, taxonomy:pd.Series=None, x:[str]=['experiment'], min_abundance:float=0.01, significance_niveau:float=0.05, palette=None, show_change:bool=True, upper_limit_taxa:int=30, num_ranks=2):
+    """Plots Calour differential abundance tests.
+
+    Parameters
+    ----------
+    diff_featurs : pd.DataFrame
+        Results of function calour_diffabundance_tests
+    counts : pd.DataFrame
+        Raw feature table with integer values as counts
+    metadata : pd.DataFrame
+        Metadata of experiment with sample names as index, which should match
+        with column names in counts.
+    taxonomy : pd.Series
+        Taxonomy to collapse count table. Index must hold feature names as
+        given in the counts table.
+    x : [str]
+        metadata column along which plot should be stratified, e.g. multiple timepoints
+    min_abundance : float
+        Minimal relative abundance a feature must have in at least one sample to be plotted
+    significance_niveau : float
+        Significance niveau to indicate features with a *
+    palette : dict
+        Colors for values for which differential abundance was tested.
+    show_change : bool
+        This function generates either boxplots for all samples, where hue is used to indicate the different
+        values the samples where grouped in and tested for
+        OR
+        generates barplots that show the mean shift in relative abundance IF tested only between two values,
+        e.g. sick VS healthy. This cannot be visualized for more then two values as e.g. "wt" VS "black6" VS "balb"
+        is no two-way comparison.
+        Should you have just two values, you can change to boxplots by show_change=False
+    upper_limit_features : int
+        Plot only the first up to upper_limit_features features to keep plot comprehendable. Set to None to show all features.
+    num_ranks : int
+        Only for rank = 'raw':
+        Default: 2, i.e. Genus and Species
+        How many last ranks shall be displayed on y-axis of right plot.
+    """
+    if diff_features.shape[0] <= 0:
+        print("NO significant features detected", file=sys.stderr)
+        return None
+
+    # limit analysis to samples present in metadata AND read counts
+    (counts, metadata) = sync_counts_metadata(counts.copy(), metadata.copy())
+    # ensure user selected metadata-columns are actually present in provided metadata dataframe
+    check_column_presents(metadata, x)
+
+    rank = diff_features.index.names[0]
+    
+    # check if at least one comparison returned a q-val < significance niveau
+    significance = diff_features.reset_index().groupby([rank] + x).apply(lambda g: g[diff_features.columns].min().min())
+    significance_per_cmp = diff_features.reset_index().groupby([rank] + x).apply(lambda g: g[diff_features.columns].min(axis=0)).stack()
+    #return significance, significance_per_cmp
+    # obtain relative abundance values for features that have been identified as being sign. different in at least one condition
+    relAbundance = []
+    for (stratify, val), g in metadata.groupby(x + [diff_features.columns.name]):
+        d = (counts / counts.sum(axis=0)).loc[significance.index.get_level_values(0).unique(), g.index].stack().reset_index().rename(columns={0: 'relative abundance'})
+        d[diff_features.columns.name] = val
+        for fieldname, field in zip(x, stratify if isinstance(stratify, list) else [stratify]):
+            d[fieldname] = field
+        relAbundance.append(d)
+    relAbundance = pd.concat(relAbundance)
+
+    # only plot features, that have in one of the conditions at least a rel abundance of min_mean_abundance
+    plot_features = {feature
+                     for feature, max_abundance in relAbundance.groupby(rank)['relative abundance'].max().items()
+                     if max_abundance >= min_abundance}
+    
+    # limit to features with sufficient rel. abundance
+    relAbundance = relAbundance[relAbundance[rank].isin(plot_features)]
+
+    # There might be the case that different arms of a stratification do NOT hold all combinations
+    # This will cause visual offsets in the boxplots. Therefore, we are injecting here fake samples with
+    # relative abundance of 0 for those missing cases
+    missing_samples = pd.pivot_table(data=relAbundance, index=[rank, diff_features.columns.name], columns=x, values='relative abundance').fillna(0).stack().rename('relative abundance')
+    relAbundance = pd.concat([relAbundance, missing_samples[missing_samples == 0].to_frame().reset_index()])
+    
+    feature_order = relAbundance.groupby(rank)['relative abundance'].mean().sort_values(ascending=False)
+    if (upper_limit_taxa is not None) and (len(feature_order) > upper_limit_taxa):
+        relAbundance = relAbundance[relAbundance[rank].isin(feature_order.index[:upper_limit_taxa])]
+        print("Only plotting first %i of %i features.\nPlot all via upper_limit_taxa=None" % (upper_limit_taxa, feature_order.shape[0]), file=sys.stderr)
+        feature_order = feature_order.iloc[:upper_limit_taxa]
+        
+
+    fig, axes = plt.subplots(1, len(metadata.groupby(x)), sharey=True, figsize=(
+        len(metadata.groupby(x))*3, 
+        0.2 * feature_order.shape[0] * len(relAbundance[diff_features.columns.name].unique())))
+    for ax, (stratify, g) in zip(axes, relAbundance.groupby(x if len(x) > 1 else x[0])):
+        pairs = []
+        pairs_pvals = []
+        all_pvals = {feature: '' for feature in feature_order.index}
+        for feature in feature_order.index:
+            try:
+                for (val_a, val_b) in set(significance_per_cmp.loc[feature, stratify, :].index):
+                    try:
+                        pval = significance_per_cmp.loc[feature, stratify, (val_a, val_b)]
+                        if pval < significance_niveau:
+                            pair = ((feature, val_a), (feature, val_b))
+                            pairs.append(pair)
+                            pairs_pvals.append(pval)
+                            all_pvals[feature] = '*'
+                    except KeyError:
+                        pass
+            except KeyError:
+                pass
+        
+        states = relAbundance[diff_features.columns.name].unique()
+        if (len(states) > 2) or (show_change is False):
+            sns.boxplot(data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax, 
+                        order=feature_order.index, hue_order=states,
+                        palette=palette,
+                        )
+            if True:
+                for i, (feature, _) in enumerate(feature_order.items()):
+                    try:
+                        _ = significance.loc[feature, stratify]
+                    except KeyError:
+                        ax.add_patch(mpatches.Rectangle((-0.001, i-0.475), 2, 0.95, linewidth=0, edgecolor=None, facecolor='white', alpha=0.8, zorder=5))
+            if True:
+    
+                if len(pairs) > 0:
+                    annotator = Annotator(
+                        pairs=pairs, 
+                        data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax,
+                        order=feature_order.index, hue_order=states)
+                    annotator.configure(text_format='star', loc='outside')
+                    annotator.set_pvalues(pairs_pvals)
+                    annotator.annotate()
+            if ax != axes[0]:
+                ax.legend().remove()
+        else:
+            plot_change = (g[g[diff_features.columns.name] == states[0]].groupby(rank)['relative abundance'].mean() - g[g[diff_features.columns.name] == states[-1]].groupby(rank)['relative abundance'].mean()).to_frame().reset_index()
+            sns.barplot(data=plot_change, ax=ax, orient='h', y=rank, x='relative abundance', order=feature_order.index)
+            for i, (feature, _) in enumerate(feature_order.items()):
+                if all_pvals[feature] != '*':
+                    ax.add_patch(mpatches.Rectangle((-1, i-0.475), 2, 0.95, linewidth=0, edgecolor=None, facecolor='white', alpha=0.8, zorder=5))
+            axRight = ax.twinx()
+            axRight.set_yticks(ax.get_yticks(), [all_pvals[tick.get_text()] for tick in axes[0].get_yticklabels()])
+            axRight.set_ylim(ax.get_ylim())
+            max_change = max(map(abs, ax.get_xlim()))
+            ax.set_xlim((-1 * max_change, +1 * max_change))
+            ax.set_xlabel('<-- more in %s  |  more in %s -->\n%s' % (states[0], states[-1], ax.get_xlabel(), ))
+
+        ax.set_title('\n'.join(['%s: %s' % (col, value) for (col, value) in zip(x, stratify if isinstance(stratify, list) else [stratify])]))
+        ax.grid(axis='y', which='major', zorder=-1)
+        ax.set_axisbelow(True)
+        if ax != axes[0]:
+            ax.set_ylabel("")
+
+        # additional y-axis ticks on rightmost plot IF rank is "feature" aka. "raw" and taxonomy was passed
+        if (ax == axes[-1]) and (rank == 'feature') and (taxonomy is not None):
+            axRight = ax.twinx()
+            axRight.set_ylim(ax.get_ylim())
+            axRight.set_yticks(
+                axes[0].get_yticks(),
+                taxonomy.loc[feature_order.index].apply(
+                    lambda x: " ".join(
+                        list(map(str.strip, x.split(';')))[-num_ranks:])).values)
+
+    return fig, relAbundance, significance, significance_per_cmp
+
+
+def get_triu_dists(dm:pd.DataFrame, valuename='distance'):
+    """Collects upper triangular values from a symmetric, square pd.DataFrame (used to store distances)"""
+    if dm.shape[0] != dm.shape[1]:
+        raise ValueError("not a square matrix! %i rows x %i cols" % dm.shape)
+
+    if len(set(dm.index) ^ set(dm.columns)):
+        raise ValueError("Found mismatching index / column names!")
+
+    # ensure index names do not collide
+    if dm.index.name == dm.columns.name:
+        if dm.index.name is None:
+            dm.index.name = ""
+        dm.index.name = dm.index.name + '_index'
+        if dm.columns.name is None:
+            dm.columns.name = ""
+        dm.columns.name = dm.columns.name + '_column'
+    
+    # flatten square matrix
+    res = dm.stack().reset_index()
+
+    # avoid self comparisons and filter permutations, i.e. only take upper left triangle (without main diagonal)
+    res = res[res.iloc[:, 0] < res.iloc[:, 1]]
+
+    res = res.set_index([dm.index.name, dm.columns.name]).rename(columns={0: valuename})
+    
+    return res
