@@ -1444,7 +1444,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 if cmdtype == 'post' and (no_mail is False):
                     slurm_script += '#SBATCH --mail-type=END,FAIL\n'
                     slurm_script += '#SBATCH --mail-user=%s\n\n' % settings.GRID_EMAIL_NOTIFICATION
-                slurm_script += 'srun uname -a\n'
+                slurm_script += 'srun $(which uname) -a\n'
 
                 for cmd in cmds[cmdtype]:
                     if cmdtype != 'main':
@@ -4327,11 +4327,11 @@ def _listify(vals):
     else:
         return [vals]
 
-def calour_diffabundance_tests(counts:pd.DataFrame, metadata:pd.DataFrame, col_field:str, 
+def calour_diffabundance_tests(counts:pd.DataFrame, metadata:pd.DataFrame, col_field:str,
         cols_stratify:[str]=[], rank='raw', taxonomy:pd.Series=None,
         method:str='meandiff', random_seed:int=None, significance_niveau:float=0.05):
     """Use Calour for differential abundance testing.
-    
+
     Parameters
     ----------
     counts : pd.DataFrame
@@ -4367,7 +4367,7 @@ def calour_diffabundance_tests(counts:pd.DataFrame, metadata:pd.DataFrame, col_f
        feature, stratum and comparison
     2. The ...
     """
-    
+
     # limit analysis to samples present in metadata AND read counts
     (counts, metadata) = sync_counts_metadata(counts.copy(), metadata.copy())
     # ensure user selected metadata-columns are actually present in provided metadata dataframe
@@ -4397,7 +4397,7 @@ def calour_diffabundance_tests(counts:pd.DataFrame, metadata:pd.DataFrame, col_f
         grps = metadata.groupby(cols_stratify[0])
     elif len(cols_stratify) > 1:
         grps = metadata.groupby(cols_stratify)
-    
+
     diff_features = dict()
     rs_add = 0
     pg_bar = tqdm(desc='executing dsFDR', total=len(pairwise_states) * len(grps))
@@ -4481,7 +4481,7 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
     check_column_presents(metadata, x)
 
     rank = diff_features.index.names[0]
-    
+
     # check if at least one comparison returned a q-val < significance niveau
     significance = diff_features.reset_index().groupby([rank] + x).apply(lambda g: g[diff_features.columns].min().min())
     significance_per_cmp = diff_features.reset_index().groupby([rank] + x).apply(lambda g: g[diff_features.columns].min(axis=0)).stack()
@@ -4500,7 +4500,7 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
     plot_features = {feature
                      for feature, max_abundance in relAbundance.groupby(rank)['relative abundance'].max().items()
                      if max_abundance >= min_abundance}
-    
+
     # limit to features with sufficient rel. abundance
     relAbundance = relAbundance[relAbundance[rank].isin(plot_features)]
 
@@ -4509,16 +4509,16 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
     # relative abundance of 0 for those missing cases
     missing_samples = pd.pivot_table(data=relAbundance, index=[rank, diff_features.columns.name], columns=x, values='relative abundance').fillna(0).stack().rename('relative abundance')
     relAbundance = pd.concat([relAbundance, missing_samples[missing_samples == 0].to_frame().reset_index()])
-    
+
     feature_order = relAbundance.groupby(rank)['relative abundance'].mean().sort_values(ascending=False)
     if (upper_limit_taxa is not None) and (len(feature_order) > upper_limit_taxa):
         relAbundance = relAbundance[relAbundance[rank].isin(feature_order.index[:upper_limit_taxa])]
         print("Only plotting first %i of %i features.\nPlot all via upper_limit_taxa=None" % (upper_limit_taxa, feature_order.shape[0]), file=sys.stderr)
         feature_order = feature_order.iloc[:upper_limit_taxa]
-        
+
 
     fig, axes = plt.subplots(1, len(metadata.groupby(x)), sharey=True, figsize=(
-        len(metadata.groupby(x))*3, 
+        len(metadata.groupby(x))*3,
         0.2 * feature_order.shape[0] * len(relAbundance[diff_features.columns.name].unique())))
     for ax, (stratify, g) in zip(axes, relAbundance.groupby(x if len(x) > 1 else x[0])):
         pairs = []
@@ -4538,10 +4538,10 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
                         pass
             except KeyError:
                 pass
-        
+
         states = relAbundance[diff_features.columns.name].unique()
         if (len(states) > 2) or (show_change is False):
-            sns.boxplot(data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax, 
+            sns.boxplot(data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax,
                         order=feature_order.index, hue_order=states,
                         palette=palette,
                         )
@@ -4552,10 +4552,10 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
                     except KeyError:
                         ax.add_patch(mpatches.Rectangle((-0.001, i-0.475), 2, 0.95, linewidth=0, edgecolor=None, facecolor='white', alpha=0.8, zorder=5))
             if True:
-    
+
                 if len(pairs) > 0:
                     annotator = Annotator(
-                        pairs=pairs, 
+                        pairs=pairs,
                         data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax,
                         order=feature_order.index, hue_order=states)
                     annotator.configure(text_format='star', loc='outside')
@@ -4611,7 +4611,7 @@ def get_triu_dists(dm:pd.DataFrame, valuename='distance'):
         if dm.columns.name is None:
             dm.columns.name = ""
         dm.columns.name = dm.columns.name + '_column'
-    
+
     # flatten square matrix
     res = dm.stack().reset_index()
 
@@ -4619,5 +4619,5 @@ def get_triu_dists(dm:pd.DataFrame, valuename='distance'):
     res = res[res.iloc[:, 0] < res.iloc[:, 1]]
 
     res = res.set_index([dm.index.name, dm.columns.name]).rename(columns={0: valuename})
-    
+
     return res
