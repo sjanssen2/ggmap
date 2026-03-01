@@ -308,6 +308,14 @@ def process_study(metadata: pd.DataFrame,
     if pd.Series(counts.columns).value_counts().max() > 1:
         raise ValueError("Your Deblur biom table has at least one sample duplicate!")
 
+    num_nan = counts.apply(pd.isnull).sum().sum()
+    if num_nan > 0:
+        raise ValueError(
+            ("Count feature-table contains %i (=%.1f%%) np.nan values. "
+             "This will lead to downstream errors. "
+             "Please fix by .fillna(0)!") % (
+             num_nan, num_nan / (counts.shape[0] * counts.shape[1]) * 100))
+
     # sync metadata with feature table as an easy mechanism to subset the
     # processed samples
     counts, metadata = sync_counts_metadata(counts, metadata, verbose)
