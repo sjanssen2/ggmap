@@ -2649,6 +2649,13 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
                             with open('%s/%s' % (fp_asig, file), 'r') as f:
                                 # read file content
                                 content = "".join(f.readlines())
+
+                                # convert ' within quotes into _, can be part
+                                # of metadata values like: Bechterew's disease
+                                def replace_inside_quotes(match):
+                                    return match.group(0).replace("'", "_")
+                                content = re.sub(r'"[^"]*"', replace_inside_quotes, content)
+
                                 # convert ' into "
                                 content = content.replace("'", '"')
                                 # remove load_data( ... ); wrapping
@@ -4931,7 +4938,7 @@ def QC(dir_fastqs:str,
                 raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
             files_rev.append(os.path.abspath(fp_rev))
     if (len(files_fwd) + len(files_rev)) <= 0:
-        raise ValueError("No fwd fastQ files found. Check dir_fastqs and pattern_fwdfiles!")
+        raise ValueError("No fwd fastQ files in '%s' found. Check dir_fastqs and pattern_fwdfiles!" % dir_fastqs)
     if (not no_rev_seqs) & (len(files_fwd) != len(files_rev)):
         raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
 
@@ -5378,7 +5385,7 @@ def blast_isolates(fp_fasta_isolates:str,
         map_asv_names.to_frame().rename(columns={0: 'asv_sequences'}).to_csv('%s/map_asv_names.csv' % workdir, index_label='escaped_asv', sep="\t")
 
         with open('%s/awk_prog.txt' % workdir, 'w') as f:
-            f.write('BEGIN{RS=">Cluster ";FS="\\n"}NR>1{if (($0!~/reverse_complement.+\*/) && (NF > 3))print ">Cluster "$0}\n')
+            f.write('BEGIN{RS=">Cluster ";FS="\\n"}NR>1{if (($0!~/reverse_complement.+\\*/) && (NF > 3))print ">Cluster "$0}\n')
 
         with open('%s/script_align.sh' % workdir, 'w') as f:
             f.write(
