@@ -71,12 +71,12 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
     return prj_data
 
-def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr, demux_dirname='demultiplex'):
+def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True):
     # peek into demux sheet
     with open(fp_demuxsheet, 'r') as f:
         firstlines = f.readlines()[:2]
         if not force:
-            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1])):
+            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1]) and ('FileFormatVersion' not in firstlines[1])):
                 raise ValueError("Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_demuxsheet)
 
     # peek into Illumina data directory
@@ -107,17 +107,30 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
         with open(fp_tmp, 'r') as f:
             print('using version: %s' % f.readlines()[1].strip())
 
-    print('Since bcl2fastq opens a LOT of file handles, I recommand you copy and paste the below command and ssh into machine `hp-dl560.internal.computational.bio.uni-giessen.de` where you execute the command:\n')
-    cluster_run(["bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
-        prj_data['paths']['illumina_rawdata'],
-        os.path.abspath(prj_data['paths']['demux']),
-        prj_data['paths']['illumina_demuxsheet'],
-        ppn, ppn, ppn)], "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment=settings.SPIKE_ENV, ppn=ppn,
-        use_grid=False, dry=True)
+    if use_bclconvert:
+        env = None
+        cmds = ['/vol/jlab/bin/bcl-convert --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
+            os.path.abspath(prj_data['paths']['demux']),  # --output-directory
+            prj_data['paths']['illumina_rawdata'],  # --bcl-input-directory
+            prj_data['paths']['illumina_demuxsheet'],  # --sample-sheet
+            ppn,  # --bcl-num-conversion-threads
+            ppn,  # --bcl-num-compression-threads
+            ppn,  # --bcl-num-decompression-threads
+        )]
+    else:
+        print('Since bcl2fastq opens a LOT of file handles, I recommand you copy and paste the below command and ssh into machine `hp-dl560.internal.computational.bio.uni-giessen.de` where you execute the command:\n')
+        env = settings.SPIKE_ENV
+        cmds = ["bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
+            prj_data['paths']['illumina_rawdata'],
+            os.path.abspath(prj_data['paths']['demux']),
+            prj_data['paths']['illumina_demuxsheet'],
+            ppn, ppn, ppn)]
+    cluster_run(cmds, "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment=env, ppn=ppn,
+        use_grid=use_bclconvert, dry=not use_bclconvert)
 
     return prj_data
 
-def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=sys.stderr, pattern_fwdfiles:str="*_R1_001.fastq.gz", r1r2_replace:(str, str)=("_R1_", "_R2_"), use_grid:bool=True, no_rev_seqs:bool=False, environment:str=settings.SPIKE_ENV, dirty:bool=False):
+def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=sys.stderr, pattern_fwdfiles:str="*_R1_001.fastq.gz", r1r2_replace:(str, str)=("_R1_", "_R2_"), use_grid:bool=True, no_rev_seqs:bool=False, environment:str=settings.SPIKE_ENV, dirty:bool=False, output_subdirectory:str='trimmed', wait:bool=True):
     """Operates on directory prj_data['paths']['demux']
 
     Parameters
@@ -143,14 +156,18 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
         Name of the conda environment to be activated prior to calling cutadapt.
     dirty : bool
         Do NOT remove the temporary working directory. Nice for debugging.
+    output_subdirectory : str
+        Default is 'trimmed', but you might want to specify into which output sub-directory trimmed
+        sequence files are deposited.
+    wait : bool
+        Default is True. Wait for cluster job to complete before function returns.
     """
 
-    prj_data['paths']['trimmed'] = os.path.join(prj_data['paths']['tmp_workdir'], 'trimmed')
-
+    prj_data['paths']['trimmed'] = os.path.join(prj_data['paths']['tmp_workdir'], output_subdirectory)
     res_trimming = trimprimers(
         prj_data['paths']['demux'], primerseq_fwd, primerseq_rev, prj_data['paths']['trimmed'],
         pattern_fwdfiles=pattern_fwdfiles, r1r2_replace=r1r2_replace, no_rev_seqs=no_rev_seqs,
-        verbose=verbose, use_grid=use_grid, dry=False, dirty=dirty, environment=environment)
+        verbose=verbose, use_grid=use_grid, dry=False, dirty=dirty, environment=environment, wait=wait)
 
     return prj_data
 
