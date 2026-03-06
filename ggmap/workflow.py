@@ -109,6 +109,21 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     if use_bclconvert:
         env = None
+
+        # In bcl2fastq the number of mismatch barcode nucleotides was set via cmd parameter.
+        # In bcl-covert, this is set via according lines in the demux sheet, i.e. is under
+        # control of the user. Therefore, this mechanism warns users IF values is too low.
+        msg_warning = []
+        with open(fp_demuxsheet, 'r') as f:
+            for line in f.readlines():
+                if line.startswith('BarcodeMismatchesIndex'):
+                    direction, value = line.split(',')[:2]
+                    value = int(value)
+                    if value <= 0:
+                        msg_warning.append("In your demux sheet '%s', allowed barcode mismatch is probably too loose: %s=%i. I strongly recommend to increase to at least 1!" % (fp_demuxsheet, direction, value))
+        if (len(msg_warning) > 0) and (force is False):
+            raise ValueError('\n'.join(msg_warning) + '\n\nShould you accept this setting, provide parameter force=True to this function.')
+
         cmds = ['/vol/jlab/bin/bcl-convert --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
             os.path.abspath(prj_data['paths']['demux']),  # --output-directory
             prj_data['paths']['illumina_rawdata'],  # --bcl-input-directory
@@ -125,7 +140,11 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
             os.path.abspath(prj_data['paths']['demux']),
             prj_data['paths']['illumina_demuxsheet'],
             ppn, ppn, ppn)]
-    cluster_run(cmds, "demux", prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz", environment=env, ppn=ppn,
+    fp_indicator = prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz"
+    # newer demux sheets do not contain lane information
+    if os.path.exists(fp_indicator.replace('_L001', '')):
+        fp_indicator = fp_indicator.replace('_L001', '')
+    cluster_run(cmds, "demux", fp_indicator, environment=env, ppn=ppn,
         use_grid=use_bclconvert, dry=not use_bclconvert)
 
     return prj_data
