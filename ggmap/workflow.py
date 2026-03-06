@@ -72,6 +72,8 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
     return prj_data
 
 def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True):
+    bin_bclconvert = '/vol/jlab/bin/bcl-convert'
+
     # peek into demux sheet
     with open(fp_demuxsheet, 'r') as f:
         firstlines = f.readlines()[:2]
@@ -103,9 +105,18 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
 
     if verbose:
         _, fp_tmp = tempfile.mkstemp()
-        cluster_run(['bcl2fastq --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment=settings.SPIKE_ENV, dry=False, use_grid=False)
+        if use_bclconvert:
+            env = None
+            cmd = '%s --version > %s 2>&1' % (bin_bclconvert, fp_tmp)
+        else:
+            env = settings.SPIKE_ENV
+            cmd = 'bcl2fastq --version > %s 2>&1' % fp_tmp
+        cluster_run([cmd], 'info', '/dev/null/kurt', environment=settings.SPIKE_ENV, dry=False, use_grid=False)
         with open(fp_tmp, 'r') as f:
-            print('using version: %s' % f.readlines()[1].strip())
+            if use_bclconvert:
+                print('using version: %s' % f.readlines()[0].strip())
+            else:
+                print('using version: %s' % f.readlines()[1].strip())
 
     if use_bclconvert:
         env = None
@@ -124,7 +135,8 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
         if (len(msg_warning) > 0) and (force is False):
             raise ValueError('\n'.join(msg_warning) + '\n\nShould you accept this setting, provide parameter force=True to this function.')
 
-        cmds = ['/vol/jlab/bin/bcl-convert --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
+        cmds = ['%s --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
+            bin_bclconvert,
             os.path.abspath(prj_data['paths']['demux']),  # --output-directory
             prj_data['paths']['illumina_rawdata'],  # --bcl-input-directory
             prj_data['paths']['illumina_demuxsheet'],  # --sample-sheet
