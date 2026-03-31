@@ -1444,7 +1444,7 @@ def cluster_run(cmds, jobname, result, environment=None,
                 if cmdtype == 'post' and (no_mail is False):
                     slurm_script += '#SBATCH --mail-type=END,FAIL\n'
                     slurm_script += '#SBATCH --mail-user=%s\n\n' % settings.GRID_EMAIL_NOTIFICATION
-                slurm_script += 'srun $(which uname) -a\n'
+                slurm_script += '$(which uname) -a\n'
 
                 for cmd in cmds[cmdtype]:
                     if cmdtype != 'main':
