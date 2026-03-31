@@ -5641,6 +5641,83 @@ done
                      **executor_args)
 
 
+def blastn_local(fp_query, fp_db,
+           max_target_seqs=10, max_evalue='1e-5', outformat = 'qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
+           ppn=1, pmem='4GB', **executor_args):
+    """Local blast search against HUGE local databases."""
+    num_parts = len(glob(fp_db + '*.nsq'))
+    def pre_execute(workdir, args):
+        pass
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['main'].append('var_num=`echo "${%s} - 1" | bc`; var_num=`printf "%%03d" $var_num`' % (
+            settings.VARNAME_PBSARRAY
+        ))
+        commands['main'].append('blastn -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "6 %s" -max_target_seqs %i -evalue %s' % (
+            os.path.abspath(fp_query),
+            os.path.abspath(fp_db),
+            workdir,
+            outformat,
+            max_target_seqs,
+            max_evalue
+        ))
+        commands['main'].append('cat %s/blastres.$var_num | cut -f 3 | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
+            workdir,
+            os.path.abspath(fp_db),
+            workdir
+        ))
+        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f 4 -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
+            workdir,
+            os.path.dirname(os.path.abspath(fp_db)),
+            workdir
+        ))
+
+        commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
+        commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
+        commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
+
+        return commands
+    def post_execute(workdir, args):
+        # load blast hits
+        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
+        for f in ['evalue', 'pident', 'length', 'bitscore']:
+            if f in hits.columns:
+                hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
+
+        # load blastdbcmd table
+        taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
+
+        # load lineages
+        lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
+        for idx, row in lineages.iterrows():
+            for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
+                if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
+                    lineages.loc[idx, rank] = taxon
+
+        # merge all three tables
+        merged = hits.merge(
+            taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
+                lineages, left_on='taxid', right_index=True, how='left')
+
+        return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
+
+    return _executor('blastn',
+                     {'fp_query': os.path.abspath(fp_query),
+                      'fp_db': os.path.abspath(fp_db),
+                      'max_target_seqs': max_target_seqs,
+                      'max_evalue': max_evalue,
+                     },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     #post_cache,
+                     environment=None,
+                     ppn=ppn,
+                     array=num_parts,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
@@ -5922,8 +5999,9 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
         time.time()).strftime('%Y-%m-%d %H:%M:%S')
 
     results['conda_env'] = environment
-    with open(results['workdir']+'/conda_info.txt', 'r') as f:
-        results['conda_list'] = f.readlines()
+    if environment is not None:
+        with open(results['workdir']+'/conda_info.txt', 'r') as f:
+            results['conda_list'] = f.readlines()
 
     results['timing'] = []
     for timingfile in next(os.walk(results['workdir']))[2]:
