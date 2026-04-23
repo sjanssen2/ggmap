@@ -5160,14 +5160,14 @@ def trimprimers(dir_fastqs:str,
         with open("%s/commands.txt" % workdir, "w") as f:
             if not args['no_rev_seqs']:
                 for fp_fwd, fp_rev in zip(files_fwd, files_rev):
-                    f.write('cutadapt --json %s/%s.report.json -g %s -G %s -n 2 -o %s/%s -p %s/%s -m 1 %s %s\n' % (
+                    f.write('cutadapt --json %s/%s.report.json -g %s -G %s -n 2 -o %s/%s -p %s/%s -m 1 --max-n 0.999 %s %s\n' % (
                         workdir, os.path.basename(fp_fwd),
                         primerseq_fwd, primerseq_rev,
                         workdir, os.path.basename(fp_fwd), workdir, os.path.basename(fp_rev),
                         fp_fwd, fp_rev))
             else:
                 for fp_fwd in files_fwd:
-                    f.write('cutadapt --json %s/%s.report.json -g %s -n 1 -o %s/%s -m 1 %s\n' % (
+                    f.write('cutadapt --json %s/%s.report.json -g %s -n 1 -o %s/%s -m 1 --max-n 0.999 %s\n' % (
                         workdir, os.path.basename(fp_fwd),
                         primerseq_fwd,
                         workdir, os.path.basename(fp_fwd),
