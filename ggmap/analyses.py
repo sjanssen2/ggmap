@@ -5718,6 +5718,145 @@ def blastn_local(fp_query, fp_db,
                      **executor_args)
 
 
+def trainGG138(fp_basedir_taxonomy='/vol/jlab/MicrobiomeAnalyses/References/gg_13_8_otus', region='515f-806r', fp_result='./', ppn=20, pmem='4GB', **executor_args):
+    """As qiime2.org does not offer new versions of GG13.8 pre-trained classifier,
+       we need to do this by ourselves to remain in sync with used sklearn version
+
+    Paramaters
+    ----------
+    fp_basedir_taxonomy : str
+        Path to GreenGenes1 base directory. Expected sub-directories are "rep_set" and "taxonomy".
+    region : str
+        Restrict to certrain variable regions. Use None for full length sequences.
+    fp_result : str
+        Target filepath to which classifier shall be saved.
+
+    executor_args:
+        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose,
+        dirty
+
+    Returns
+    -------
+    """
+    if region not in ['515f-806r', None]:
+        raise ValueError("Unknown variable region, i.e. no primer seqs defined!")
+
+    def pre_execute(workdir, args):
+        assert(_md5(args['fp_raw_seqs']) == 'e5b6dd84844118591f3d9e9b6a77a846')
+
+        assert(_md5(args['fp_raw_taxonomy']) == 'ab48d5d4773b7f5d6b0562938d8858fb')
+
+    def commands(workdir, ppn, args):
+        commands = []
+
+        fp_seq = workdir+'/99_otus.qza'
+        fp_tax = workdir+'/99_otu_taxonomy.qza'
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--type "FeatureData[Sequence]" '
+             '--output-path %s') %
+            (args['fp_raw_seqs'], fp_seq))
+        commands.append(
+            ('qiime tools import '
+             '--input-path %s '
+             '--input-format HeaderlessTSVTaxonomyFormat '
+             '--type "FeatureData[Taxonomy]" '
+             '--output-path %s') %
+            (args['fp_raw_taxonomy'], fp_tax))
+        if region is not None:
+            fp_seq = workdir+'/derep_seqs.qza'
+            fp_tax = workdir+'/derep_99_otu_taxonomy.qza'
+            commands.append(
+                ('qiime feature-classifier extract-reads '
+                 '--i-sequences %s '
+                 '--p-f-primer "GTGCCAGCMGCCGCGGTAA" '
+                 '--p-r-primer "GGACTACHVGGGTWTCTAAT" '
+                 '--p-trim-right 0 '
+                 '--p-trunc-len 0 '
+                 '--p-trim-left 0 '
+                 '--p-identity 0.8 '
+                 '--p-min-length 50 '
+                 '--p-max-length 0 '
+                 '--p-batch-size "auto" '
+                 '--p-read-orientation "both" '
+                 '--p-n-jobs %i '
+                 '--o-reads %s '
+                ) %
+                (workdir+'/99_otus.qza', ppn, workdir+'/extracted_seqs.qza'))
+            commands.append(
+                ('qiime rescript dereplicate '
+                 '--i-sequences %s '
+                 '--i-taxa %s '
+                 '--p-mode "uniq" '
+                 '--p-perc-identity 1 '
+                 '--p-rank-handles domain phylum class order family genus species '
+                 '--p-derep-prefix false '
+                 '--p-threads %i '
+                 '--o-dereplicated-sequences %s '
+                 '--o-dereplicated-taxa %s'
+                ) %
+                (workdir+'/extracted_seqs.qza', workdir+'/99_otu_taxonomy.qza', ppn, fp_seq, fp_tax))
+        commands.append(
+            ('qiime rescript evaluate-fit-classifier '
+             '--i-sequences %s '
+             '--i-taxonomy %s '
+             '--p-reads-per-batch "auto" '
+             '--p-confidence 0.7 '
+             '--p-n-jobs %i '
+             '--o-classifier %s '
+             '--o-evaluation %s '
+             '--o-observed-taxonomy %s '
+            ) %
+            (fp_seq, fp_tax, ppn,
+             workdir+'/classifier.qza', workdir+'/evaluation.qzv', workdir+'/observed_taxonomy.qza'))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        version_q2 = None
+        version_sklearn = None
+        with open(workdir + '/conda_info.txt', 'r') as f:
+            for line in f.readlines():
+                if line.startswith('# packages in environment'):
+                    version_q2 = os.path.basename(line.split()[-1]).replace(':', '')
+                elif line.startswith('scikit-learn'):
+                    version_sklearn = line.split()[1]
+
+        results['filename'] = '%s_%s-nb-classifier_%s_sklearn%s.qza' % (os.path.basename(fp_basedir_taxonomy).replace('_otus', '-99'), 'fulllength' if region is None else region, version_q2, version_sklearn)
+        with open(workdir+'/classifier.qza', "rb") as f:
+            results['file'] = f.read()
+
+        return results
+
+    def post_cache(cache_results):
+        fp_classifier = os.path.join(fp_result, cache_results['results']['filename'])
+        if not os.path.exists(fp_classifier):
+            with open(fp_classifier, 'wb') as f:
+                f.write(cache_results['results']['file'])
+            print("stored classifier artifact to %s" % fp_classifier)
+        else:
+            print("classifier artifact %s already existed." % fp_classifier)
+
+        return cache_results
+
+    return _executor('traingg138',
+                     {'fp_raw_seqs': os.path.abspath(os.path.join(fp_basedir_taxonomy, 'rep_set/99_otus.fasta')),
+                      'fp_raw_taxonomy': os.path.abspath(os.path.join(fp_basedir_taxonomy, 'taxonomy/99_otu_taxonomy.txt')),
+                      'region': region,
+                     },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     post_cache,
+                     environment=settings.QIIME2_ENV,
+                     ppn=ppn,
+                     pmem=pmem,
+                     **executor_args)
+
+
 def _parse_timing(workdir, jobname):
     """If existant, parses timing information.
 
