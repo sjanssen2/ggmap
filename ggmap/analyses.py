@@ -4403,6 +4403,7 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
             drop_samples_lessThanCounts: int=1, drop_feature_lessInRatioSamples: float=0.05, drop_subjects_lessTimepoints: int=2,
             apply_clr: bool=True, apply_svd: bool=True,
             components: int=5,
+            environment=settings.QIIME2_ENV,
             ppn=1, pmem='4GB', **executor_args):
     """Run tempted analysis and return Emperor plots.
 
@@ -4565,7 +4566,11 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
         commands = []
 
         # execute the R tempted program in it's own conda env
-        commands.append(get_conda_activate_cmd(executor_args.get('use_grid', True), settings.TEMPTED_ENV))
+        param_usegrid = executor_args.get('use_grid', True)
+        rcmd = get_conda_activate_cmd(param_usegrid, settings.TEMPTED_ENV)
+        if rcmd.endswith('; ') and (param_usegrid == False):
+            rcmd = rcmd[:-2]
+        commands.append(rcmd)
         commands.append('cat %s/R.script | R --vanilla' % workdir)
         #commands.append('%s cat %s/R.script | R --vanilla' % (get_conda_activate_cmd(executor_args.get('use_grid', True), settings.TEMPTED_ENV), workdir))
 
@@ -4587,7 +4592,10 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
             'echo "Site constraints\t0\t0" >> %s/ordination.txt' % workdir,
         ])
 
-        commands.append(get_conda_activate_cmd(executor_args.get('use_grid', True), settings.QIIME2_ENV))
+        rcmd = get_conda_activate_cmd(param_usegrid, settings.QIIME2_ENV)
+        if rcmd.endswith('; ') and (param_usegrid == False):
+            rcmd = rcmd[:-2]
+        commands.append(rcmd)
 
         commands.append('qiime tools import --input-path %s/ordination.txt --output-path %s/ordination.qza --type PCoAResults' % (workdir, workdir))
 
@@ -4616,7 +4624,7 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
                      pre_execute,
                      commands,
                      post_execute,
-                     environment=settings.QIIME2_ENV,
+                     environment=environment,
                      ppn=ppn,
                      pmem=pmem,
                      **executor_args)
@@ -5010,6 +5018,7 @@ def QC(dir_fastqs:str,
         if 'mean-quality-scores_reverse' in cache_results['results'].keys():
             display(cache_results['results']['mean-quality-scores_reverse'])
         return cache_results
+    QC.post_cache = post_cache
 
     return _executor('qc',
                      {'dir_fastqs': os.path.abspath(dir_fastqs),
@@ -5626,6 +5635,9 @@ done
 
         return cache_results
 
+    mmsection = """
+We compiled a set of full length 16S rRNA sequences for all XXX isolates from YYY. As some isolates contain multiple copies of the 16S rRNA gene, we clustered all sequences via "cd-hit" (version 4.8.1, options -c 0.99 -T 2 -d 999 -p 1 -g 1 -aS 0.95 -A 50 -uL 0.05 -uS 0.05 -sc 1). Considering reverse and reverse complement versions of full length 16S rRNA sequences, we selected one representative sequence per cluster by a) cluster size (larger is better) b) being flagged by cd-hit as representative and c) preferring original sequence orientation. Representative sequences (with their isolate annotation) are used to compile a small blast database via "makeblastdb" (version 2.16.0+, -dbtype nucl) to query all ASV sequences against this database via "blastn" (version 2.16.0+, -task blastn -outfmt "6 std qlen slen nident qcovs" -max_target_seqs 5). The isolate taxon name was assigned to an ASV if blast returned a result with e-value < 10^10, 5 mismatches at most, pident at least 97% and at most 10bp of ASVs missing in blast hit. ASVs not covered by this process were taxonomically assigned to GG2v2022.10 via the Qiime2 Naive Bayes classifier (version qiime2-amplicon-2024.10)  (cite q2)."""
+
     return _executor('blastASVs',
                      {'fp_fasta_isolates': os.path.abspath(fp_fasta_isolates),
                       'asvs': counts.index,
@@ -5643,7 +5655,7 @@ done
 
 def blastn_local(fp_query, fp_db,
            max_target_seqs=10, max_evalue='1e-5', outformat = 'qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
-           ppn=1, pmem='4GB', **executor_args):
+           environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
     """Local blast search against HUGE local databases."""
     num_parts = len(glob(fp_db + '*.nsq'))
     def pre_execute(workdir, args):
