@@ -5724,7 +5724,7 @@ def blastn_local(fp_query, fp_db,
                      commands,
                      post_execute,
                      #post_cache,
-                     environment=None,
+                     environment=environment,
                      ppn=ppn,
                      array=num_parts,
                      **executor_args)
