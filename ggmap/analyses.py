@@ -5729,6 +5729,68 @@ def blastn_local(fp_query, fp_db,
                      array=num_parts,
                      **executor_args)
 
+def blastp_local(fp_query, fp_db,
+           max_target_seqs=10, max_evalue='1e-5',
+           environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
+    """Local blastp search against HUGE local databases.
+    
+    This version returns BLASTP pairwise alignment text using outfmt 0.
+    """
+
+    num_parts = len(glob(fp_db + '*.psq'))
+
+    def pre_execute(workdir, args):
+        pass
+
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['main'].append('var_num=`echo "${%s} - 1" | bc`; var_num=`printf "%%03d" $var_num`' % (
+            settings.VARNAME_PBSARRAY
+        ))
+
+        commands['main'].append('blastp -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt 0 -max_target_seqs %i -evalue %s' % (
+            os.path.abspath(fp_query),
+            os.path.abspath(fp_db),
+            workdir,
+            max_target_seqs,
+            max_evalue
+        ))
+
+        commands['post'].append('cat %s/blastres.* > %s/final.alignments.txt' % (
+            workdir,
+            workdir
+        ))
+
+        return commands
+
+    def post_execute(workdir, args):
+        fp_alignment = '%s/final.alignments.txt' % workdir
+
+        with open(fp_alignment, 'r') as f:
+            alignment = f.read()
+
+        return {
+            'alignment': alignment,
+            'fp_alignment': fp_alignment,
+            'workdir': workdir
+        }
+
+    return _executor('blastp_alignment',
+                     {'fp_query': os.path.abspath(fp_query),
+                      'fp_db': os.path.abspath(fp_db),
+                      'max_target_seqs': max_target_seqs,
+                      'max_evalue': max_evalue,
+                      'outfmt': '0',
+                     },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=environment,
+                     ppn=ppn,
+                     array=num_parts,
+                     **executor_args)
+
 
 def trainGG138(fp_basedir_taxonomy='/vol/jlab/MicrobiomeAnalyses/References/gg_13_8_otus', region='515f-806r', fp_result='./', ppn=20, pmem='4GB', **executor_args):
     """As qiime2.org does not offer new versions of GG13.8 pre-trained classifier,
