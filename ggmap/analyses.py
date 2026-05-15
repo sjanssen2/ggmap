@@ -5653,72 +5653,113 @@ We compiled a set of full length 16S rRNA sequences for all XXX isolates from YY
                      **executor_args)
 
 
-def blastn_local(fp_query, fp_db,
-           max_target_seqs=10, max_evalue='1e-5', outformat = 'qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
+def blast_local(fp_query, fp_db, blast_type,
+           max_target_seqs=10, max_evalue='1e-5', outformat = None,
            environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
+    
     """Local blast search against HUGE local databases."""
-    num_parts = len(glob(fp_db + '*.nsq'))
+    
+    #Erlaubt nur blastn oder blastp als Eingabe        
+    if blast_type not in ['blastn','blastp']:
+        raise ValueError("blast_type must be 'blastn' or 'blastp'")
+        
+    #Setzt Standard-Ausgabeformat: blastn als Tabelle, blastp als Alignment   
+    if outformat is None:
+        if blast_type == 'blastn':
+            outformat = 'qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore'
+        elif blast_type == 'blastp':
+            outformat = '0'
+            
+    #Wählt die passende Datenbank-Endung aus      
+    if blast_type == 'blastn':
+        db_suffix = '.nsq'
+    elif blast_type == 'blastp':
+        db_suffix = '.psq'
+        
+    #outfmt 0 erzeugt Alignment; alle anderen Angaben werden als tabellarisches outfmt 6 behandelt
+    if outformat == '0':
+        outfmt_command = outformat
+    else:
+        outfmt_command = '6 %s' % outformat
+    
+    num_parts = len(glob(fp_db + '*' + db_suffix))
+    
     def pre_execute(workdir, args):
         pass
+        
     def commands(workdir, ppn, args):
         commands = {'pre': [], 'main': [], 'post': []}
 
         commands['main'].append('var_num=`echo "${%s} - 1" | bc`; var_num=`printf "%%03d" $var_num`' % (
             settings.VARNAME_PBSARRAY
         ))
-        commands['main'].append('blastn -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "6 %s" -max_target_seqs %i -evalue %s' % (
+        #Startet blastn oder blastp mit dem jeweils passenden -outfmt-Wert
+        commands['main'].append('%s -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "%s" -max_target_seqs %i -evalue %s' % (
+            blast_type,
             os.path.abspath(fp_query),
             os.path.abspath(fp_db),
             workdir,
-            outformat,
+            outfmt_command,
             max_target_seqs,
             max_evalue
         ))
-        commands['main'].append('cat %s/blastres.$var_num | cut -f 3 | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
-            workdir,
-            os.path.abspath(fp_db),
-            workdir
-        ))
-        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f 4 -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
-            workdir,
-            os.path.dirname(os.path.abspath(fp_db)),
-            workdir
-        ))
-
+        #Fasst die BLAST-Ergebnisse aller Datenbankteile zu einer Ergebnisdatei zusammen
         commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
-        commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
-        commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
-
+        
+        #Führt Taxonomie- und Lineage-Auswertung nur für tabellarische blastn-Egebnisse aus
+        if blast_type == 'blastn' and outformat != '0':
+            commands['main'].append('cat %s/blastres.$var_num | cut -f 3 | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
+                workdir,
+                os.path.abspath(fp_db),
+                workdir
+            ))
+            commands['main'].append('cat %s/blast.taxids.$var_num | cut -f 4 -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
+                workdir,
+                os.path.dirname(os.path.abspath(fp_db)),
+                workdir
+            ))
+    
+        
+            commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
+            commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
+    
         return commands
     def post_execute(workdir, args):
         # load blast hits
-        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
-        for f in ['evalue', 'pident', 'length', 'bitscore']:
-            if f in hits.columns:
-                hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
+        if outformat == '0':
+            return '%s/final.blastres' % workdir
+            
+        elif blast_type == 'blastn':
+            hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
+        
+            for f in ['evalue', 'pident', 'length', 'bitscore']:
+                if f in hits.columns:
+                    hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
+    
+            # load blastdbcmd table
+            taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
+    
+            # load lineages
+            lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
+            for idx, row in lineages.iterrows():
+                for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
+                    if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
+                        lineages.loc[idx, rank] = taxon
+    
+            # merge all three tables
+            merged = hits.merge(
+                taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
+                    lineages, left_on='taxid', right_index=True, how='left')
+    
+            return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
 
-        # load blastdbcmd table
-        taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
-
-        # load lineages
-        lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
-        for idx, row in lineages.iterrows():
-            for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
-                if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
-                    lineages.loc[idx, rank] = taxon
-
-        # merge all three tables
-        merged = hits.merge(
-            taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
-                lineages, left_on='taxid', right_index=True, how='left')
-
-        return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
-
-    return _executor('blastn',
+    return _executor(blast_type,
                      {'fp_query': os.path.abspath(fp_query),
                       'fp_db': os.path.abspath(fp_db),
+                      'blast_type': blast_type,
                       'max_target_seqs': max_target_seqs,
                       'max_evalue': max_evalue,
+                      'outformat': outformat,
                      },
                      pre_execute,
                      commands,
