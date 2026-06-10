@@ -5739,7 +5739,7 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
     def post_execute(workdir, args):
         
     # load blast hits
-        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
+        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split()[1:])
         for f in ['evalue', 'pident', 'length', 'bitscore']:
             if f in hits.columns:
                 hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
