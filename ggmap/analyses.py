@@ -5654,7 +5654,7 @@ We compiled a set of full length 16S rRNA sequences for all XXX isolates from YY
 
 
 def blast_local(fp_query, fp_db, blast_type = 'blastn',
-           max_target_seqs=10, max_evalue='1e-5', outformat='qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore sseq',
+           max_target_seqs=10, max_evalue='1e-5', outformat='6 qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
            environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
     """Local blast search against HUGE local databases.
 
@@ -5671,23 +5671,21 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
     max_evalue: str
         Maximum E-value threshold, lower values are more stringent
     outformat : str
-        String to format the tabular output. If outformat = '0' then alignment is chosen and if None the default for each blast_type is used instead. If a custom outformat for tabular is set, it needs to contain 'saccver' and 'sallseqid' for taxonomy/lineage.
+        BLAST output format string. Default is tabular format 6 with standard fields.
+        If a custom outformat for tabular is set, it needs to contain 'saccver' and 'sallseqid' for taxonomy/lineage.
+        To include subject sequences in the output, append 'sseq' to the
+        default, e.g.:
+        outformat='6 qseqid qaccver saccver sallseqid sgi pident length
+                   mismatch gapopen qstart qend sstart send evalue bitscore sseq'
+        Note: 'sseq' significantly increases output file size.
     """
-    #Database is choosen depending on blast_type
-    if blast_type == 'blastp':
-        num_parts = len(glob(fp_db + '*.psq'))
-    else:
-        num_parts = len(glob(fp_db + '*.nsq'))
-        
     #Validates the blast_type
     valid_types = ['blastn', 'blastp']
     if blast_type not in valid_types:
         raise ValueError("blast_type must be one of %s" % ', '.join(map(lambda x: "'%s'" % x, valid_types)))
     
-    if outformat == '0':
-        outfmt_command = outformat
-    else:
-        outfmt_command = '6 ' + outformat
+    #Database is choosen depending on blast_type
+    num_parts = len(glob(fp_db + '*.%ssq' % blast_type[-1]))
 
     def pre_execute(workdir, args):
         pass
@@ -5702,70 +5700,66 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
             os.path.abspath(fp_query),
             os.path.abspath(fp_db),
             workdir,
-            outfmt_command,
+            outformat,
             max_target_seqs,
             max_evalue
         ))
-        #Validate that outformat contains 'saccver' and 'sallseqid' for taxonomy/lineage
-        if outformat != "0":
-            outformat_list = outformat.split()
-            
-            if 'saccver' not in outformat_list:
-                raise ValueError("Custom tabular outformat must include 'saccver' for taxonomy/lineage extraction.")
+    #Validate that outformat contains 'saccver' and 'sallseqid' for taxonomy/lineage
+        outformat_list = outformat.split()
+        
+        if 'saccver' not in outformat_list:
+            raise ValueError("Custom tabular outformat must include 'saccver' for taxonomy/lineage extraction.")
 
-            accession_col = outformat_list.index('saccver') + 1
-            
-            commands['main'].append('cat %s/blastres.$var_num | cut -f %i | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
-                workdir,
-                accession_col,
-                os.path.abspath(fp_db),
-                workdir
-            ))
-            
-            if 'sallseqid' not in outformat_list:
-                raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")
-            
-            accession_col = outformat_list.index('sallseqid') + 1
-            
-            commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
-                workdir,
-                accession_col,
-                os.path.dirname(os.path.abspath(fp_db)),
-                workdir
-            ))
-            
-            commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
-            commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
-            commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
-            
+        accession_col = outformat_list.index('saccver')
+        
+        commands['main'].append('cat %s/blastres.$var_num | cut -f %i | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
+            workdir,
+            accession_col,
+            os.path.abspath(fp_db),
+            workdir
+        ))
+        
+        if 'sallseqid' not in outformat_list:
+            raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")
+        
+        accession_col = outformat_list.index('sallseqid')
+        
+        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
+            workdir,
+            accession_col,
+            os.path.dirname(os.path.abspath(fp_db)),
+            workdir
+        ))
+        
+        commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
+        commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
+        commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
+        
         return commands
     def post_execute(workdir, args):
         
-        # load blast hits
-        if outformat != '0':
-            hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
-            for f in ['evalue', 'pident', 'length', 'bitscore']:
-                if f in hits.columns:
-                    hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
+    # load blast hits
+        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split())
+        for f in ['evalue', 'pident', 'length', 'bitscore']:
+            if f in hits.columns:
+                hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
 
-            # load blastdbcmd table
-            taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
-    
-            # load lineages
-            lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
-            for idx, row in lineages.iterrows():
-                for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
-                    if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
-                        lineages.loc[idx, rank] = taxon
-    
-            # merge all three tables
-            merged = hits.merge(
-                taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
-                    lineages, left_on='taxid', right_index=True, how='left')
-    
-            return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
-        else:
-            return None
+        # load blastdbcmd table
+        taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
+
+        # load lineages
+        lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
+        for idx, row in lineages.iterrows():
+            for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
+                if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
+                    lineages.loc[idx, rank] = taxon
+
+        # merge all three tables
+        merged = hits.merge(
+            taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
+                lineages, left_on='taxid', right_index=True, how='left')
+
+        return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
 
     return _executor('blastn',
                      {'fp_query': os.path.abspath(fp_query),
