@@ -71,7 +71,7 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
     return prj_data
 
-def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True):
+def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, pmem='16GB', verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True):
     bin_bclconvert = '/vol/jlab/bin/bcl-convert'
 
     # peek into demux sheet
@@ -156,7 +156,7 @@ def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10,
     # newer demux sheets do not contain lane information
     if os.path.exists(fp_indicator.replace('_L001', '')):
         fp_indicator = fp_indicator.replace('_L001', '')
-    cluster_run(cmds, "demux", fp_indicator, environment=env, ppn=ppn,
+    cluster_run(cmds, "demux", fp_indicator, environment=env, ppn=ppn, pmem=pmem,
         use_grid=use_bclconvert, dry=not use_bclconvert)
 
     return prj_data
@@ -202,35 +202,17 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
 
     return prj_data
 
-def project_deblur(prj_data, trimlength=150, ppn=4, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB', walltime='4:00:00'):
+def project_deblur(prj_data, trimlength=150, ppn=10, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB', walltime='4:00:00', outdir=None):
     """Expects to find fastq files in prj_data['paths']['trimmed']
        Writes results into prj_data['paths']['deblur'] and prj_data['paths']['deblur_table']"""
-    prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur')
+    prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur' if outdir is None else outdir)
 
-    _, fp_tmp = tempfile.mkstemp()
-    cluster_run(['deblur --version > %s 2>&1' % fp_tmp], 'info', '/dev/null/kurt', environment=settings.QIIME2_ENV, dry=False, use_grid=False)
-    with open(fp_tmp, 'r') as f:
-        print('using version: %s' % f.readlines()[-1].strip())
-
-    # create temp dir
-    os.makedirs('%s/inputs' % prj_data['paths']['deblur'], exist_ok=True)
-    os.makedirs('%s/deblur_res' % prj_data['paths']['deblur'], exist_ok=True)
-
-    cmds = []
-
-    # link input fastq files, but only fwd
-    # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
-    cmds.append('for f in `find %s -type f -name "%s"`; do bn=`basename $f | sed "s/_S[[:digit:]]\\+_L00[[:digit:]]_R[12]_001//"`; ln -v -s `readlink -f $f` %s/inputs/${bn}; done' % (prj_data['paths']['trimmed'], pattern_fwdfiles, prj_data['paths']['deblur']))
-
-    # deblur
-    cmds.append('deblur workflow --seqs-fp %s/inputs --output-dir %s/deblur_res --trim-length %i --jobs-to-start %i --keep-tmp-files --overwrite ' % (
-        os.path.abspath(prj_data['paths']['deblur']),
-        os.path.abspath(prj_data['paths']['deblur']),
-        trimlength,
-        ppn,
-    ))
-    prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
-    cluster_run(cmds, 'deblur', prj_data['paths']['deblur_table'], environment=settings.QIIME2_ENV, dry=False, ppn=ppn, pmem=pmem, walltime=walltime)
+    res_deblur = deblur(prj_data['paths']['trimmed'], trimlength, pattern_fwdfiles, ppn=ppn, dry=False, wait=False, walltime=walltime, pmem=pmem)
+    if res_deblur['results'] is not None:
+        # create temp dir
+        os.makedirs('%s/deblur_res' % prj_data['paths']['deblur'], exist_ok=True)
+        prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
+        pandas2biom(prj_data['paths']['deblur_table'], res_deblur['results']['reference-hit.biom'])
 
     return prj_data
 
