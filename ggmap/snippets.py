@@ -40,6 +40,7 @@ from tqdm import tqdm
 import calour as ca
 ca.set_log_level(40)
 from statannotations.Annotator import Annotator
+from io import StringIO
 
 if 'PROJ_LIB' not in os.environ:
     os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
@@ -3067,7 +3068,7 @@ def plot_confusion_matrix(y_true: pd.Series, y_pred: pd.Series,
                     ha="center", va="center",
                     color="white" if cm[i, j]-cm.min() > thresh else "black")
 
-    ax.grid(b=False, which='both', axis='both')
+    ax.grid(visible=False, which='both', axis='both')
     ax.set_ylim((-0.5, cm.shape[1]-0.5))
     ax.set_xlim((-0.5, cm.shape[0]-0.5))
 
@@ -4552,12 +4553,11 @@ def plot_calour_diffabundance_tests(diff_features:pd.DataFrame, counts:pd.DataFr
                     except KeyError:
                         ax.add_patch(mpatches.Rectangle((-0.001, i-0.475), 2, 0.95, linewidth=0, edgecolor=None, facecolor='white', alpha=0.8, zorder=5))
             if True:
-
                 if len(pairs) > 0:
                     annotator = Annotator(
                         pairs=pairs,
                         data=g, y=rank, orient='h', x='relative abundance', hue=diff_features.columns.name, ax=ax,
-                        order=feature_order.index, hue_order=states)
+                        order=feature_order.index, hue_order=list(states))
                     annotator.configure(text_format='star', loc='outside')
                     annotator.set_pvalues(pairs_pvals)
                     annotator.annotate()
@@ -4621,3 +4621,70 @@ def get_triu_dists(dm:pd.DataFrame, valuename='distance'):
     res = res.set_index([dm.index.name, dm.columns.name]).rename(columns={0: valuename})
 
     return res
+
+def parse_bcl_demuxsheet(fp_demux:str, return_all_data:bool=False):
+    """Parses a bcl demux-sheet and extracts samples.
+
+    Parameters
+    ----------
+    fp_demux : str
+        Filepath to demux file in *.csv format: , separated columns
+    return_all_data : bool
+        Default is False
+        If False, returns one pd.DataFrame with all information about samples.
+        If True, returns a dict holding all sections of the demux-sheets as
+        pd.DataFrames.
+    Returns
+    -------
+    pd.DataFrame OR dict(str: pd.DataFrame)
+    """
+    def _new_section(section_start, section_end, section_content):
+        return {'first_line': section_start,
+                'last_line': section_end,
+                'content_lines': section_content}
+
+    # read file and store lines in sections
+    sections = dict()
+    with open(fp_demux, 'r') as f:
+        section_name = None
+        section_start = None
+        section_content = []
+        for linenr, line in enumerate(f.readlines()):
+            match_section = re.search(r"^\[(.+)\],*$", line)
+            if match_section:
+                if section_name is not None:
+                    sections[section_name] = _new_section(section_start, linenr-1, section_content)
+                section_start = linenr
+                section_name = match_section.group(1)
+                section_content = []
+            else:
+                section_content.append(line)
+        sections[section_name] = _new_section(section_start, linenr-1, section_content)
+
+    # parse sections as tables
+    sections = {name: pd.read_csv(StringIO(''.join(section['content_lines'])), sep=",", dtype=str,
+                                  header=0 if name.lower().endswith('data') else None).dropna(axis=1, how='all').dropna(axis=0, how='all')
+                for name, section in sections.items()}
+
+    if return_all_data:
+        return sections
+
+    # merge _Data tables
+    samples = pd.concat([section.set_index(section.columns[0])
+                         for name, section in sections.items()
+                         if name.lower().endswith('data')], axis=1)
+    # assert no individual table has samples NOT occurring in merged table and vice versa
+    assert all([set(samples.index) == set(section.iloc[:, 0].values)
+                for name, section in sections.items()
+                if name.lower().endswith('data')])
+
+    idx_barcode_issue = set()
+    barcode_fields = ['index', 'index2']
+    for field in barcode_fields:
+        if field in samples.columns:
+            idx_barcode_issue |= set(samples[samples[field].apply(lambda x: ' ' in x)].index)
+    if len(idx_barcode_issue) > 0:
+        issues = samples.loc[list(idx_barcode_issue), barcode_fields].applymap(lambda x: '>%s<' % x.replace(' ', '.'))
+        raise ValueError("%i samples have barcodes that contain ' ', maybe at their end:\n%s" % (len(idx_barcode_issue), issues))
+
+    return samples
