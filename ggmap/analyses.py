@@ -16,6 +16,7 @@ import csv
 from glob import glob
 from IPython.display import Image
 from tqdm import tqdm
+import warnings
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -807,7 +808,7 @@ def beta_diversity(counts,
         OTU counts
     metrics : [str]
         Beta diversity metrics to be computed.
-    reference_tree : str
+    reference_tree : str OR skbio.TreeNode
         Reference tree file name for phylogenetic metics like unifrac.
     use_sklearn_parallel : bool
         For huge feature-tables, you might want to replace the Qiime2 distance
@@ -874,9 +875,14 @@ def beta_diversity(counts,
                 verbose = sys.stderr
             else:
                 verbose = executor_args['verbose']
-            writeReferenceTree(args['reference_tree'], workdir,
-                               fix_zero_len_branches, verbose=verbose,
-                               name_analysis='beta_diversity')
+            if isinstance(args['reference_tree'], TreeNode):
+                if fix_zero_len_branches:
+                    raise ValueError("You provided a skbio.TreeNode NOT a filepath to a newick file. I cannot fix zero branch length issues four you!")
+                args['reference_tree'].write(workdir+'/reference.tree')
+            else:
+                writeReferenceTree(args['reference_tree'], workdir,
+                                   fix_zero_len_branches, verbose=verbose,
+                                   name_analysis='beta_diversity')
 
         if use_sklearn_parallel:
             # copy the necessary helper python script into the working directory
@@ -1213,7 +1219,7 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
         # typically, the input is an OTU table with index holding sequences.
         # However, if provided a Pandas.Series, we expect index are sequence
         # headers and single column holds sequences.
-        asvs = counts.values()
+        asvs = counts.values
         seqs = pd.Series(index=asvs, data=asvs).sort_index()
     elif isinstance(counts, Table):
         seqs = pd.Series(index=counts.ids('observation'), data=counts.ids('observation')).sort_index()
@@ -4548,9 +4554,12 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
             R.write("res_tempted <- tempted(svd$datlist, r = %s, resolution = 101, smooth=1e-6)\n\n" % components)
 
             R.write("# export data\n")
-            R.write("write.table(res_tempted$A_hat, file=\"%s/pcs.csv\", quote=FALSE, sep=\"\\t\", col.names=NA)\n" % workdir)
+            R.write("write.table(res_tempted$Phi_hat, file=\"%s/Phi_hat.csv\", quote=FALSE, sep=\"\\t\")\n" % workdir)
+            R.write("write.table(res_tempted$A_hat, file=\"%s/A_hat.csv\", quote=FALSE, sep=\"\\t\", col.names=NA)\n" % workdir)
+            R.write("write.table(res_tempted$B_hat, file=\"%s/B_hat.csv\", quote=FALSE, sep=\"\\t\", col.names=NA)\n" % workdir)
             R.write("write.table(res_tempted$Lambda, file=\"%s/lambda.csv\", col.names=\"Lambda\", sep=\",\")\n" % workdir)
             R.write("write.table(res_tempted$r_square, file=\"%s/r_square.csv\", col.names=\"r_square\", sep=\",\")\n" % workdir)
+            R.write("write.table(datlist, file=\"%s/datlist.csv\", quote=FALSE, sep=\"\\t\")\n" % workdir)
 
         # dry = executor_args['dry'] if 'dry' in executor_args else True
         # cluster_run(['cat %s/R.script | R --vanilla' % workdir], environment=settings.TEMPTED_ENV,
@@ -4585,7 +4594,7 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
             'echo "Species\t0\t0" >> %s/ordination.txt' % workdir,
             'echo "" >> %s/ordination.txt' % workdir,
             'echo "Site\t%i\t%i" >> %s/ordination.txt' % (len(subjects), components, workdir),
-            'tail -n +2 %s/pcs.csv >> %s/ordination.txt' % (workdir, workdir),
+            'tail -n +2 %s/A_hat.csv >> %s/ordination.txt' % (workdir, workdir),
             'echo "" >> %s/ordination.txt' % workdir,
             'echo "Biplot\t0\t0" >> %s/ordination.txt' % workdir,
             'echo "" >> %s/ordination.txt' % workdir,
@@ -4614,8 +4623,62 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
         results['ordination'] = OrdinationResults.read(open('%s/ordination.txt' % workdir))
 
         results['subject_metadata'] = pd.read_csv('%s/subject_metadata.tsv' % workdir, sep="\t", index_col=0)
+        results['temporal_loadings'] = pd.read_csv('%s/Phi_hat.csv' % workdir, sep="\t")
+        results['feature_loadings'] = pd.read_csv('%s/B_hat.csv' % workdir, sep="\t", index_col=0)
+        results['datlist'] = pd.read_csv('%s/datlist.csv' % workdir, sep="\t")
 
         return results
+
+    def post_cache(cache_results, pct=0.05, field='experiment'):
+        """
+        Parameters
+        ----------
+        pct : float
+            Percentage of top/bottom ASVs whose abundance shall be combined and log ratio plotted.
+        """
+        fig, axes = plt.subplots(1, 1 + components, figsize=(5*(1+components), 5))
+        ax = axes[0]
+
+        # plot temporal loadings
+        tempload = cache_results['results']['temporal_loadings'].stack().reset_index().rename(columns={'level_0': 'time', 'level_1': 'Component', 0: 'value'})
+        minmaxtime = (meta[COL].min(), meta[COL].max())
+        maxtemptedtime = tempload['time'].max()
+        tempload['time'] = tempload['time'].apply(lambda x: ((minmaxtime[1] - minmaxtime[0]) / maxtemptedtime * x) + minmaxtime[0])
+        sns.lineplot(tempload, x='time', y='value', hue='Component', ax=ax)
+        ax.set_ylabel('Temporal Loading')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title='Component')
+
+        # plot component loading
+        datlist = cache_results['results']['datlist'].iloc[1:, :]
+        pseudo = datlist.stack()[datlist.stack() != 0].min() / 2
+        res = []
+        for component in cache_results['results']['feature_loadings'].columns:
+            top = datlist.loc[cache_results['results']['feature_loadings'][component].sort_values()[:int(cache_results['results']['feature_loadings'].shape[0] * pct)].index, :].sum()
+            bottom = datlist.loc[cache_results['results']['feature_loadings'][component].sort_values()[-1 * int(cache_results['results']['feature_loadings'].shape[0] * pct):].index, :].sum()
+            res.append(np.log((bottom + pseudo) / (top + pseudo)).rename(component))
+        res = pd.concat(res, axis=1)
+        res.index = list(map(lambda x: '.'.join(x.split('.')[1:]), res.index))
+        cache_results['results']['ratio_feature'] = res
+
+        plotdata = meta.merge(cache_results['results']['ratio_feature'], left_index=True, right_index=True, how='right')
+        plotdata[COL+'normalized'] = plotdata[COL].apply(lambda x: ((minmaxtime[1] - minmaxtime[0]) / meta[COL].max() * x) + minmaxtime[0])
+        for ax, pc in zip(axes[1:], cache_results['results']['ratio_feature'].columns):
+            ax.set_title(pc)
+            ax.set_xlabel('time')
+            for grp, g in plotdata.groupby(field):
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore', np.RankWarning)
+                    sns.regplot(data=g.dropna(subset=pc), y=pc, x=COL+'normalized', ci=95, order=3, ax=ax, label=grp)
+                if ax == axes[-1]:
+                    ax.legend(title=field, bbox_to_anchor=(1.05, 1), loc='upper left')
+            dataminmax = (plotdata[pc].min(), plotdata[pc].max())
+            ax.set_ylim((dataminmax[0] - (dataminmax[1] - dataminmax[0]) * 0.1,
+                         dataminmax[1] + (dataminmax[1] - dataminmax[0]) * 0.1))
+            ax.set_xlabel('time')
+
+        cache_results['results']['figure'] = fig
+
+        return cache_results
 
     return _executor('tempted',
                      {'counts': counts_internal.fillna(0.0),
@@ -4624,6 +4687,7 @@ def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
                      pre_execute,
                      commands,
                      post_execute,
+                     post_cache,
                      environment=environment,
                      ppn=ppn,
                      pmem=pmem,
@@ -4916,7 +4980,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
 def QC(dir_fastqs:str,
        pattern_fwdfiles:str="*_R1_*.fastq.gz",
        r1r2_replace:(str, str)=("_R1_", "_R2_"),
-       no_rev_seqs:bool=False,
+       no_rev_seqs:bool=False, force_interactive=False,
        ppn:int=1, pmem:str='2GB', environment:str=settings.SPIKE_ENV,
        **executor_args):
     """Generates multiQC reports for all fastq files in a directory.
@@ -4932,6 +4996,10 @@ def QC(dir_fastqs:str,
         can be identified from forward fastQ files.
     no_rev_seqs : Boolean
         If True, no R2 (=reverse) reads are expected, i.e. processed
+    force_interactive : Boolean
+        Default False. Enforce creation of --interactive plots. Only useful if
+        you keep the TMP directory via dirty=True, might lead to very large
+        memory consumption of your browser.
     """
     files_fwd = []
     files_rev = []
@@ -4977,8 +5045,11 @@ def QC(dir_fastqs:str,
         for direction in directions:
             fp_outdir = '%s/%s/multiqc_data/' % (workdir, direction)
             fp_report = '%s/%s/multiqc_report.html' % (workdir, direction)
-            commands['post'].append('multiqc --filename %s --outdir %s --flat %s/%s' % (
-                fp_report, fp_outdir, workdir, direction
+            param_interactive = ''
+            if force_interactive:
+                param_interactive = ' --interactive '
+            commands['post'].append('multiqc %s --filename %s --outdir %s --flat %s/%s' % (
+                param_interactive, fp_report, fp_outdir, workdir, direction
             ))
 
         return commands
@@ -5578,16 +5649,16 @@ done
                 results['too_short_isolate_sequences'] = ''.join(f.readlines())
 
         return results
-
-    def post_cache(cache_results):
+#, palette=None, feature_order=None, hue_order=None
+    def post_cache(cache_results, max_evalue=10**-10, max_mismatch=5, min_pident=97, min_length_diff=10):
         if 'too_short_isolate_sequences' in cache_results['results'].keys():
             print(cache_results['results']['too_short_isolate_sequences'])
 
         hits = cache_results['results']['blast_hits']
-        filtered_hits = hits[(hits['evalue'] < 10**-10) &           # ignore too bad hits
-                             (hits['length'] > hits['qlen'] - 10) & # at most 10 nucleotids of ASV shall be missing in match
-                             (hits['mismatch'] <= 5) &              # no more than 5 mismatches
-                             (hits['pident'] >= 97)]                # assuming 97% sequence identity is species radius
+        filtered_hits = hits[(hits['evalue'] < max_evalue) &                     # ignore too bad hits
+                             (hits['length'] > hits['qlen'] - min_length_diff) & # at most 10 nucleotids of ASV shall be missing in match
+                             (hits['mismatch'] <= max_mismatch) &                # no more than 5 mismatches
+                             (hits['pident'] >= min_pident)]                     # assuming 97% sequence identity is species radius
 
         cols_hitquality = ['evalue', 'bitscore', 'qlen', 'pident', 'nident', 'qcovs', 'mismatch', 'gapopen', 'qaccver']
         sort_hitquality = [True, False, False, False, False, False, True, True, True]
@@ -5913,6 +5984,133 @@ def trainGG138(fp_basedir_taxonomy='/vol/jlab/MicrobiomeAnalyses/References/gg_1
                      environment=settings.QIIME2_ENV,
                      ppn=ppn,
                      pmem=pmem,
+                     **executor_args)
+
+def deblur(dir_fastqs:str, trimlength:int=150,
+           pattern_fwdfiles:str="*_R1_001.fastq.gz",
+           ppn=10, pmem:str='2GB', walltime='4:00:00',
+           **executor_args):
+    """Executes deblur on all fastq.gz files in the dir_fastqs in a highly parallel fashion.
+
+    Parameters
+    dir_fastq : str
+        Filepath to directory containing fastq files that shall be deblurred.
+    trimlength : int
+        Number of nucleotides per read used for ASV calling.
+    pattern_fwdfiles : str
+        Unix pattern identify fastq files.
+
+    Returns
+    -------
+
+    Notes
+    -----
+    ppn specifies number of fastq files that shall be processed by one deblur job.
+    However, if you provide more fastq files, an array job is executed on the slurm-
+    cluster, such that you can have MUCH more fastq files being processed in parallel.
+    """
+
+    # obtain list of input files
+    input_fastqs = sorted(glob(os.path.join(dir_fastqs, pattern_fwdfiles)))
+    # compute number of chunks
+    chunks = range(0, len(input_fastqs), ppn)
+
+    def pre_execute(workdir, args):
+        os.makedirs('%s/final_results' % workdir, exist_ok=True)
+        exp_samplenames = []
+        for chunknr, chunkoffset in enumerate(chunks):
+            fps = input_fastqs[chunkoffset:chunkoffset + ppn]
+
+            os.makedirs('%s/inputs/inputs_chunk_%i' % (workdir, chunknr+1), exist_ok=True)
+            os.makedirs('%s/chunked_results/results_chunk_%i' % (workdir, chunknr+1), exist_ok=True)
+
+            # link input fastq files, but only fwd
+            # ensure that bcl2fastq suffixed to sample names are chopped of, e.g. _S75_L001_R1_001
+            for fp in fps:
+                cleaned_samplename = re.sub(r"_S\d+(_L00\d)?_R[12]_001", "", os.path.basename(fp))
+                exp_samplenames.append(re.sub(r"\.f(ast)?q\.gz$", "", cleaned_samplename))
+                fp_target = os.path.join(workdir, 'inputs', 'inputs_chunk_%i' % (chunknr+1), cleaned_samplename)
+                if not os.path.exists(fp_target):
+                    # Input files as softlinks are a bit problematic, as deblur resolves those links
+                    # to their original sources and uses the source filename as sample_name.
+                    # We therefore need to create a hard- (not a soft-) link to the original
+                    # fastq file and use the filename of the provided link to ensure this
+                    # one is used in the resulting biom file
+                    os.link(os.path.realpath(fp), fp_target)
+        with open('%s/expected_sample_names.txt' % workdir, 'w') as f:
+            f.write('\n'.join(exp_samplenames) + '\n')
+
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        commands['main'].append((
+            'deblur workflow '
+            '--seqs-fp %s/inputs/inputs_chunk_${%s} '
+            '--output-dir %s/chunked_results/results_chunk_${%s} '
+            '--trim-length %i '
+            '--jobs-to-start %i '
+            '--keep-tmp-files '
+            '--overwrite '
+            '--log-file %s/chunked_results/deblur.logfile.${%s}') % (
+                workdir, settings.VARNAME_PBSARRAY,
+                workdir, settings.VARNAME_PBSARRAY,
+                trimlength,
+                ppn,
+                workdir, settings.VARNAME_PBSARRAY
+            ))
+
+        return commands
+
+    def post_execute(workdir, args):
+        results = dict()
+
+        exp_samplenames = []
+        with open('%s/expected_sample_names.txt' % workdir) as f:
+            for line in f.readlines():
+                exp_samplenames.append(line.strip())
+
+        for biomtype in ['all.biom', 'reference-hit.biom', 'reference-non-hit.biom']:
+            fps_parts = glob(os.path.join(workdir, 'chunked_results', 'results_chunk_*', biomtype))
+
+            single_tables = []
+            for fp_part in tqdm(fps_parts, "collecting %i chunked %s tables" % (len(fps_parts), biomtype)):
+                with biom_open(fp_part) as f:
+                    single_tables.append(Table.from_hdf5(f))
+            if len(single_tables) > 0:
+                merged_table = single_tables[0].merge(single_tables[1:], sample="union", observation="union")
+                fp_merged = '%s/final_results/%s' % (workdir, biomtype)
+                with biom_open(fp_merged, "w") as f:
+                    merged_table.to_hdf5(f, "example")
+            else:
+                print("No chunked deblur tables found for type %s?!" % biomtype, file=sys.stderr)
+            results[biomtype] = biom2pandas(fp_merged).fillna(0)
+            missing_samples = set(exp_samplenames) - set(results[biomtype].columns)
+            if (len(missing_samples) > 0) and (biomtype != 'reference-non-hit.biom'):
+                print(
+                    ("%i of your input fastq files have missing samples in the "
+                     "generated deblur %s feature-table!\nThis might be due to "
+                     "too few bacterial reads OR some technical issues with "
+                     "this call. Please double check samples:\n\t%s") % (
+                        len(missing_samples),
+                        biomtype,
+                        '\n\t'.join(sorted(list(missing_samples)))), file=sys.stderr)
+
+        return results
+
+    return _executor('deblur',
+                     {'dir_fastqs': os.path.abspath(dir_fastqs),
+                      'hash_filenames': ','.join(map(os.path.basename, input_fastqs)),  # a hack to make the cache sensitive to file name (proxy for sample name) sensitive
+                      'trimlength': trimlength,
+                      'pattern_fwdfiles': pattern_fwdfiles,
+                      },
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=settings.QIIME2_ENV,
+                     ppn=ppn,
+                     pmem=pmem,
+                     walltime=walltime,
+                     array=len(chunks),
                      **executor_args)
 
 
