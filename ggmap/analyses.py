@@ -5755,8 +5755,8 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
     if blast_type not in valid_types:
         raise ValueError("blast_type must be one of %s" % ', '.join(map(lambda x: "'%s'" % x, valid_types)))
         
-    #Validates that outformat contains a number between 0-20
-    if not (outformat.split()[0].isdigit() and 0 <= int(outformat.split()[0]) <= 20):
+    #Validates that outformat contains a number between 0-18
+    if not (outformat.split()[0].isdigit() and 0 <= int(outformat.split()[0]) <= 18):
         raise ValueError(f"Invalid outformat: '{outformat.split()[0]}' expected a number between 0 and 20")
         
     #Database is choosen depending on blast_type
@@ -5787,30 +5787,15 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
             max_target_seqs,
             max_evalue
         ))
-    #Validate that outformat contains 'saccver' and 'sallseqid' for taxonomy/lineage
-        #outformat_list = outformat.split()
-        
-        #if 'saccver' not in outformat_list:
-            #raise ValueError("Custom tabular outformat must include 'saccver' for taxonomy/lineage extraction.")"""
-
-        #accession_col = outformat_list.index('saccver')
-        
         commands['main'].append('cat %s/blastres.$var_num | cut -f %i | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
             workdir,
             outformat_list.index('saccver'),
-            #accession_col,
             os.path.abspath(fp_db),
             workdir
         ))
-        #if 'sallseqid' not in outformat_list:
-            #raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")"""
-        
-        #accession_col = outformat_list.index('sallseqid')
-        
         commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
             workdir,
             outformat_list.index('sallseqid'),
-            #accession_col,
             os.path.dirname(os.path.abspath(fp_db)),
             workdir
         ))
