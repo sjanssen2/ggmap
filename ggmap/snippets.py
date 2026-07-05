@@ -1,46 +1,53 @@
+import os
+from io import StringIO
 import decimal
 from typing import Dict
-import pandas as pd
-import biom
-from biom.util import biom_open
-from itertools import repeat, chain, cycle
-import numpy as np
-import matplotlib as mpl
-import matplotlib.patches as mpatches
-from matplotlib.font_manager import FontProperties
-import os
-import seaborn as sns
-import matplotlib.pyplot as plt
 import subprocess
 import sys
 import time
-from itertools import combinations
-from skbio.stats.distance import permanova, DistanceMatrix
-from scipy.stats import mannwhitneyu, kruskal
-import networkx as nx
+from itertools import repeat, chain, cycle, combinations
 import warnings
-import matplotlib.cbook
 import random
 from tempfile import mkstemp
 import pickle
-from ggmap import settings
 import re
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.multiclass import unique_labels
 from sklearn.metrics import confusion_matrix
-from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
 import math
-from skbio.sequence import DNA
-from skbio.tree import TreeNode
 from wordcloud import WordCloud
 import requests
 from tqdm import tqdm
 import calour as ca
 ca.set_log_level(40)
 from statannotations.Annotator import Annotator
-from io import StringIO
+import colorsys
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+import matplotlib.cbook
+from matplotlib.font_manager import FontProperties
+import matplotlib.colors as mcolors
+
+import networkx as nx
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from scipy.stats import mannwhitneyu, kruskal, false_discovery_control
+
+import biom
+from biom.util import biom_open
+
+from skbio.stats.distance import permanova, DistanceMatrix
+from skbio.sequence import DNA
+from skbio.tree import TreeNode
+
+from ggmap import settings
+
 
 if 'PROJ_LIB' not in os.environ:
     os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
@@ -49,6 +56,14 @@ from mpl_toolkits.basemap import Basemap
 settings.init()
 plt.rcParams['svg.fonttype'] = 'none'
 
+NICE_METRICS = {
+    'shannon': 'Shannon',
+    'observed_features': 'number observed ASVs',
+    'PD_whole_tree': 'Faith\'s PD',
+
+    'bray_curtis': 'Bray-Curtis',
+    'unweighted_unifrac': 'unweighted UniFrac',
+    'weighted_unifrac': 'weighted UniFrac'}
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
     """ Converts a biom file into a Pandas.DataFrame
@@ -3944,6 +3959,45 @@ def sync_counts_metadata(featuretable: pd.DataFrame, metadata: pd.DataFrame, ver
     return (sub_featuretable, sub_metadata)
 
 
+def sync_distances_metadata(beta_diversity: dict[str: DistanceMatrix], metadata: pd.DataFrame, verbose=sys.stderr):
+    """Subsets samples that appear in distance matrix and metdata.
+
+    Parameters
+    ----------
+    beta_diversity : dict[str: DistanceMatrix]
+        A dictionary of square, non-negative distance matrix. Key is metric name, values are skbio DistanceMatrix
+    metadata : pd.DataFrame
+        metadata information for samples.
+
+    Returns
+    -------
+    (beta_diversity: dict of DistanceMatrix, metadata: pd.DataFrame)
+    """
+    metrics = list(sorted(beta_diversity.keys()))
+
+    # limit to samples that are present in ALL distance matrices
+    sids_in_all_dms = set(beta_diversity[metrics[0]].ids)
+    for metric in metrics[1:]:
+        sids_in_all_dms &= set(beta_diversity[metric].ids)
+    if len(sids_in_all_dms) <= 0:
+        raise ValueError("Your distance matrices containe non-overlapping samples!")
+
+    # further limit set of samples to those that are also present in metadata
+    sids_in_all_dms &= set(metadata.index)
+    if len(sids_in_all_dms) <= 0:
+        raise ValueError("No samples common in DistanceMatrices and metadata!")
+
+    sub_distances = {metric: beta_diversity[metric].filter([s for s in beta_diversity[metric].ids if s in metadata.index if s in sids_in_all_dms])
+                     for metric in beta_diversity.keys()}
+    sub_metadata = metadata.loc[[s for s in metadata.index if s in sids_in_all_dms]]
+
+    if (sub_distances[metrics[0]].shape[0] < beta_diversity[metrics[0]].shape[0]) or (sub_metadata.shape[0] < metadata.shape[0]):
+        if verbose is not None:
+            verbose.write('Reduced to %i samples (DistanceMatrices had %i, metadata had %i samples)\n' % (sub_metadata.shape[0], beta_diversity[metrics[0]].shape[0], metadata.shape[0]))
+
+    return (sub_distances, sub_metadata)
+
+
 def check_column_presents(metadata: pd.DataFrame, column_names: [str]):
     missing_columns = []
     for colname in column_names:
@@ -4137,8 +4191,6 @@ def plot_circles(meta: pd.DataFrame, cols_grps: Dict[str, str]=None, colors: Dic
 
 def adjust_saturation(color, amount=0.5):
     # copied from https://stackoverflow.com/questions/37765197/darken-or-lighten-a-color-in-matplotlib
-    import matplotlib.colors as mc
-    import colorsys
     try:
         c = mc.cnames[color]
     except:
@@ -4688,3 +4740,475 @@ def parse_bcl_demuxsheet(fp_demux:str, return_all_data:bool=False):
         raise ValueError("%i samples have barcodes that contain ' ', maybe at their end:\n%s" % (len(idx_barcode_issue), issues))
 
     return samples
+
+def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, time:str, time_order:[str], hue_field:str, hue_order:[str], hue_palette=None, width_factor=0.3, stratification=None, stratification_order:[str]=[], min_num_samples:int=21):
+    """For data with multiple time points: box-plots for alpha diversity along temporal axis, stratefied into small number of groups.
+
+    Parameters
+    ----------
+    alpha_diversity : pd.DataFrame
+        Dataframe with multiple alpha diversity metrics as columns and samples as rows.
+    metadata : pd.DataFrame
+        Dataframe with information about samples.
+    time : str
+        Column in metadata table that discriminates time points.
+    time_order : [str]
+        An ordered list of all timepoint values in metadata[time]
+    hue_field : str
+        Column in metadata table that discriminates groups of samples at each time point.
+    hue_order : [str]
+        An ordered list of all group values in metadata[hue_field]
+    hue_palette : dict[str, str]
+        A dictionary as a palette for hue values.
+    stratification : str
+        Default: None
+        Column in metadata table to stratify samples. Each group will result
+        in an extra column of panels.
+    stratification_order : [str]
+        Default: []
+        Order in which strata shall be plotted as columns of panels.
+    min_number_samples : int
+        Default: 21.
+        Minimal number of samples to perform a Mann-Whitney-Test
+    """
+    (a, metadata) = sync_counts_metadata(alpha_diversity.T, metadata)
+    alpha_diversity = a.T
+
+    check_column_presents(metadata, [time, hue_field] + ([] if stratification is None else [stratification]))
+
+    missing_time = set(metadata[time].unique()) - set(time_order)
+    if len(missing_time) > 0:
+        raise ValueError("Missing values '%s' in time_order!" % "','".join(map(str, missing_time)))
+    missing_hue = set(metadata[hue_field].unique()) - set(hue_order)
+    if len(missing_hue) > 0:
+        raise ValueError("Missing values '%s' in hue_order!" % "','".join(map(str, missing_hue)))
+
+    fig, axes = None, None
+    if stratification is not None:
+        samplesites = sorted(metadata[stratification].dropna().unique())
+        if len(stratification_order) == 0:
+            non_existant_strata = set(stratification_order) - set(samplesites)
+            if len(non_existant_strata) > 0:
+                raise ValueError("You provided %i strate in via 'stratification_order=[...]', but the following do not exist in your data!\n  " % (len(non_existant_strata), '\n  '.join(non_existant_strata)))
+            # follow given order and append non specified strata
+        stratification_order = stratification_order + list(set(samplesites) - set(stratification_order))
+        fig, axes = plt.subplots(len(samplesites), alpha_diversity.shape[1],
+                                 figsize=(width_factor * len(time_order) * len(hue_order) * len(samplesites), alpha_diversity.shape[1] * 5),
+                                 gridspec_kw={'hspace': 0.25}, squeeze=False)
+    else:
+        samplesites, stratification_order = [''], ['']
+        fig, axes = plt.subplots(alpha_diversity.shape[1], 1,
+                                 figsize=(width_factor * len(time_order) * len(hue_order), alpha_diversity.shape[1] * 5),
+                                 gridspec_kw={'hspace': 0.25}, squeeze=False)
+    #hue_order = ['never', 'up to 6 months', 'more than 6 months']
+    #hue_field = 'smj_breastfeed_bin'
+    #time, time_order = 'smj_age_class', ['Newborn', 'Infant', 'Toddler', 'Early childhood', 'Middle childhood', 'Early adolescence', 'Adult']
+    #time, time_order = 'smj_role_time', ['control', 'a', 'b', 'c', 'd', 'e']
+    num_sign = 0
+    num_p_sign = 0
+    for row, (axrow, metric) in enumerate(zip(axes, alpha_diversity.columns)):
+        for col, (ax, samplesite) in enumerate(zip(axrow, stratification_order)):
+            num_sig_tests = 0
+            if samplesites != ['']:
+                plotdata = metadata[(metadata[stratification] == samplesite)]
+            else:
+                plotdata = metadata
+            pres_order = [tp for tp in time_order if tp in plotdata[time].unique()]
+            sns.boxplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, legend=True, hue=hue_field, showfliers=False, hue_order=hue_order, palette=hue_palette)
+            xpos = []
+            for patch in ax.patches:
+                if isinstance(patch, matplotlib.patches.PathPatch):
+                    bbox = patch.get_path().get_extents()
+                    xpos.append((bbox.x1 - bbox.x0) / 2 + bbox.x0)
+            xpos = sorted(xpos)
+            sns.stripplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, hue=hue_field, dodge=True, palette='gray', legend=False, hue_order=hue_order)
+
+            if col == 0:
+                ax.set_ylabel("α-diversity\n%s" % NICE_METRICS[metric])
+            else:
+                ax.set_ylabel("")
+            if row == 0:
+                ax.set_title(samplesite)
+            ns = plotdata.groupby(time, observed=False).size()#.to_dict()
+            ns.index = ns.index.astype('str')
+            ns = ns.to_dict()
+
+            ax.set_xticks(ax.get_xticks(), ['n=%i\n%s' % (ns.get((t.get_text()), 0), t.get_text()) for t in ax.get_xticklabels()])
+            ax.set_xlabel("")
+
+            ns_hue = plotdata.groupby([time, hue_field], observed=False).size().to_dict()
+            threshold = min_num_samples
+            tests = [((tp, catA), (tp, catB))
+                     for tp in pres_order
+                     for (catA, catB) in combinations(hue_order, 2)
+                     if ns_hue.get((tp, catA), 0) >= threshold
+                     if ns_hue.get((tp, catB), 0) >= threshold]
+            if True and (len(tests) > 0):
+                annotator = Annotator(ax, tests, data=plotdata, y=metric, x=time, order=pres_order, hue=hue_field, hue_order=hue_order)
+                annotator.configure(test='Mann-Whitney', text_format='star', loc='inside', comparisons_correction="fdr_bh", correction_format="default", verbose=0)
+                _ = annotator.apply_and_annotate()
+                num_sig_tests = sum([1 if t.__dict__['data'].__dict__['_corrected_significance'] == True else 0 for t in annotator.__dict__['annotations']] )
+                num_p_sign += sum([1 if t.__dict__['data'].__dict__['pvalue'] == True else 0 for t in annotator.__dict__['annotations']] )
+            num_sign += num_sig_tests
+
+            offset = 0.2
+            axTop = ax.twiny()
+            #xpos = [ x + ((hue - (len(hue_order) - (1 if len(hue_order) % 2 == 0 else 0)) / 2) * (1 - offset) / len(hue_order))
+            #         for x in range(len(pres_order))
+            #         for hue in range(len(hue_order))]
+            xlabels = [ ns_hue[(x, hue)]
+                        for x in pres_order
+                        for hue in hue_order if (x, hue) in ns_hue.keys() ]
+            axTop.set_xticks(xpos, xlabels)
+            axTop.set_xlim(ax.get_xlim())
+            axTop.grid(False)
+            if ((len(samplesites) > 1) and (row == 0) and (col == 2)) or ((len(samplesites) == 1) and (row == 0) and (col == 0)):
+                ax.legend(bbox_to_anchor=(1.1, 1.05))
+            else:
+                ax.legend().remove()
+
+    if num_sign <= 0:
+        print("Alpha: No significant differences found!")
+
+    fig.suptitle('(p < 0.05: %i, q < 0.05: %i)' % (num_p_sign, num_sign))
+
+    return fig
+
+
+def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.DataFrame,
+                         time:str, time_order:[str], hue_field:str, hue_paired_order:[(str, str)]=[], hue_palette=None, stratification=None,
+                         enforce_same:[str]=[], min_num_samples:int=5,
+                         num_permutations:int=999, fp_figures=None, precomputed_results=None, add_stripplot:bool=False, show_num_data:bool=False):
+    """For data with multiple time points: box-plots for beta diversity pairwise comparisons along temporal axis; one row of panels per stratefied group.
+
+    Parameters
+    ----------
+    beta_diversity : dict[str, pd.DataFrame]
+        A dictionary of multiple skbio.DistanceMatrix objects. Key is name of metric.
+    metadata : pd.DataFrame
+        Dataframe with information about samples.
+    time : str
+        Column in metadata table that discriminates time points.
+    time_order : [str]
+        An ordered list of all timepoint values in metadata[time]
+    hue_field : str
+        Column in metadata table that discriminates groups of samples at each time point.
+    hue_paired_order : [(str, str)]
+        An ordered list of pairs of group values for comparisons, must name all possible pairs of group values in metadata[hue_field]
+    hue_palette : dict[str, str]
+        A dictionary as a palette for hue values.
+    stratification : str
+        Default: None
+        Column in metadata table to stratify samples. Each group will result
+        in an figure.
+    enforce_same : [str]
+        Only consider pairwise distances where both samples have the same
+        values for these metadata columns
+    min_number_samples : int
+        Default: 5.
+        Minimal number of samples to perform a PERMANOVA-Test
+    num_permutations : int
+        Number of permutations in PERMANOVA. Default is 999.
+    fp_figures : str
+        Default is None.
+        If set to a valid filepath (directory will be created), each figure is
+        stored as an SVG.
+    precomputed_results : dict()
+        Pass the return value of a previous run of this function to save re-computing distances and
+        statistical tests.
+    add_stripplot : bool
+        Default is False. Enable more insights into data by overlying boxplots with
+        stripplots of the same data.
+    show_num_data : bool
+        Default is False.
+        Mainly for debugging. In addition to n=sample numbers also print d=x,
+        where x is number of pairwise distances.
+    """
+    sign_type = 'q-value'
+    beta_diversity, metadata = sync_distances_metadata(beta_diversity, metadata)
+
+    check_column_presents(metadata, [time, hue_field] + ([] if stratification is None else [stratification]) + enforce_same)
+    missing_time = set(metadata[time].unique()) - set(time_order)
+    if len(missing_time) > 0:
+        raise ValueError("Missing values '%s' in time_order!" % "','".join(map(str, missing_time)))
+
+    def _order_hue_pairs(metadata, hue_field, hue_paired_order):
+        expected_hue_pairs = list(combinations(metadata[hue_field].dropna().unique(), 2))
+        final_order = []
+        covered_pairs = []
+        unexpected_pairs = []
+        for (a, b) in hue_paired_order:
+            if (a, b) in expected_hue_pairs:
+                covered_pairs.append((a, b))
+            elif (b, a) in expected_hue_pairs:
+                covered_pairs.append((b, a))
+            else:
+                unexpected_pairs.append((a, b))
+        if len(unexpected_pairs) > 0:
+            raise ValueError("You defined the following %i pairs in hue_paired_order=... but at least one of their partners does not exist in your metadata[%s] column!\n  " % (
+                len(unexpected_pairs), hue_field, '\n  '.join(map(lambda x: '(%s, %s)' % (x[0], x[1]), unexpected_pairs))))
+        final_order = hue_paired_order + [p for p in expected_hue_pairs if p not in covered_pairs]
+        # ensure a < b for each pair
+        final_order = [(a, b) if a <= b else (b, a) for (a, b) in final_order]
+        return final_order
+    hue_paired_order = _order_hue_pairs(metadata, hue_field, hue_paired_order)
+
+    results = {'dists': [], 'infos': dict(), 'figures': dict()}
+    infos = dict()
+    dists = []
+    if stratification is not None:
+        samplesites = sorted(metadata[stratification].dropna().unique())
+    else:
+        samplesites = ['']
+    #figures = dict()
+    if precomputed_results is None:
+        for row, metric in tqdm(enumerate(beta_diversity.keys()), "1/3 Collecting distances"):
+            dm = beta_diversity[metric].to_data_frame()
+            dm.index.name = 'reference_sample_name'
+            dm.columns.name = 'other_sample_name'
+
+            for col, samplesite in enumerate(samplesites):
+                if samplesites != ['']:
+                    plotdata = metadata[(metadata[stratification] == samplesite)]
+                else:
+                    plotdata = metadata
+                plotdata = plotdata.loc[[s for s in dm.index if s in plotdata.index], :]
+                for agebin, g in plotdata.groupby(time):
+                    ns = g[hue_field].value_counts()
+                    for (a, b) in combinations(ns.index, 2):
+                        (a, b) = tuple(sorted([a, b]))
+                        sidx = g[g[hue_field].isin([a, b])].index
+                        cmp = (a, b)
+                        for (_a, _b) in [(a, a), (b, b), (a, b)]:
+                            d = None
+                            if _a == _b:
+                                d = get_triu_dists(dm.loc[list(g[g[hue_field] == _a].index), list(g[g[hue_field] == _b].index)]).reset_index()
+                            else:
+                                d = dm.loc[list(g[g[hue_field] == _a].index), list(g[g[hue_field] == _b].index)].stack().rename('distance').reset_index()
+                            for forced_col in enforce_same:
+                                filter = metadata.loc[d['reference_sample_name'].values, forced_col].values == metadata.loc[d['other_sample_name'].values, forced_col].values
+                                d = d[filter]
+                            d['metric'] = metric
+                            d[stratification] = samplesite
+                            d[time] = agebin
+                            d['reference_' + hue_field] = _a
+                            d['other_' + hue_field] = _b
+                            d['cmp'] = ' vs. '.join(cmp)
+                            _type = 'inter' if (_a != _b) else 'intra %s' % _a
+                            d['type'] = _type
+                            joined_hue = [hue_paired_order.index(cmp), 1 if (_a != _b) else (0 if _a == cmp[0] else 2)]
+                            d['joined_hue'] = '@'.join(map(str, joined_hue))
+                            results['dists'].append(d)
+
+                            ikey = tuple([metric, samplesite, agebin, a, b, _type.split()[0], _a, '@'.join(map(str, joined_hue))])
+                            if _type != 'inter':
+                                results['infos'][ikey] = {'n': ns.get(_a, 0)}
+                        ikey = tuple([metric, samplesite, agebin, a, b, 'inter', None, '@'.join(map(str, [hue_paired_order.index(cmp), 1]))])
+                        if ns.loc[[a, b]].min() >= min_num_samples:
+                            res_perm = permanova(DistanceMatrix(data=dm.loc[sidx, sidx], ids=sidx), g.loc[sidx, hue_field], permutations=num_permutations)
+                        else:
+                            res_perm = {'p-value': np.nan}
+                        results['infos'][ikey] = {'p-value': res_perm['p-value']}
+                        if results['infos'][ikey]['p-value'] < 0.05:
+                            print("  ", '%.3f' % res_perm['p-value'], metric, samplesite, agebin, ns.loc[a], ns.loc[b], a, ' <-> ', b, dm.loc[sidx, sidx].shape)
+        results['dists'] = pd.concat(results['dists'])
+        results['infos'] = pd.DataFrame(results['infos']).T.reset_index()
+        results['infos'].columns = ['metric', stratification, time, hue_field + '_a', hue_field + '_b', 'type', 'sub_' + hue_field, 'joined_hue', 'n_samples', 'p-value']
+    else:
+        results = precomputed_results
+        results['infos'] = results['infos'].reset_index()
+
+    print("2/3 Collecting meta information", file=sys.stderr)
+    if 'inter' not in hue_palette.keys():
+        hue_palette['inter'] = 'gray'
+    results['infos']['color'] = results['infos'].apply(lambda row: hue_palette['inter'] if row['type'] == 'inter' else hue_palette[row['sub_' + hue_field]], axis=1)
+    grouping_columns = ['metric'] + ([stratification] if stratification is not None else [])
+    for _, g in results['infos'].groupby(grouping_columns):
+        ps = g['p-value'].dropna()
+        results['infos'].loc[ps.index, 'q-value'] = false_discovery_control(ps.values, method='bh')
+    results['infos'] = results['infos'].set_index(grouping_columns).sort_index()
+
+    joined_hue_order = []
+    for s in sorted(results['dists']['joined_hue'].unique()):
+        if len(joined_hue_order) > 0 and joined_hue_order[-1].split('@')[0] != s.split('@')[0]:
+            joined_hue_order.append("spacer_%i" % len(joined_hue_order))
+        joined_hue_order.append(s)
+
+    palette = results['infos'].loc[results['infos'].index[0]].groupby(['joined_hue', 'color']).size().reset_index().set_index('joined_hue')['color'].to_dict()
+    for h in joined_hue_order:
+        if h.startswith('spacer_'):
+            palette[h] = 'black'
+        elif h not in palette.keys():
+            palette[h] = 'gray'
+
+    width = 0.8  # seaborn default
+    box_width = width / len(joined_hue_order)
+    positions = [-width/2 + box_width * (i + 0.5) for i in range(len(joined_hue_order)) if not joined_hue_order[i].startswith('spacer_')]
+
+    num_sign_results = 0
+
+    def _adjust_color(color, lightness_factor=1.3, saturation_factor=0.9):
+        # Wandelt "red", "#ff0000", (1,0,0) etc. einheitlich in RGB um
+        rgb = mcolors.to_rgb(color)
+        h, l, s = colorsys.rgb_to_hls(*rgb)
+        l = min(1, l * lightness_factor)
+        s = s * saturation_factor
+        return colorsys.hls_to_rgb(h, l, s)
+    strip_palette = {k: _adjust_color(v) for k,v in palette.items()}
+
+    for group, g in tqdm(results['dists'].groupby(grouping_columns), "3/3 stat. testing and plotting"):
+        num_signs = dict()
+        for t in ['p-value', 'q-value']:
+            num_signs[t] = (results['infos'].loc[group][t].dropna() < 0.05).value_counts().to_dict().get(True, 0)
+        if num_signs[sign_type] <= 0:
+            continue
+        num_sign_results += 1
+
+        fig, axes = plt.subplots(1, len(time_order), figsize=(len(time_order) * 4, 5/3*len(hue_paired_order)), sharey=True, gridspec_kw={'wspace': 0.35})
+
+        for (ax, ageclass) in zip(axes, time_order):
+            ax.set_title(ageclass)
+            ax.set_xlabel(NICE_METRICS.get(group[0], group[0]))
+            plotdata = g[g[time] == ageclass].copy()
+            ndists = plotdata.groupby(['joined_hue']).size().to_dict()
+            if plotdata.shape[0] > 0:
+                sns.boxplot(data=plotdata, orient='h', x='distance', ax=ax, hue='joined_hue', hue_order=joined_hue_order, palette=palette, legend=False, showfliers=not add_stripplot)
+                if add_stripplot:
+                    sns.stripplot(data=plotdata, orient='h', x='distance', ax=ax, hue='joined_hue', hue_order=joined_hue_order, palette=strip_palette, dodge=True, legend=False)
+                axRight = ax.twinx()
+                axRight.set_ylim(ax.get_ylim())
+
+                # labels for right y-axes: n-samples if "intra" else p-value
+                sub_infos = results['infos'].reset_index()
+                sub_infos = sub_infos[(sub_infos['metric'] == group[0]) &
+                                      (sub_infos[time] == ageclass)]
+                if stratification is not None:
+                    sub_infos = sub_infos[sub_infos[stratification] == group[1]]
+                sub_infos = sub_infos.set_index('joined_hue')
+
+                def _generate_n_labels(row, ndists=None, significance_niveau=0.05):
+                    label = ""
+                    if row['type'] == 'intra':
+                        label += 'n=%i' % row['n_samples']
+                    else:
+                        if pd.notnull(row[sign_type]):
+                            label += '%.3f' % row[sign_type]
+                            if row[sign_type] < significance_niveau:
+                                label += ' *'
+                    if ndists is not None:
+                        if label != "":
+                            label += "\n"
+                        label += 'd=%i' % ndists.get(row.name, 99999999)
+                    return label
+                rl = sub_infos.apply(lambda row: _generate_n_labels(row, ndists=ndists if show_num_data else None), axis=1).to_dict()
+                right_labels = [rl.get(x, '') for x in joined_hue_order if not x.startswith('spacer_')]
+                axRight.set_yticks(positions, right_labels)
+
+        ls = results['infos'].fillna({'sub_' + hue_field: 'vs.'}).groupby(['joined_hue', 'sub_' + hue_field]).size().reset_index().set_index('joined_hue')['sub_' + hue_field].to_dict()
+        labels = [ls.get(c, 0) for c in joined_hue_order if not c.startswith('spacer_')]
+        axes[0].set_yticks(positions, labels)
+
+        # adding one legend at the rightmost time plot
+        legend_elements = [Patch(color=color, label=val) for val, color in results['infos'].fillna({'sub_' + hue_field: 'inter'}).groupby('sub_' + hue_field)['color'].unique().apply(lambda x: x[0]).items()]
+        axes[-1].legend(handles=legend_elements, bbox_to_anchor=(2, 1))
+
+        fig.suptitle('%s(p < 0.05: %i, q < 0.05: %i)' % (group[1] + ', ' if stratification is not None else '', num_signs['p-value'], num_signs['q-value']))
+        results['figures'][group] = fig
+        #figures[(samplesite, metric)] = fig
+        if fp_figures is not None:
+            os.makedirs(fp_figures, exist_ok=True)
+            fp_fig = os.path.join(fp_figures, 'trajectory_beta_%s%s-%s-%s.svg' % (group[1]+'-' if stratification is not None else '', group[0], time, hue_field))
+            fig.savefig(fp_fig, bbox_inches='tight')
+        plt.show()
+        break
+
+    if num_sign_results <= 0:
+        print("Beta: No significant differences found!")
+
+    return results
+
+
+from ggmap.analyses import ancom
+def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.DataFrame, time:str, hue_field:str, stratification=None, use_grid:bool=True, fp_figures=None, hue_palette=None, verbose=sys.stderr):
+    """For data with multiple time points: run ANCOM-BC for pairwise comparisons along temporal axis for ranks Phylum to Genus.
+
+    Parameters
+    ----------
+    counts : pd.DataFrame
+        Feature table.
+    taxonomy : pd.Series
+        The taxonomy along which feature counts shall be collapsed.
+    precomputed_results : return value of plot_beta_trajectory
+        Only compute for pairs that reached significance with plot_beta_trajectory.
+        Thus, provide the return value of this function here!
+    metadata : pd.DataFrame
+        Dataframe with information about samples.
+    time : str
+        Column in metadata table that discriminates time points.
+    hue_field : str
+        Column in metadata table that discriminates groups of samples at each time point.
+    hue_palette : dict[str, str]
+        A dictionary as a palette for hue values.
+    stratification : str
+        Default: None
+        Column in metadata table to stratify samples. Each group will result
+        in an figure.
+    fp_figures : str
+        Default is None.
+        If set to a valid filepath (directory will be created), each figure is
+        stored as an SVG.
+    use_grid : Boolean
+        Default: True.
+        Use grid to compute ANCOM.
+    """
+
+    num_sign = 0
+    grouping_columns = [time, hue_field + '_a', hue_field + '_b']
+    stratification = None
+    if len(precomputed_results['infos'].index.names) > 1:
+        stratification = precomputed_results['infos'].index.names[1]
+    if stratification is not None:
+        grouping_columns.insert(0, stratification)
+    metric_derep_infos = precomputed_results['infos'].sort_values(by='q-value', ascending=True).groupby(grouping_columns).head(1)
+
+    for group, row in metric_derep_infos[metric_derep_infos['q-value'] < 0.05].iterrows():
+        cmp_dists = precomputed_results['dists'][(precomputed_results['dists']['reference_' + hue_field] == row[hue_field + '_a']) &
+                                                 (precomputed_results['dists']['other_' + hue_field] == row[hue_field + '_b']) &
+                                                 (precomputed_results['dists'][time] == row[time])]
+        if stratification is not None:
+             cmp_dists = cmp_dists[cmp_dists[stratification] == group[1]]
+        cmp_samples = list(cmp_dists[['reference_sample_name', 'other_sample_name']].stack().unique())
+
+        for rank in settings.RANKS[1:-2]:
+            res_ancom = ancom(counts.loc[:, cmp_samples], rank, taxonomy, metadata.loc[cmp_samples, hue_field], dry=False, wait=False, use_grid=use_grid,
+                              post_cache_arguments={'title': '%s%s=%s' % (group[1] + ', ' if stratification is not None else '', time, row[time]), 'palette': hue_palette}, verbose=verbose)
+            if res_ancom['results'] is not None:
+                anres = res_ancom['results']['summary']
+                #anres['metric'] = row['metric']
+                if stratification is not None:
+                    anres[stratification] = group[1]
+                anres[time] = row[time]
+                anres['n_samples'] = str(metadata.loc[cmp_samples, :].groupby(hue_field).size().values)
+                anres['comparison'] = ' vs. '.join(sorted(metadata.loc[cmp_samples, hue_field].unique()))
+                anres['field'] = hue_field
+                if anres[(anres["significantly different"] == True) & (anres[[c for c in anres.columns if 'mean rel. abundance' in c][0]] == True)].shape[0] > 0:
+                    num_sign += 1
+                    display(anres)
+                    if fp_figures is not None:
+                        os.makedirs(fp_figures, exist_ok=True)
+                        fp_fig = os.path.join(fp_figures, 'trajectory_ancom_%s%s-%s-%s_%s.svg' % (
+                            group[1] + '-' if stratification is not None else '',
+                            #row['metric'],
+                            time,
+                            hue_field,
+                            '-vs-'.join(sorted(map(str, metadata.loc[cmp_samples, hue_field].unique()))),
+                            rank))
+                        #if 'figure' not in res_ancom['results'].keys():
+                        #    print("Figure missing for %s" % ', '.join([row[PREFIXCOL + 'sample_site'], time, hue_field, '-vs-'.join(sorted(map(str, meta.loc[cmp_samples, hue_field].unique()))), rank]))
+                        #    return res_ancom
+                        #else:
+                        res_ancom['results']['figure'].savefig(fp_fig, bbox_inches='tight')
+
+    if num_sign <= 0:
+        print("Ancom: no significant findings.")
+    return num_sign
