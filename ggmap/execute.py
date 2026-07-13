@@ -10,6 +10,7 @@ import subprocess
 from time import sleep, time
 from datetime import datetime
 from pickle import dump, load
+from shutil import rmtree
 
 import pandas as pd
 
@@ -898,7 +899,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
     if results['results'] is not None:
         if not dirty:
-            shutil.rmtree(results['workdir'])
+            rmtree(results['workdir'])
             if verbose:
                 verbose.write(" Was removed.\n")
 
