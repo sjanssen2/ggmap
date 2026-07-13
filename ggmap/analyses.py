@@ -5316,12 +5316,31 @@ We compiled a set of full length 16S rRNA sequences for all XXX isolates from YY
                      **executor_args)
 
 
-def blastn_local(fp_query, fp_db,
-           max_target_seqs=10, max_evalue='1e-5', outformat = 'qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
-           earlyfiltering=None, word_size=11, environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
+def blast_local(fp_query, fp_db, blast_type='blastn',
+                max_target_seqs=10, max_evalue='1e-5', outformat = '6 qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
+                earlyfiltering=None, word_size=11,
+                environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
     """Local blast search against HUGE local databases.
     Parameters
     ----------
+    fp_query : str
+        Path to the query FASTA file
+    fp_db : str
+        Path prefix of the local BLAST database
+    blast_type : str
+        Selection : 'blastn' for nucleotide sequences or 'blastp' for protein sequences
+    max_target_seqs : int
+        Returns the first N hits that exceed the specific E-value threshold
+    max_evalue: str
+        Maximum E-value threshold, lower values are more stringent
+    outformat : str
+        BLAST output format string. Default is tabular format 6 with standard fields.
+        If a custom outformat for tabular is set, it needs to contain 'saccver' and 'sallseqid' for taxonomy/lineage.
+        To include subject sequences in the output, append 'sseq' to the
+        default, e.g.:
+        outformat='6 qseqid qaccver saccver sallseqid sgi pident length
+                   mismatch gapopen qstart qend sstart send evalue bitscore sseq'
+        Note: 'sseq' significantly increases output file size.
     earlyfiltering : dict[str: threshold]
         Default: False.
         Hit file can get HUGE (> 15GB) which might break pandas. Try parsing partial files instead
@@ -5330,7 +5349,26 @@ def blastn_local(fp_query, fp_db,
         Word size for high scoring segment pair of BLAST.
     """
 
-    num_parts = len(glob(fp_db + '*.nsq'))
+    #Validates the blast_type
+    valid_types = ['blastn', 'blastp']
+    if blast_type not in valid_types:
+        raise ValueError("blast_type must be one of %s" % ', '.join(map(lambda x: "'%s'" % x, valid_types)))
+
+    #Validates that outformat contains a number between 0-18
+    if not (outformat.split()[0].isdigit() and 0 <= int(outformat.split()[0]) <= 18):
+        raise ValueError(f"Invalid outformat: '{outformat.split()[0]}' expected a number between 0 and 20")
+
+    #Database is choosen depending on blast_type
+    num_parts = len(glob(fp_db + '*.%ssq' % blast_type[-1]))
+
+    #Validate that outformat contains 'saccver' and 'sallseqid' for taxonomy/lineage
+    outformat_list = outformat.split()
+
+    if 'saccver' not in outformat_list:
+        raise ValueError("Custom tabular outformat must include 'saccver' for taxonomy/lineage extraction.")
+    if 'sallseqid' not in outformat_list:
+        raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")
+
     def pre_execute(workdir, args):
         pass
     def commands(workdir, ppn, args):
@@ -5339,7 +5377,8 @@ def blastn_local(fp_query, fp_db,
         commands['main'].append('var_num=`echo "${%s} - 1" | bc`; var_num=`printf "%%03d" $var_num`' % (
             settings.VARNAME_PBSARRAY
         ))
-        commands['main'].append('blastn -word_size %i -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "6 %s" -max_target_seqs %i -evalue %s' % (
+        commands['main'].append('%s -word_size %i -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "%s" -max_target_seqs %i -evalue %s' % (
+            args['blast_type'],
             args['word_size'],
             os.path.abspath(fp_query),
             os.path.abspath(fp_db),
@@ -5348,17 +5387,18 @@ def blastn_local(fp_query, fp_db,
             max_target_seqs,
             max_evalue
         ))
-        commands['main'].append('cat %s/blastres.$var_num | cut -f 3 | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
+        commands['main'].append('cat %s/blastres.$var_num | cut -f %i | sort -u | blastdbcmd -db %s.$var_num -entry_batch - -outfmt "%%a;%%g;%%o;%%T" > %s/blast.taxids.$var_num' % (
             workdir,
+            outformat_list.index('saccver'),
             os.path.abspath(fp_db),
             workdir
         ))
-        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f 4 -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
+        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
             workdir,
+            outformat_list.index('sallseqid'),
             os.path.dirname(os.path.abspath(fp_db)),
             workdir
         ))
-
         commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
         commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
         commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
@@ -5403,6 +5443,7 @@ def blastn_local(fp_query, fp_db,
                       'max_target_seqs': max_target_seqs,
                       'max_evalue': max_evalue,
                       'word_size': word_size,
+                      'blast_type': blast_type,
                      },
                      pre_execute,
                      commands,
