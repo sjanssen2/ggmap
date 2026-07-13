@@ -47,7 +47,7 @@ from skbio.sequence import DNA
 from skbio.tree import TreeNode
 
 from ggmap import settings
-
+from ggmap.execute import cache
 
 if 'PROJ_LIB' not in os.environ:
     os.environ['PROJ_LIB'] = os.path.join(*([os.path.sep] + sys.executable.split(os.path.sep)[:-2] + ['share', 'proj']))
@@ -56,14 +56,6 @@ from mpl_toolkits.basemap import Basemap
 settings.init()
 plt.rcParams['svg.fonttype'] = 'none'
 
-NICE_METRICS = {
-    'shannon': 'Shannon',
-    'observed_features': 'number observed ASVs',
-    'PD_whole_tree': 'Faith\'s PD',
-
-    'bray_curtis': 'Bray-Curtis',
-    'unweighted_unifrac': 'unweighted UniFrac',
-    'weighted_unifrac': 'weighted UniFrac'}
 
 def biom2pandas(file_biom, withTaxonomy=False, astype=int):
     """ Converts a biom file into a Pandas.DataFrame
@@ -1121,463 +1113,6 @@ def plotTaxonomy(file_otutable,
     return fig, rank_counts, graphinfo, vals, colors
 
 
-def _time_torque2slurm(t_time):
-    """Convertes run-time resource string from Torque to Slurm.
-    Input format is hh:mm:ss, output is <days>-<hours>:<minutes>
-
-    Parameters
-    ----------
-    t_time : str
-        Input time duration in format hh:mm:ss
-
-    Returns
-    -------
-    Slurm compatible time duration.
-    """
-    t_hours, t_minutes, t_seconds = map(int, t_time.split(':'))
-    s_minutes = (t_seconds // 60) + t_minutes
-    s_hours = (s_minutes // 60) + t_hours
-    s_minutes = s_minutes % 60
-    s_days = s_hours // 24
-    s_hours = s_hours % 24
-
-    # set a minimal run time, if Torque time is < 60 seconds
-    if (s_days == 0) and (s_hours == 0) and (s_minutes == 0):
-        s_minutes = 1
-
-    return "%i-%02i:%02i:00" % (s_days, s_hours, s_minutes)
-
-
-def _add_timing_cmds(commands, file_timing):
-    """Change list of commands, such that system's time is used to trace
-       run-time.
-
-    Parameters
-    ----------
-    commands : [str]
-        List of commands.
-    file_timing : str
-        Filepath to the file into which timing information shall be written
-
-    Returns
-    -------
-    [str] list of changed commands with timing capability.
-    """
-    timing_cmds = []
-    # report machine name
-    timing_cmds.append('uname -a > %s' % file_timing)
-    # report commands to be executed (I have problems with quotes)
-    # timing_cmds.append('echo `%s` >> ${PBS_JOBNAME}.t${PBS_JOBID}'
-    #                    % '; '.join(cmds))
-    # add time to every command
-    for cmd in commands:
-        # cd cannot be timed and any attempt will fail changing the
-        # directory
-        if cmd.startswith('cd ') or\
-           cmd.startswith('module load ') or\
-           cmd.startswith('var_') or\
-           cmd.startswith('export ') or\
-           cmd.startswith('source ') or\
-           cmd.startswith('ulimit '):
-                timing_cmds.append(cmd)
-        elif cmd.startswith('if [ '):
-            ifcon, rest = re.findall(
-                r'(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
-            timing_cmds.append(('%s '
-                                '%s '
-                                '-v '
-                                '-o %s '
-                                '-a %s') %
-                               (ifcon, settings.EXEC_TIME, file_timing, rest))
-        else:
-            timing_cmds.append(('%s '
-                                '-v '
-                                '-o %s '
-                                '-a %s') %
-                               (settings.EXEC_TIME, file_timing, cmd))
-    return timing_cmds
-
-
-def get_conda_activate_cmd(use_grid, environment):
-    if settings.GRIDNAME == 'JLU':
-        # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
-        if use_grid is False:
-            cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-        else:
-            cmd_conda = "conda activate %s; " % (environment)
-    elif settings.GRIDNAME == 'JLU_SLURM':
-        cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-    else:
-        cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
-            settings.DIR_CONDA, settings.DIR_CONDA, environment)
-    return cmd_conda
-
-def cluster_run(cmds, jobname, result, environment=None,
-                walltime='4:00:00', nodes=1, ppn=10, pmem='8GB',
-                gebin=settings.GRIDENGINE_BINDIR, dry=True, wait=False,
-                file_qid=None, file_condaenvinfo=None, out=sys.stdout,
-                err=sys.stderr, timing=False, file_timing=None, array=1,
-                use_grid=settings.USE_GRID,
-                force_slurm=False, no_mail=False):
-    """ Submits a job to the cluster.
-
-    Paramaters
-    ----------
-    cmds : [str]
-        List of commands to be run on the cluster.
-    jobname : str
-        A name for the cluster job.
-    result : path
-        A file or dir holding results of a sucessful run. Don't re-submit if
-        result exists.
-    environment : str
-        Name of a conda environment to activate.
-    walltime : str
-        Format hh:mm:ss maximal CPU time for the job. Default: '4:00:00'.
-    nodes : int
-        Number of nodes onto the job should be distributed. Defaul: 1
-    ppn : int
-        Number of cores within one node onto which the job should be
-        distributed. Default 10.
-    pmem : str
-        Format 'xGB'. Memory requirement per ppn for the job, e.g. if ppn=10
-        and pmem=8GB the node must have at least 80GB free memory.
-        Default: '8GB'.
-    gebin : path
-        Path to the dir holding SGE binaries.
-        Default: /opt/torque-4.2.8/bin
-    dry : bool
-        Only print command instead of executing it. Good for debugging.
-        Default = True
-    wait : bool
-        Wait for job completion before qsub's return
-    file_qid : str
-        Default None. Create a file containing the qid of the submitted job.
-        This will ease identification of TMP working directories.
-    file_condaenvinfo : str
-        Default: None.
-        If specified, AND environment is not None,
-        the result of "conda list --name X" is written to this file.
-    out : StringIO
-        Buffer onto which messages should be printed. Default is sys.stdout.
-    err : StringIO
-        Default: sys.stderr.
-        Buffer for status reports.
-    timing : bool
-        If True than add time output to every command and store in cr_*.t*
-        file. Default is False.
-    file_timing : str
-        Default: None
-        Define filepath into which timeing information shall be written.
-    array : int
-        Default: 1
-        If > 1 than an array job is submitted. Make sure in- and outputs can
-        deal with ${PBS_ARRAY_INDEX}!
-        Only available for Torque.
-    use_grid : bool
-        Defaul: True.
-        If False, commands are executed locally instead of submitting them to
-        a HPC (= either Torque or Slurm).
-    force_slurm : bool
-        Default: False.
-        If True, cluster_run is enforeced to choose slurm instead of auto
-        detection based on machine node name.
-    no_mail : bool
-        Default: False
-        If True, will not send emails about exit status when complete.
-
-    Returns
-    -------
-    Cluster job ID as str.
-    """
-    VALID_CMDS_KEYS = ['pre', 'main', 'post']
-
-    if result is None:
-        raise ValueError("You need to specify a result path.")
-    parent_res_dir = "/".join(result.split('/')[:-1])
-    if not os.access(parent_res_dir, os.W_OK):
-        raise ValueError("Parent result directory '%s' is not writable!" %
-                         parent_res_dir)
-    if file_qid is not None:
-        if not os.access('/'.join(file_qid.split('/')[:-1]), os.W_OK):
-            raise ValueError("Cannot write qid file '%s'." % file_qid)
-    if os.path.exists(result):
-        if err:
-            err.write("%s already computed\n" % jobname)
-        return "Result already present!"
-    if jobname is None:
-        raise ValueError("You need to set a jobname!")
-    if len(jobname) <= 1:
-        raise ValueError("You need to set non empty jobname!")
-
-    if isinstance(cmds, str):
-        cmds = [cmds]
-    # new mechanism: I want to enable job dependencies, i.e. some commands need
-    # to finish (e.g. prepare command input files) before an array job can
-    # highly parallel be executed e.g. rarefaction iterations.
-    # Therefore, I expect cmds to be a dictionary with keys 'pre' 'main' and
-    # 'post'
-    if isinstance(cmds, dict):
-        if set(cmds.keys() - set(VALID_CMDS_KEYS)) != set([]):
-            raise ValueError(
-                ("your command dictionary has unknown keys: '%s'. "
-                 "Please only use 'pre', 'main', and 'post'!") % "','".join(
-                    set(cmds.keys() - set(VALID_CMDS_KEYS))))
-    elif isinstance(cmds, list):
-        # no specific command category given, assume all commands shall be "main"
-        cmds = {'pre': [], 'main': cmds, 'post': []}
-    assert isinstance(cmds, dict)
-
-    for cmdtype in VALID_CMDS_KEYS:
-        for cmd in cmds[cmdtype]:
-            if "'" in cmd:
-                raise ValueError("One of your commands contain a ' char. "
-                                 "Please remove!")
-
-    fps_timing = {k: None for k in VALID_CMDS_KEYS}
-    if timing:
-        for cmdtype in VALID_CMDS_KEYS:
-            if file_timing is None:
-                fps_timing[cmdtype] = '%s.t${%s}.%s' % (jobname, settings.VARNAME_PBSARRAY, cmdtype)
-            else:
-                fps_timing[cmdtype] = '%s.%s' % (file_timing, cmdtype)
-            if cmdtype != 'main':
-                fps_timing[cmdtype] = fps_timing[cmdtype].replace('${%s}' % settings.VARNAME_PBSARRAY, '')
-            cmds[cmdtype] = _add_timing_cmds(cmds[cmdtype], fps_timing[cmdtype])
-
-    cmd_list = {k: "" for k in VALID_CMDS_KEYS}
-    cmd_conda = ""
-    env_present = None
-    fps_scripts = dict()
-    if environment is not None:
-        if file_condaenvinfo is None:
-            file_condaenvinfo = ""
-        else:
-            file_condaenvinfo = " > %s" % file_condaenvinfo
-        # check if environment exists
-        if '/' not in environment:  # special case where we use environments in non standard paths
-            with subprocess.Popen("%s/condabin/conda list -n %s %s" % (settings.DIR_CONDA, environment, file_condaenvinfo),
-                                  shell=True,
-                                  stdout=subprocess.PIPE) as env_present:
-                if (env_present.wait() != 0):
-                    raise ValueError("Conda environment '%s' not present." %
-                                     environment)
-        cmd_conda = get_conda_activate_cmd(use_grid, environment)
-        # if settings.GRIDNAME == 'JLU':
-        #     # but remember to to create the ~/.bash_profile file and copy and paste conda init script from .bashrc!
-        #     if use_grid is False:
-        #         cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-        #     else:
-        #         cmd_conda = "conda activate %s; " % (environment)
-        # elif settings.GRIDNAME == 'JLU_SLURM':
-        #     cmd_conda = "source %s/etc/profile.d/conda.sh; conda activate %s; " % (settings.DIR_CONDA, environment)
-        # else:
-        #     cmd_conda = "source %s/etc/profile.d/conda.sh; %s/condabin/conda activate %s; " % (
-        #         settings.DIR_CONDA, settings.DIR_CONDA, environment)
-
-    slurm = False
-    if use_grid is False:
-        cmd_list['SPAWN'] = cmd_conda
-        cmd_list['SPAWN'] += " && ".join(cmds['pre'])
-        if len(cmds['pre']) > 0:
-            cmd_list['SPAWN'] += ' && '
-        cmd_list['SPAWN'] += ' for %s in `seq 1 %i`; do %s; done;' % (
-            settings.VARNAME_PBSARRAY, array, " && ".join(cmds['main']))
-        cmd_list['SPAWN'] += ' %s' % " && ".join(cmds['post'])
-    else:
-        pwd = subprocess.check_output(["pwd"]).decode('ascii').rstrip()
-
-        if (settings.GRIDNAME == 'USF') or (settings.PREFER_SLURM):
-            slurm = True
-        else:
-            slurm = False
-        with subprocess.Popen("which srun" if slurm else "which qsub",
-                              shell=True, stdout=subprocess.PIPE,
-                              executable="bash") as call_x:
-            if call_x.wait() != 0:
-                msg = ("You don't seem to have access to a grid!")
-                if dry:
-                    if err is not None:
-                        err.write(msg)
-                else:
-                    raise ValueError(msg)
-        if force_slurm:
-            slurm = True
-
-        if slurm is False:
-            highmem = ''
-            if settings.GRIDNAME == 'barnacle':
-                if ppn * int(pmem[:-2]) > 250:
-                    highmem = ':highmem'
-            files_loc = ''
-            if file_qid is not None:
-                files_loc = ' -o %s/ -e %s/ ' % tuple(
-                    ["/".join(file_qid.split('/')[:-1])] * 2)
-
-            flag_array = ''
-            if array > 1:
-                if settings.GRIDNAME == 'barnacle' or settings.GRIDNAME == 'JLU':
-                    flag_array = '-t 1-%i' % array
-                elif settings.GRIDNAME == 'HPCHHU':
-                    flag_array = '-J 1-%i' % array
-            resources = " -l walltime=%s,nodes=%i%s:ppn=%i,mem=%s " % (
-                walltime, nodes, highmem, ppn, pmem)
-            if settings.GRIDNAME == 'JLU':
-                # further differentiate between old and new 18.04 cluster (08.04.2020)
-                arg_multislot = " -pe multislot %i " % ppn
-                #if settings.GRIDENGINE_BINDIR == '/usr/bin/':
-                    # according to Burkhard, the "new cluster" doesn't have multislots yet
-                    # UPDATE: 2021-01-06: "das PE ist da, sollte auch funktionieren"
-                #    arg_multislot = ""
-                pmem_value = pmem
-                if pmem is None:
-                    pmem_value = '8GB'
-                else:
-                    pmem_value = pmem[:-1] if pmem.upper().endswith('B') else pmem
-                resources = " -l virtual_free=%s %s -S /bin/bash " % (pmem_value, arg_multislot)
-            ge_cmd = (
-                ("%s/qsub %s %s -V %s -N cr_%s %s %s -r y") %
-                (gebin,
-                 '-A %s' % settings.GRID_ACCOUNT if settings.GRID_ACCOUNT != "" else "",
-                 "-d '%s'" % pwd if settings.GRIDNAME == 'barnqacle' else '',
-                 resources,
-                 jobname, flag_array, files_loc))
-            cmd_list['main'] += "echo '%s%s' | %s" % (cmd_conda, " && ".join(cmds), ge_cmd)
-        else:
-            for cmdtype in VALID_CMDS_KEYS:
-                slurm_script = "#!/bin/bash\n\n"
-                slurm_script += '#SBATCH --job-name=cr_%s_%s\n' % (jobname, cmdtype)
-                slurm_script += '#SBATCH --output=%s/slurmlog-%%x-%%A.%%a_%s.log\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)), cmdtype)
-                slurm_script += '#SBATCH --error=%s/slurmlog-%%x-%%A.%%a_%s.err\n' % (pwd if file_qid is None else os.path.abspath(os.path.dirname(file_qid)), cmdtype)
-                slurm_script += '#SBATCH --partition=%s\n' % settings.GRID_ACCOUNT
-                slurm_script += '#SBATCH --ntasks=1\n'
-                slurm_script += '#SBATCH --cpus-per-task=%i\n' % ppn
-                slurm_script += '#SBATCH --mem-per-cpu=%s\n' % (pmem.upper() if pmem is not None else '8GB')
-                slurm_script += '#SBATCH --time=%s\n' % _time_torque2slurm(
-                    walltime)
-                if cmdtype == 'main':
-                    slurm_script += '#SBATCH --array=1-%i\n' % array
-                if cmdtype == 'post' and (no_mail is False):
-                    slurm_script += '#SBATCH --mail-type=END,FAIL\n'
-                    slurm_script += '#SBATCH --mail-user=%s\n\n' % settings.GRID_EMAIL_NOTIFICATION
-                slurm_script += '$(which uname) -a\n'
-
-                for cmd in cmds[cmdtype]:
-                    if cmdtype != 'main':
-                        assert settings.VARNAME_PBSARRAY not in cmd, "array job can only be used in 'main'"
-                    slurm_script += '%s\n' % (cmd.replace(
-                        '${%s}' % settings.VARNAME_PBSARRAY, '${SLURM_ARRAY_TASK_ID}'))
-                if file_qid is not None:
-                    file_script = os.path.dirname(file_qid) + '/slurm_script_%s.sh' % cmdtype
-                else:
-                    _, file_script = mkstemp(suffix='.slurm.sh')
-                fps_scripts[cmdtype] = file_script
-                f = open(fps_scripts[cmdtype], 'w')
-                f.write(slurm_script)
-                f.close()
-            # if on jupyterlab from BCF@JLU, some slurm vars are predefined for the
-            # spawner process of the jupyterlab. We need to unset this specific
-            # variable to avoid slurm complaining about other resource requests.
-            if settings.GRIDNAME == 'JLU_SLURM':
-                cmd_list['SPAWN'] = 'unset SLURM_MEM_PER_NODE && '
-            cmd_list['SPAWN'] += cmd_conda
-            cmd_list['SPAWN'] += ' qid_pre=`%ssbatch --parsable %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['pre'])
-            cmd_list['SPAWN'] += ' && qid_main=`%ssbatch --parsable --dependency=aftercorr:$qid_pre %s`' % (settings.GRIDENGINE_BINDIR, fps_scripts['main'])
-            cmd_list['SPAWN'] += ' && %ssbatch --parsable --depend=afterany:$qid_main %s' % (settings.GRIDENGINE_BINDIR, fps_scripts['post'])
-
-    if dry is True:
-        if use_grid and slurm:
-            for cmdtype in VALID_CMDS_KEYS:
-                out.write('CONTENT OF %s:\n' % fps_scripts[cmdtype])
-                with open(fps_scripts[cmdtype], 'r') as f:
-                    out.write(''.join(f.readlines()) + "\n\n")
-        out.write(cmd_list['SPAWN'] + "\n")
-        return None
-    else:
-        if use_grid is True:
-            with subprocess.Popen(
-                    cmd_list['SPAWN'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, executable='/bin/bash') as task_qsub:
-                err_msg = task_qsub.stderr.read()
-                if err_msg != b"":
-                    raise ValueError("Error in submitting job via qsub:\n%s" % err_msg.decode('ascii'))
-                qid = task_qsub.stdout.read().decode('ascii').rstrip()
-                #if settings.GRIDNAME == 'JLU':
-                #    qid = qid.split(" ")[2]
-                if slurm:
-                    qid = qid.split()[-1]
-                    if file_qid is not None:
-                        os.remove(file_script)
-                if file_qid is not None:
-                    f = open(file_qid, 'w')
-                    f.write('Cluster job ID is:\n%s\n' % qid)
-                    f.close()
-                job_ever_seen = False
-                if wait:
-                    err.write(
-                        "\nWaiting for %s-cluster job %s to complete: " % ('slurm' if slurm else 'sge', qid))
-                    while True:
-                        if slurm:
-                            with subprocess.Popen(
-                                    ['squeue', '--job', qid],
-                                    stdout=subprocess.PIPE) as task_squeue:
-                                with subprocess.Popen(
-                                        ['wc', '-l'], stdin=task_squeue.stdout,
-                                        stdout=subprocess.PIPE) as task_wc:
-                                    poll_status = \
-                                        int(task_wc.stdout.read().decode(
-                                            'ascii').rstrip())
-                            # Two ore more if polling gives a table with header
-                            # and one status line, i.e. job is still on the
-                            # grid. Translate that to 0 of Torque.
-                            # If table has only one line, i.e. the header, job
-                            # terminated (hopefully successful), translate that
-                            # to 1 of Torque
-                            if poll_status >= 2:
-                                poll_status = 0
-                            else:
-                                poll_status = 1
-                        else:
-                            poll_stati = []
-                            for i in range(array):
-                                p = subprocess.call(
-                                    "%s/qstat %s %s" %
-                                    (gebin,
-                                     ' -j ' if settings.GRIDNAME == 'JLU' else '',
-                                     qid.replace('[]', '[%i]' % (i+1))),
-                                    shell=True)
-                                poll_stati.append(p == 0)
-                            if any(poll_stati):
-                                poll_status = 0
-                            else:
-                                poll_status = 127  # some number != 0
-                        if (poll_status != 0) and job_ever_seen:
-                            err.write(' finished.')
-                            break
-                        elif (poll_status == 0) and (not job_ever_seen):
-                            job_ever_seen = True
-                        err.write('.')
-                        time.sleep(10)
-                else:
-                    err.write("Now wait until %s job finishes.\n" % qid)
-                return qid
-        else:
-            #if settings.GRIDNAME == 'JLU':
-            #    cmd_list = 'source ~/.profile && ' + cmd_list
-            with subprocess.Popen(cmd_list['SPAWN'],
-                                  shell=True,
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE,
-                                  executable="bash") as call_x:
-                if (call_x.wait() != 0):
-                    out, err = call_x.communicate()
-                    raise ValueError((
-                        "SYSTEM CALL FAILED.\n==== STDERR ====\n%s"
-                        "\n\n==== STDOUT ====\n%s\n") % (
-                            err.decode("utf-8", 'backslashreplace'),
-                            out.decode("utf-8", 'backslashreplace')))
-                return call_x.pid
-
-
 def detect_distant_groups_alpha(alpha, groupings,
                                 min_group_size=21,
                                 fct_test=mannwhitneyu):
@@ -2335,103 +1870,6 @@ def mutate_sequence(sequence, num_mutations=1,
             raise ValueError("Alphabet is too small to find mutation!")
         mut_sequence = mut_sequence[:pos] + mut + mut_sequence[pos+1:]
     return mut_sequence
-
-
-def cache(func):
-    """Decorator: Cache results of a function call to disk.
-
-    Parameters
-    ----------
-    func : executabale
-        A function plus parameters whichs results shall be cached, e.g.
-        "fct_example(1,5,3)", where
-        @cache
-        def fct_test(a, b, c):
-            return a + b * c
-    cache_filename : str
-        Default: None. I.e. caching is deactivated.
-        Pathname to cache file, which will hold results of the function call.
-        If file exists, results are loaded from it instead of recomputing via
-        provided function. Otherwise, function will be executed and results
-        stored to this file.
-    cache_verbose : bool
-        Default: True.
-        Report caching status to 'cache_err', which by default is sys.stderr.
-    cache_err : StringIO
-        Default: sys.stderr.
-        Stream onto which status messages shall be printed.
-    cache_force_renew : bool
-        Default: False.
-        Force re-execution of provided function even if cache file exists.
-
-    Returns
-    -------
-    Results of provided function, either by actually executing the function
-    with provided parameters or by loaded results from filename.
-
-    Notes
-    -----
-    It is the obligation of the user to ensure that arguments for the provided
-    function don't change between creation of cache file and loading from cache
-    file!
-    """
-    func_name = func.__name__
-
-    def execute(*args, **kwargs):
-        cache_args = {'cache_filename': None,
-                      'cache_verbose': True,
-                      'cache_err': sys.stderr,
-                      'cache_force_renew': False}
-        for varname in cache_args.keys():
-            if varname in kwargs:
-                cache_args[varname] = kwargs[varname]
-                del kwargs[varname]
-
-        if cache_args['cache_filename'] is None:
-            if cache_args['cache_verbose']:
-                cache_args['cache_err'].write(
-                    '%s: no caching, since "cache_filename" is None.\n' %
-                    func_name)
-            return func(*args, **kwargs)
-
-        if os.path.exists(cache_args['cache_filename']) and\
-           (os.stat(cache_args['cache_filename']).st_size <= 0):
-            if cache_args['cache_verbose']:
-                cache_args['cache_err'].write(
-                    '%s: removed empty cache.\n' %
-                    func_name)
-            os.remove(cache_args['cache_filename'])
-
-        if (not os.path.exists(cache_args['cache_filename'])) or\
-           cache_args['cache_force_renew']:
-            try:
-                f = open(cache_args['cache_filename'], 'wb')
-                results = func(*args, **kwargs)
-                pickle.dump(results, f)
-                f.close()
-                if cache_args['cache_verbose']:
-                    cache_args['cache_err'].write(
-                        '%s: stored results in cache "%s".\n' %
-                        (func_name, cache_args['cache_filename']))
-            except Exception as e:
-                raise e
-        else:
-            f = open(cache_args['cache_filename'], 'rb')
-            results = pickle.load(f)
-            f.close()
-            if cache_args['cache_verbose']:
-                cache_args['cache_err'].write(
-                    '%s: retrieved results from cache "%s".\n' %
-                    (func_name, cache_args['cache_filename']))
-        return results
-    if func.__doc__ is not None:
-        execute.__doc__ = func.__doc__
-    else:
-        execute.__doc__ = ""
-    execute.__doc__ += "\n\n" + cache.__doc__
-    # restore wrapped function name
-    execute.__name__ = func_name
-    return execute
 
 
 def _map_metadata_calout(metadata, calour_experiment, field):
@@ -4741,7 +4179,16 @@ def parse_bcl_demuxsheet(fp_demux:str, return_all_data:bool=False):
 
     return samples
 
-def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, time:str, time_order:[str], hue_field:str, hue_order:[str], hue_palette=None, width_factor=0.3, stratification=None, stratification_order:[str]=[], min_num_samples:int=21):
+
+def _adjust_color(color, lightness_factor=1.3, saturation_factor=0.9):
+    # Wandelt "red", "#ff0000", (1,0,0) etc. einheitlich in RGB um
+    rgb = mcolors.to_rgb(color)
+    h, l, s = colorsys.rgb_to_hls(*rgb)
+    l = min(1, l * lightness_factor)
+    s = s * saturation_factor
+    return colorsys.hls_to_rgb(h, l, s)
+
+def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, time:str, time_order:[str], hue_field:str, hue_order:[str], hue_palette=None, width_factor=0.3, stratification=None, stratification_order:[str]=[], min_num_samples:int=21, verbose=sys.stderr, fp_figure=None, title="", isbeta=False):
     """For data with multiple time points: box-plots for alpha diversity along temporal axis, stratefied into small number of groups.
 
     Parameters
@@ -4770,6 +4217,14 @@ def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, t
     min_number_samples : int
         Default: 21.
         Minimal number of samples to perform a Mann-Whitney-Test
+    verbose : StringIO
+        Default is sys.stderr
+    fp_figure : str
+        Default is None.
+        If set to a valid filepath (directory will be created), the figure is
+        stored as an SVG.
+    title : str
+        Append title to figure suptitle.
     """
     (a, metadata) = sync_counts_metadata(alpha_diversity.T, metadata)
     alpha_diversity = a.T
@@ -4792,7 +4247,7 @@ def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, t
                 raise ValueError("You provided %i strate in via 'stratification_order=[...]', but the following do not exist in your data!\n  " % (len(non_existant_strata), '\n  '.join(non_existant_strata)))
             # follow given order and append non specified strata
         stratification_order = stratification_order + list(set(samplesites) - set(stratification_order))
-        fig, axes = plt.subplots(len(samplesites), alpha_diversity.shape[1],
+        fig, axes = plt.subplots(alpha_diversity.shape[1], len(samplesites),
                                  figsize=(width_factor * len(time_order) * len(hue_order) * len(samplesites), alpha_diversity.shape[1] * 5),
                                  gridspec_kw={'hspace': 0.25}, squeeze=False)
     else:
@@ -4806,25 +4261,32 @@ def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, t
     #time, time_order = 'smj_role_time', ['control', 'a', 'b', 'c', 'd', 'e']
     num_sign = 0
     num_p_sign = 0
+    # metadata might already contain alpha div columns!
+    data = metadata[[c for c in metadata.columns if c not in alpha_diversity.columns]].merge(alpha_diversity, left_index=True, right_index=True)
+    strip_palette = hue_palette
+    if hue_palette is not None:
+        strip_palette = {k: _adjust_color(v) for k,v in hue_palette.items()}
     for row, (axrow, metric) in enumerate(zip(axes, alpha_diversity.columns)):
         for col, (ax, samplesite) in enumerate(zip(axrow, stratification_order)):
             num_sig_tests = 0
             if samplesites != ['']:
-                plotdata = metadata[(metadata[stratification] == samplesite)]
+                plotdata = data[(data[stratification] == samplesite)]
             else:
-                plotdata = metadata
+                plotdata = data
+            # states might be given in user order BUT data for this category might be missing
             pres_order = [tp for tp in time_order if tp in plotdata[time].unique()]
-            sns.boxplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, legend=True, hue=hue_field, showfliers=False, hue_order=hue_order, palette=hue_palette)
+            pres_hue_order = [h for h in hue_order if h in plotdata[hue_field].unique()]
+            sns.boxplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, legend=True, hue=hue_field, showfliers=False, hue_order=pres_hue_order, palette=hue_palette)
             xpos = []
             for patch in ax.patches:
                 if isinstance(patch, matplotlib.patches.PathPatch):
                     bbox = patch.get_path().get_extents()
                     xpos.append((bbox.x1 - bbox.x0) / 2 + bbox.x0)
             xpos = sorted(xpos)
-            sns.stripplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, hue=hue_field, dodge=True, palette='gray', legend=False, hue_order=hue_order)
+            sns.stripplot(plotdata, y=metric, x=time, ax=ax, order=pres_order, hue=hue_field, dodge=True, palette=strip_palette, legend=False, hue_order=pres_hue_order)
 
             if col == 0:
-                ax.set_ylabel("α-diversity\n%s" % NICE_METRICS[metric])
+                ax.set_ylabel("α-diversity\n%s" % settings.NICE_METRICS.get(metric, metric))
             else:
                 ax.set_ylabel("")
             if row == 0:
@@ -4840,12 +4302,12 @@ def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, t
             threshold = min_num_samples
             tests = [((tp, catA), (tp, catB))
                      for tp in pres_order
-                     for (catA, catB) in combinations(hue_order, 2)
+                     for (catA, catB) in combinations(pres_hue_order, 2)
                      if ns_hue.get((tp, catA), 0) >= threshold
                      if ns_hue.get((tp, catB), 0) >= threshold]
             if True and (len(tests) > 0):
-                annotator = Annotator(ax, tests, data=plotdata, y=metric, x=time, order=pres_order, hue=hue_field, hue_order=hue_order)
-                annotator.configure(test='Mann-Whitney', text_format='star', loc='inside', comparisons_correction="fdr_bh", correction_format="default", verbose=0)
+                annotator = Annotator(ax, tests, data=plotdata, y=metric, x=time, order=pres_order, hue=hue_field, hue_order=pres_hue_order)
+                annotator.configure(test='Mann-Whitney', text_format='star', loc='inside', comparisons_correction="fdr_bh", correction_format="default", verbose=0 if verbose is None else 1)
                 _ = annotator.apply_and_annotate()
                 num_sig_tests = sum([1 if t.__dict__['data'].__dict__['_corrected_significance'] == True else 0 for t in annotator.__dict__['annotations']] )
                 num_p_sign += sum([1 if t.__dict__['data'].__dict__['pvalue'] == True else 0 for t in annotator.__dict__['annotations']] )
@@ -4853,32 +4315,42 @@ def plot_alpha_trajectory(alpha_diversity:pd.DataFrame, metadata:pd.DataFrame, t
 
             offset = 0.2
             axTop = ax.twiny()
-            #xpos = [ x + ((hue - (len(hue_order) - (1 if len(hue_order) % 2 == 0 else 0)) / 2) * (1 - offset) / len(hue_order))
-            #         for x in range(len(pres_order))
-            #         for hue in range(len(hue_order))]
             xlabels = [ ns_hue[(x, hue)]
                         for x in pres_order
-                        for hue in hue_order if (x, hue) in ns_hue.keys() ]
+                        for hue in pres_hue_order if (x, hue) in ns_hue.keys() ]
             axTop.set_xticks(xpos, xlabels)
             axTop.set_xlim(ax.get_xlim())
             axTop.grid(False)
             if ((len(samplesites) > 1) and (row == 0) and (col == 2)) or ((len(samplesites) == 1) and (row == 0) and (col == 0)):
-                ax.legend(bbox_to_anchor=(1.1, 1.05))
+                ax.legend(bbox_to_anchor=(1.1, 1.05), title=hue_field)
             else:
                 ax.legend().remove()
 
     if num_sign <= 0:
         print("Alpha: No significant differences found!")
 
-    fig.suptitle('(p < 0.05: %i, q < 0.05: %i)' % (num_p_sign, num_sign))
+    fig.suptitle('%s%s(p < 0.05: %i, q < 0.05: %i)' % (title, " " if title != "" else "", num_p_sign, num_sign))
+
+    if fp_figure is not None:
+        os.makedirs(fp_figure, exist_ok=True)
+        fp_fig = os.path.join(fp_figure, 'trajectory_alpha_%s%s%s-%s.svg' % (title.replace(' ', ''), "" if title == "" else '-', time, hue_field))
+
+        if isbeta:
+            for ax in fig.get_axes():
+                ax.set_ylabel('%s β distance\nto healthy sibling(s)' % ax.get_ylabel().split('\n')[-1])
+            fp_fig = fp_fig.replace('_alpha_', '_beta_')
+
+        fig.savefig(fp_fig, bbox_inches='tight')
 
     return fig
 
 
+from ggmap.correlations import adonis
 def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.DataFrame,
                          time:str, time_order:[str], hue_field:str, hue_paired_order:[(str, str)]=[], hue_palette=None, stratification=None,
                          enforce_same:[str]=[], min_num_samples:int=5,
-                         num_permutations:int=999, fp_figures=None, precomputed_results=None, add_stripplot:bool=False, show_num_data:bool=False):
+                         num_permutations:int=999, fp_figures=None, precomputed_results=None, add_stripplot:bool=False, show_num_data:bool=False,
+                         verbose=sys.stderr):
     """For data with multiple time points: box-plots for beta diversity pairwise comparisons along temporal axis; one row of panels per stratefied group.
 
     Parameters
@@ -4903,7 +4375,7 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
         in an figure.
     enforce_same : [str]
         Only consider pairwise distances where both samples have the same
-        values for these metadata columns
+        values for these metadata columns. Also implies use of anova.
     min_number_samples : int
         Default: 5.
         Minimal number of samples to perform a PERMANOVA-Test
@@ -4923,6 +4395,8 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
         Default is False.
         Mainly for debugging. In addition to n=sample numbers also print d=x,
         where x is number of pairwise distances.
+    verbose : StringIO
+        Default is sys.stderr
     """
     sign_type = 'q-value'
     beta_diversity, metadata = sync_distances_metadata(beta_diversity, metadata)
@@ -5005,15 +4479,27 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
                                 results['infos'][ikey] = {'n': ns.get(_a, 0)}
                         ikey = tuple([metric, samplesite, agebin, a, b, 'inter', None, '@'.join(map(str, [hue_paired_order.index(cmp), 1]))])
                         if ns.loc[[a, b]].min() >= min_num_samples:
-                            res_perm = permanova(DistanceMatrix(data=dm.loc[sidx, sidx], ids=sidx), g.loc[sidx, hue_field], permutations=num_permutations)
+                            if len(enforce_same) > 0:
+                                metaAdonis = g.loc[sidx, :].copy()
+                                metaAdonis['ADONISSTRATUM'] = metaAdonis[enforce_same].apply(lambda x: 'AND'.join(x.values), axis=1)
+                                res_adonis = adonis(metaAdonis, beta_diversity[metric].filter(sidx), formula=hue_field, strat='ADONISSTRATUM', dry=False, use_grid=True, wait=False, verbose=verbose)
+                                res_test = {'test_name': 'adonis (%s ~ %s)' % (hue_field, ','.join(enforce_same))}
+                                if res_adonis['results'] is not None:
+                                    res_test['p-value'] = res_adonis['results']['table'].loc['Model', 'Pr(>F)']
+                                else:
+                                    res_test['p-value'] = 1.0
+                                    verbose.write("adonis2 results not yet ready. Please call me again later.\n")
+                            else:
+                                res_test = permanova(DistanceMatrix(data=dm.loc[sidx, sidx], ids=sidx), g.loc[sidx, hue_field], permutations=num_permutations)
+                                res_test['test_name'] = "permanova"
                         else:
-                            res_perm = {'p-value': np.nan}
-                        results['infos'][ikey] = {'p-value': res_perm['p-value']}
+                            res_test = {'p-value': np.nan, 'test_name': 'too few samples'}
+                        results['infos'][ikey] = {'p-value': res_test['p-value'], 'test_name': res_test['test_name']}
                         if results['infos'][ikey]['p-value'] < 0.05:
-                            print("  ", '%.3f' % res_perm['p-value'], metric, samplesite, agebin, ns.loc[a], ns.loc[b], a, ' <-> ', b, dm.loc[sidx, sidx].shape)
+                            print("  ", '%.3f' % res_test['p-value'], metric, samplesite, agebin, ns.loc[a], ns.loc[b], a, ' <-> ', b, dm.loc[sidx, sidx].shape, res_test['test_name'])
         results['dists'] = pd.concat(results['dists'])
         results['infos'] = pd.DataFrame(results['infos']).T.reset_index()
-        results['infos'].columns = ['metric', stratification, time, hue_field + '_a', hue_field + '_b', 'type', 'sub_' + hue_field, 'joined_hue', 'n_samples', 'p-value']
+        results['infos'].columns = ['metric', stratification, time, hue_field + '_a', hue_field + '_b', 'type', 'sub_' + hue_field, 'joined_hue', 'n_samples', 'p-value', 'stat.test']
     else:
         results = precomputed_results
         results['infos'] = results['infos'].reset_index()
@@ -5024,7 +4510,7 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
     results['infos']['color'] = results['infos'].apply(lambda row: hue_palette['inter'] if row['type'] == 'inter' else hue_palette[row['sub_' + hue_field]], axis=1)
     grouping_columns = ['metric'] + ([stratification] if stratification is not None else [])
     for _, g in results['infos'].groupby(grouping_columns):
-        ps = g['p-value'].dropna()
+        ps = g['p-value'].dropna().astype(float)
         results['infos'].loc[ps.index, 'q-value'] = false_discovery_control(ps.values, method='bh')
     results['infos'] = results['infos'].set_index(grouping_columns).sort_index()
 
@@ -5047,15 +4533,7 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
 
     num_sign_results = 0
 
-    def _adjust_color(color, lightness_factor=1.3, saturation_factor=0.9):
-        # Wandelt "red", "#ff0000", (1,0,0) etc. einheitlich in RGB um
-        rgb = mcolors.to_rgb(color)
-        h, l, s = colorsys.rgb_to_hls(*rgb)
-        l = min(1, l * lightness_factor)
-        s = s * saturation_factor
-        return colorsys.hls_to_rgb(h, l, s)
     strip_palette = {k: _adjust_color(v) for k,v in palette.items()}
-
     for group, g in tqdm(results['dists'].groupby(grouping_columns), "3/3 stat. testing and plotting"):
         num_signs = dict()
         for t in ['p-value', 'q-value']:
@@ -5075,6 +4553,7 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
                 sns.boxplot(data=plotdata, orient='h', x='distance', ax=ax, hue='joined_hue', hue_order=joined_hue_order, palette=palette, legend=False, showfliers=not add_stripplot)
                 if add_stripplot:
                     sns.stripplot(data=plotdata, orient='h', x='distance', ax=ax, hue='joined_hue', hue_order=joined_hue_order, palette=strip_palette, dodge=True, legend=False)
+
                 axRight = ax.twinx()
                 axRight.set_ylim(ax.get_ylim())
 
@@ -5098,11 +4577,36 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
                     if ndists is not None:
                         if label != "":
                             label += "\n"
-                        label += 'd=%i' % ndists.get(row.name, 99999999)
+                        label += 'd=%i' % ndists.get(row.name, 0)
                     return label
                 rl = sub_infos.apply(lambda row: _generate_n_labels(row, ndists=ndists if show_num_data else None), axis=1).to_dict()
                 right_labels = [rl.get(x, '') for x in joined_hue_order if not x.startswith('spacer_')]
                 axRight.set_yticks(positions, right_labels)
+                axRight.grid(False)
+
+                if len(enforce_same) > 0:
+                    # subset to boxes with at least 21 distances
+                    pw_tests = [(cmp, joined_hue) for (cmp, joined_hue), n in plotdata.groupby(['cmp', 'joined_hue']).size().items() if n > 20]
+                    # ensure at least two (intra, intra) or (intra, inter) boxes have sufficient number of distances
+                    pw_tests = [list(g['joined_hue'].values) for cmp, g in pd.DataFrame(pw_tests, columns=['cmp', 'joined_hue']).groupby('cmp') if g.shape[0] >= 2]
+                    # create all pairs within hue for boxes with sufficient number of samples
+                    pw_tests = [((group[0], a), (group[0], b)) for hue in pw_tests for (a,b) in combinations(hue, 2) ]
+                    #pw_tests = [(a, b) for hue in pw_tests for (a,b) in combinations(hue, 2) ]
+
+                    if len(pw_tests) > 0:
+                        # brackets of statannotations will have an offset, if dummy
+                        # spacer hue values are missing. Thus, we need to add fake values
+                        # here to the actual data to be plotted.
+                        dummydata = []
+                        for h in joined_hue_order:
+                            if h.startswith('spacer_'):
+                                dummydata.append({'distance': 0, 'metric': group[0], 'joined_hue': h})
+                        dummydata = pd.DataFrame(dummydata)
+
+                        annotator = Annotator(ax=ax, pairs=pw_tests, data=pd.concat([plotdata, dummydata]), x='distance', y='metric', hue='joined_hue', hue_order=joined_hue_order, orient='h')
+                        annotator.configure(test='Mann-Whitney', text_format='star', loc='inside', comparisons_correction="fdr_bh", correction_format="default", verbose=0 if verbose is None else 1)
+                        _ = annotator.apply_and_annotate()
+
 
         ls = results['infos'].fillna({'sub_' + hue_field: 'vs.'}).groupby(['joined_hue', 'sub_' + hue_field]).size().reset_index().set_index('joined_hue')['sub_' + hue_field].to_dict()
         labels = [ls.get(c, 0) for c in joined_hue_order if not c.startswith('spacer_')]
@@ -5120,7 +4624,6 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
             fp_fig = os.path.join(fp_figures, 'trajectory_beta_%s%s-%s-%s.svg' % (group[1]+'-' if stratification is not None else '', group[0], time, hue_field))
             fig.savefig(fp_fig, bbox_inches='tight')
         plt.show()
-        break
 
     if num_sign_results <= 0:
         print("Beta: No significant differences found!")
@@ -5128,7 +4631,6 @@ def plot_beta_trajectory(beta_diversity:dict[str, DistanceMatrix], metadata:pd.D
     return results
 
 
-from ggmap.analyses import ancom
 def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.DataFrame, time:str, hue_field:str, stratification=None, use_grid:bool=True, fp_figures=None, hue_palette=None, verbose=sys.stderr):
     """For data with multiple time points: run ANCOM-BC for pairwise comparisons along temporal axis for ranks Phylum to Genus.
 
@@ -5161,6 +4663,7 @@ def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.Dat
         Default: True.
         Use grid to compute ANCOM.
     """
+    from ggmap.analyses import ancom
 
     num_sign = 0
     grouping_columns = [time, hue_field + '_a', hue_field + '_b']
@@ -5171,6 +4674,7 @@ def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.Dat
         grouping_columns.insert(0, stratification)
     metric_derep_infos = precomputed_results['infos'].sort_values(by='q-value', ascending=True).groupby(grouping_columns).head(1)
 
+    results = dict()
     for group, row in metric_derep_infos[metric_derep_infos['q-value'] < 0.05].iterrows():
         cmp_dists = precomputed_results['dists'][(precomputed_results['dists']['reference_' + hue_field] == row[hue_field + '_a']) &
                                                  (precomputed_results['dists']['other_' + hue_field] == row[hue_field + '_b']) &
@@ -5178,8 +4682,13 @@ def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.Dat
         if stratification is not None:
              cmp_dists = cmp_dists[cmp_dists[stratification] == group[1]]
         cmp_samples = list(cmp_dists[['reference_sample_name', 'other_sample_name']].stack().unique())
-
+        cmp_samples = [s for s in cmp_samples if s in metadata.index]
         for rank in settings.RANKS[1:-2]:
+            _key = list(map(lambda x: x, row.loc[[time, hue_field + '_a', hue_field + '_b']].values)) + [rank]
+            if stratification is not None:
+                _key += [group[1]]
+            _key = tuple(_key)
+
             res_ancom = ancom(counts.loc[:, cmp_samples], rank, taxonomy, metadata.loc[cmp_samples, hue_field], dry=False, wait=False, use_grid=use_grid,
                               post_cache_arguments={'title': '%s%s=%s' % (group[1] + ', ' if stratification is not None else '', time, row[time]), 'palette': hue_palette}, verbose=verbose)
             if res_ancom['results'] is not None:
@@ -5209,6 +4718,9 @@ def plot_ancom_trajectory(counts, taxonomy, precomputed_results, metadata:pd.Dat
                         #else:
                         res_ancom['results']['figure'].savefig(fp_fig, bbox_inches='tight')
 
+
+                    results[_key] = res_ancom['results']
+
     if num_sign <= 0:
         print("Ancom: no significant findings.")
-    return num_sign
+    return (num_sign, results)
