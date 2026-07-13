@@ -1,3 +1,9 @@
+# This file shall contain code for a rapid processing (demux, trimming, deblur, fragment-insertion)
+# and default analysis (alpha, beta, emperor, ) of 16S data.
+# All data shall be stored in a dictionary called "prj_data", which is updated through
+# the below functions. Main output, is the result of function process_study which
+# is my best practise recommendation for normalization, filtering, ... of a 16S data set
+
 from os.path import exists
 import sys
 import requests
@@ -384,21 +390,25 @@ def process_study(metadata: pd.DataFrame,
     # See here:
     # https://forum.qiime2.org/t/taxonomy-filtering-greengenes2/28334
     # GG2 does include chloroplast and mitochondria, but the labels were accidentally not part of the taxonomy decoration, which I'm very well aware of but while this is incredibly important, it is not the highest priority I have at the moment
-    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
+    idx_chloroplast_mitochondria = set([])
+    res_taxonomy_GG138 = None
+    if fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval is not None:
+        res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
+        idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     # compute taxonomic lineages for feature sequences
-    if fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval:
+    res_taxonomy = None
+    if (fp_taxonomy_trained_classifier is not None) and (fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval):
         res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
     else:
         res_taxonomy = res_taxonomy_GG138
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
-    if plant_ratio.min() < 0.95:
-        verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
+    if len(idx_chloroplast_mitochondria) > 0:
+        plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
+        if plant_ratio.min() < 0.95:
+            verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if (tree_insert is None) and (fp_insertiontree is not None):
         if tree_insert.count() <= 1:
