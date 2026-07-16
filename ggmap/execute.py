@@ -11,6 +11,7 @@ from time import sleep, time
 from datetime import datetime
 from pickle import dump, load
 from shutil import rmtree
+from re import findall, IGNORECASE
 
 import pandas as pd
 
@@ -180,8 +181,8 @@ def _add_timing_cmds(commands, file_timing):
            cmd.startswith('ulimit '):
                 timing_cmds.append(cmd)
         elif cmd.startswith('if [ '):
-            ifcon, rest = re.findall(
-                r'(if \[.+?\];\s*then\s*)(.+)', cmd, re.IGNORECASE)[0]
+            ifcon, rest = findall(
+                r'(if \[.+?\];\s*then\s*)(.+)', cmd, IGNORECASE)[0]
             timing_cmds.append(('%s '
                                 '%s '
                                 '-v '
@@ -625,6 +626,64 @@ def pandas_hash(df):
     return sha256(row_hashes.values.tobytes()).hexdigest()
 
 
+def get_cache_filename(cache_arguments, jobname):
+    """Given arguments on which cache shall depend, create checksum"""
+    DIR_CACHE = '.anacache'
+
+    cached_inputs = dict()
+
+    cache_args_original = dict()
+    for arg in cache_arguments.keys():
+        if type(cache_arguments[arg]) == DistanceMatrix:
+            cache_args_original[arg] = cache_arguments[arg]
+            dm = cache_arguments[arg]
+            cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
+        if (type(cache_arguments[arg]) == dict):
+            if (len({type(v) for v in cache_arguments[arg].values()} ^
+                    set([DistanceMatrix])) == 0):
+                cache_args_original[arg] = cache_arguments[arg]
+                cache_arguments[arg] = OrderedDict(
+                    {k: dm.filter(sorted(dm.ids)).data
+                     for k, dm
+                     in cache_arguments[arg].items()})
+        if (type(cache_arguments[arg]) == pd.Series) or (type(cache_arguments[arg]) == pd.DataFrame):
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = pandas_hash(cache_arguments[arg])
+        if isinstance(cache_arguments[arg], Table):
+            cache_args_original[arg] = cache_arguments[arg]
+            cache_arguments[arg] = sorted(list(cache_arguments[arg].ids('sample'))) + \
+                                   sorted(list(cache_arguments[arg].ids('observation'))) + \
+                                   [cache_arguments[arg].get_table_density()]
+        if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
+            cache_args_original[arg] = cache_arguments[arg]
+            if os.path.isfile(cache_arguments[arg]):
+                # if argument can be used as a file path and the file actually exists...
+                # ... than use the md5sum of the file instead of the filepath for cache fingerprint
+                # Thus, moving the file will not affect the cache fingerprint
+                cache_arguments[arg] = _md5(cache_arguments[arg])
+            else:
+                # assume path is directory
+                cache_arguments[arg] = os.path.abspath(cache_arguments[arg])
+
+        # for better debugging, write hash sum for each input argument in result object
+        if cache_arguments[arg] is None:
+            cached_inputs[arg] = None
+        else:
+            cached_inputs[arg] = md5(str(cache_arguments[arg]).encode()).hexdigest()
+
+    _input = OrderedDict({
+        k:v
+        for k,v
+        in sorted(cache_arguments.items())
+    })
+    fp_cache = "%s/%s.%s" % (DIR_CACHE, md5(
+        str(_input).encode()).hexdigest(), jobname)
+
+    return {'file_cache': fp_cache,
+            'cached_inputs': cache_arguments,
+            'cache_args_original': cache_args_original}
+
+
 def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
               post_cache=None, post_cache_arguments=dict(),
               dry=True, use_grid=True, ppn=10, nocache=False,
@@ -694,7 +753,6 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
     Returns
     -------
     """
-    DIR_CACHE = '.anacache'
     FILE_STATUS = 'finished.info'
     results = {'results': None,
                'workdir': None,
@@ -728,50 +786,10 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
 
 
     # phase 1: compute signature for cache file
-    # convert skbio.DistanceMatrix object to a sorted version of its data for
-    # hashing
-    cache_args_original = dict()
-    for arg in cache_arguments.keys():
-        if type(cache_arguments[arg]) == DistanceMatrix:
-            cache_args_original[arg] = cache_arguments[arg]
-            dm = cache_arguments[arg]
-            cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
-        if (type(cache_arguments[arg]) == dict):
-            if (len({type(v) for v in cache_arguments[arg].values()} ^
-                    set([DistanceMatrix])) == 0):
-                cache_args_original[arg] = cache_arguments[arg]
-                cache_arguments[arg] = OrderedDict(
-                    {k: dm.filter(sorted(dm.ids)).data
-                     for k, dm
-                     in cache_arguments[arg].items()})
-        if (type(cache_arguments[arg]) == pd.Series) or (type(cache_arguments[arg]) == pd.DataFrame):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = pandas_hash(cache_arguments[arg])
-        if isinstance(cache_arguments[arg], Table):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = sorted(list(cache_arguments[arg].ids('sample'))) + \
-                                   sorted(list(cache_arguments[arg].ids('observation'))) + \
-                                   [cache_arguments[arg].get_table_density()]
-        if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
-            cache_args_original[arg] = cache_arguments[arg]
-            if os.path.isfile(cache_arguments[arg]):
-                # if argument can be used as a file path and the file actually exists...
-                # ... than use the md5sum of the file instead of the filepath for cache fingerprint
-                # Thus, moving the file will not affect the cache fingerprint
-                cache_arguments[arg] = _md5(cache_arguments[arg])
-            else:
-                # assume path is directory
-                cache_arguments[arg] = os.path.abspath(cache_arguments[arg])
-
-        # for better debugging, write hash sum for each input argument in result object
-        if cache_arguments[arg] is None:
-            results['cached_inputs'][arg] = None
-        else:
-            results['cached_inputs'][arg] = md5(str(cache_arguments[arg]).encode()).hexdigest()
-
-    _input = OrderedDict(sorted(cache_arguments.items()))
-    results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, md5(
-        str(_input).encode()).hexdigest(), jobname)
+    cache = get_cache_filename(cache_arguments, jobname)
+    results['file_cache'] = cache['file_cache']
+    results['cached_inputs'] = cache['cached_inputs']
+    cache_args_original = cache['cache_args_original']
 
     # convert back cache arguments if necessary
     for arg in cache_args_original.keys():
