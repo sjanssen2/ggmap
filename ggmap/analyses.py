@@ -27,6 +27,7 @@ from matplotlib.ticker import FuncFormatter
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from skbio import OrdinationResults
+import taxopy
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
@@ -5316,6 +5317,45 @@ We compiled a set of full length 16S rRNA sequences for all XXX isolates from YY
                      **executor_args)
 
 
+def _taxid2gglineage(taxid, taxdb:taxopy.core.TaxDb):
+    """Obtaining a GreenGenes like lineage string from NCBI taxids is surprisingly
+       complicated as e.g. higher ranks can be empty, not all taxa use same ranks, ...
+       I therefore here use "taxopy" to obtain a full lineage from a taxID and
+       then extract major ranks as used in GreenGenes.
+
+    Parameters
+    ----------
+    taxid : int
+        The NCBI taxonomy ID of the taxon for which the lineage shall be retrieved
+    taxdb : taxopy.core.TaxDb
+        An initialized taxopy.core.TaxDb object, i.e. loading according taxonomy SQL dump.
+
+    Returns
+    -------
+    pd.Series with index gg_lineage for one combined lineage string and one index per
+    RANK (except Isolate).
+    """
+    taxInfo = taxopy.Taxon(taxid, taxdb)
+    lineage = []
+    for rank in settings.RANKS[:-1]:
+        rank = rank.replace('Kingdom', 'Domain')
+        norm_rank = rank.lower()
+        if norm_rank in taxInfo._rank_name_dictionary.keys():
+            lineage.append((norm_rank[0], rank, taxInfo._rank_name_dictionary[norm_rank]))
+        else:
+            lineage.append((norm_rank[0], rank, ""))
+    # special treatment for viruses: we have a clash in lineage concepts between NCBI and GG
+    # as NCBI knows multiple ranks above "Kingdom/Domain" for viruses, i.e. kingdom, realm, acellular root
+    if ('acellular root' in taxInfo._rank_name_dictionary.keys()) and (taxInfo._rank_name_dictionary['acellular root'] == 'Viruses') and (lineage[0][-1] == ""):
+        lineage[0] = (lineage[0][0], lineage[0][1], taxInfo._rank_name_dictionary['acellular root'])
+    results = {
+        'gg_lineage': '; '.join(map(lambda x: '%s__%s' % (x[0], x[2]), lineage)),
+        'taxopy_lineage': '; '.join(['%s=%s' % (k,v) for k,v in taxInfo._rank_name_dictionary.items()])}
+    for x in lineage:
+        results[x[1]] = x[2]
+
+    return pd.Series(results)
+
 def blast_local(fp_query, fp_db, blast_type='blastn',
                 max_target_seqs=10, max_evalue='1e-5', outformat = '6 qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
                 earlyfiltering=None, word_size=11,
@@ -5371,6 +5411,7 @@ def blast_local(fp_query, fp_db, blast_type='blastn',
 
     def pre_execute(workdir, args):
         pass
+
     def commands(workdir, ppn, args):
         commands = {'pre': [], 'main': [], 'post': []}
 
@@ -5393,17 +5434,11 @@ def blast_local(fp_query, fp_db, blast_type='blastn',
             os.path.abspath(fp_db),
             workdir
         ))
-        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
-            workdir,
-            outformat_list.index('sallseqid'),
-            os.path.dirname(os.path.abspath(fp_db)),
-            workdir
-        ))
         commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
         commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
-        commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
 
         return commands
+
     def post_execute(workdir, args):
         FLOAT_COLS = ['evalue', 'pident', 'length', 'bitscore']
         COL_TYPES = {field: float if field in FLOAT_COLS else str for field in outformat.split()}
@@ -5423,19 +5458,11 @@ def blast_local(fp_query, fp_db, blast_type='blastn',
         # load blastdbcmd table
         taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
 
-        # load lineages
-        lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
-        for idx, row in lineages[pd.notnull(lineages['lineage'])].iterrows():
-            for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
-                if rank in ['domain', 'phylum', 'class', 'order', 'family', 'genus', 'species']:
-                    lineages.loc[idx, rank] = taxon
-
-        # merge all three tables
-        merged = hits.merge(
-            taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
-                lineages, left_on='taxid', right_index=True, how='left')
-
-        return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
+        taxdb = taxopy.TaxDb(nodes_dmp="%s/nodes.dmp" % os.path.dirname(fp_db), names_dmp="%s/names.dmp" % os.path.dirname(fp_db), merged_dmp="%s/merged.dmp" % os.path.dirname(fp_db))
+        # extend taxids table by gg lineage string and columns for gg ranks
+        taxids = pd.concat([taxids, taxids['taxid'].apply(lambda x: _taxid2gglineage(x, taxdb))], axis=1)
+        return {'hits': hits.merge(taxids, left_on='qaccver', right_index=True, how='left'),
+                'taxids': taxids}
 
     return _executor('blastn',
                      {'fp_query': os.path.abspath(fp_query),
@@ -5676,6 +5703,12 @@ def deblur(dir_fastqs:str, trimlength:int=150,
         with open('%s/expected_sample_names.txt' % workdir) as f:
             for line in f.readlines():
                 exp_samplenames.append(line.strip())
+
+        fps_parts = glob(os.path.join(workdir, 'chunked_results', 'deblur.logfile.*'))
+        results['logfiles'] = dict()
+        for fp_part in tqdm(fps_parts, "collecting %i chunked log-files" % len(fps_parts)):
+            with open(fp_part, 'r') as f:
+                results['logfiles'][int(os.path.basename(fp_part).split('.logfile.')[-1])] = f.readlines()
 
         for biomtype in ['all.biom', 'reference-hit.biom', 'reference-non-hit.biom']:
             fps_parts = glob(os.path.join(workdir, 'chunked_results', 'results_chunk_*', biomtype))
