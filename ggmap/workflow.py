@@ -1,3 +1,9 @@
+# This file shall contain code for a rapid processing (demux, trimming, deblur, fragment-insertion)
+# and default analysis (alpha, beta, emperor, ) of 16S data.
+# All data shall be stored in a dictionary called "prj_data", which is updated through
+# the below functions. Main output, is the result of function process_study which
+# is my best practise recommendation for normalization, filtering, ... of a 16S data set
+
 from os.path import exists
 import sys
 import requests
@@ -205,14 +211,15 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
 def project_deblur(prj_data, trimlength=150, ppn=10, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB', walltime='4:00:00', outdir=None):
     """Expects to find fastq files in prj_data['paths']['trimmed']
        Writes results into prj_data['paths']['deblur'] and prj_data['paths']['deblur_table']"""
-    prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur' if outdir is None else outdir)
-
     res_deblur = deblur(prj_data['paths']['trimmed'], trimlength, pattern_fwdfiles, ppn=ppn, dry=False, wait=False, walltime=walltime, pmem=pmem)
     if res_deblur['results'] is not None:
+        prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur' if outdir is None else outdir)
         # create temp dir
         os.makedirs('%s/deblur_res' % prj_data['paths']['deblur'], exist_ok=True)
         prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
         pandas2biom(prj_data['paths']['deblur_table'], res_deblur['results']['reference-hit.biom'])
+    else:
+        raise ValueError("Be patient and wait/poll for deblur results!")
 
     return prj_data
 
@@ -224,12 +231,12 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True, debug=False
     res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid, debug=debug)
     print('SEPP version number: %s' % ', '.join([line.split()[1] for line in res_sepp['conda_list'] if line.startswith('sepp') or line.startswith('q2-fragment-insertion')]))
     fp_tree = os.path.join(prj_data['paths']['tmp_workdir'], 'sepp_uncorrected_tree.tmp')
-    if not os.path.exists(fp_tree):
+    prj_data['paths']['insertion_tree'] = os.path.join(prj_data['paths']['tmp_workdir'], 'insertion_tree.nwk')
+    if (not os.path.exists(fp_tree)) or (not os.path.exists(prj_data['paths']['insertion_tree'])):
         with open(fp_tree, 'w') as f:
             f.write(res_sepp['results']['tree'])
 
     # correct zero branch length
-    prj_data['paths']['insertion_tree'] = os.path.join(prj_data['paths']['tmp_workdir'], 'insertion_tree.nwk')
     if not os.path.exists(prj_data['paths']['insertion_tree']):
         writeReferenceTree(fp_tree, prj_data['paths']['tmp_workdir'], fix_zero_len_branches=True)
         os.rename(os.path.join(prj_data['paths']['tmp_workdir'], 'reference.tree'), prj_data['paths']['insertion_tree'])
@@ -384,21 +391,25 @@ def process_study(metadata: pd.DataFrame,
     # See here:
     # https://forum.qiime2.org/t/taxonomy-filtering-greengenes2/28334
     # GG2 does include chloroplast and mitochondria, but the labels were accidentally not part of the taxonomy decoration, which I'm very well aware of but while this is incredibly important, it is not the highest priority I have at the moment
-    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
+    idx_chloroplast_mitochondria = set([])
+    res_taxonomy_GG138 = None
+    if fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval is not None:
+        res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
+        idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     # compute taxonomic lineages for feature sequences
-    if fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval:
+    res_taxonomy = None
+    if (fp_taxonomy_trained_classifier is not None) and (fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval):
         res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
     else:
         res_taxonomy = res_taxonomy_GG138
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
-    if plant_ratio.min() < 0.95:
-        verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
+    if len(idx_chloroplast_mitochondria) > 0:
+        plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
+        if plant_ratio.min() < 0.95:
+            verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if (tree_insert is None) and (fp_insertiontree is not None):
         if tree_insert.count() <= 1:
@@ -410,6 +421,9 @@ def process_study(metadata: pd.DataFrame,
     else:
         # default to all features of the counts table, if no insertion tree has been provided
         features_inserted = set(counts.index)
+    num_overlap_features_table_tree = len(set(counts.index) & set(features_inserted))
+    if num_overlap_features_table_tree <= 0:
+        raise ValueError("There are no ASVs of your feature-table inserted in the SEPP tree!!")
 
     # remove features assigned taxonomy to chloroplasts / mitochondria,
     # report min, max removal
@@ -417,7 +431,6 @@ def process_study(metadata: pd.DataFrame,
     results = dict()
     results['counts_plantsStillIn'] = counts
     counts = counts.loc[sorted([feature for feature in counts.index if feature not in idx_chloroplast_mitochondria and feature in features_inserted]), sorted(counts.columns)]
-
     results['taxonomy'] = {'RDP': res_taxonomy, 'GG138': res_taxonomy_GG138}
     results['counts_plantsremoved'] = counts
 
