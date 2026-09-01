@@ -1185,7 +1185,9 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                 result="%s/all_tree.nwk" % workdir,
                 ppn=1, pmem='100GB', walltime='1:00:00',
                 dry=dry,
-                wait=True, use_grid=use_grid)
+                wait=True, use_grid=use_grid,
+                timing=True, file_timing='%s/timing_guppy' % workdir,
+                file_qid=workdir+'/slurm_process_id_guppy.txt')
             sys.stderr.write(' done.\n')
         else:
             sys.stderr.write("step 1+2) extracting newick tree and placements: ")
