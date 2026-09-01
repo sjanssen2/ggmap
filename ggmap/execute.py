@@ -5,7 +5,7 @@ from sys import stderr, stdout
 import os
 from hashlib import md5, sha256
 from collections import OrderedDict
-from tempfile import gettempdir, mkdtemp
+from tempfile import gettempdir, mkdtemp, mkstemp
 import subprocess
 from time import sleep, time
 from datetime import datetime
