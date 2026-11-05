@@ -18,6 +18,8 @@ from IPython.display import Image
 from tqdm import tqdm
 import warnings
 import operator
+import tarfile
+import py7zr
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -5767,4 +5769,206 @@ def deblur(dir_fastqs:str, trimlength:int=150,
                      pmem=pmem,
                      walltime=walltime,
                      array=len(chunks),
+                     **executor_args)
+
+
+def _demux_decompression(fp, workdir, ppn, verbose=None):
+    archive_type = None
+    cmds = []
+    env = None
+    fp_outdir = None
+
+    if fp.endswith('.tgz') or fp.endswith('.tar.gz'):
+        archive_type = 'tgz'
+        cmds = ['tar xzf %s -C %s/' % (fp, workdir)]
+        ppn = 1
+        # obtain root dir name in archive
+        with tarfile.open(fp, "r:gz") as tar:
+            first = tar.next()
+            fp_outdir = os.path.join(workdir, first.name.split("/")[0])
+    elif fp.endswith('.7z'):
+        archive_type = '7zip'
+        cmds = ['7z x %s -o%s/ -mmt=on' % (fp, workdir)]
+        env = 'ggmap_spike'
+        # obtain root dir name in archive
+        with py7zr.SevenZipFile(fp, mode="r") as z:
+            first = next(iter(z.list()))
+            fp_outdir = os.path.join(workdir, first.filename.split("/")[0])
+    else:
+        raise NotImplementedError("Extraction not implemented for file type %s" % os.path.basename(fp))
+
+    msg = "Found a compressed archive (%s)" % archive_type
+    if os.path.exists(os.path.join(fp_outdir, 'RunInfo.xml')) and os.path.exists(os.path.join(fp_outdir, 'Data', 'Intensities', 'BaseCalls')):
+        msg += ', which is already extracted in %s' % fp_outdir
+        cmds = []
+    else:
+        msg += ', which will be automatically extract into %s' % fp_outdir
+    if verbose:
+        verbose.write(msg + '.\n')
+
+    return {'cmds': cmds, 'ppn': ppn, 'environment': env, 'archive_type': archive_type, 'fp_data': os.path.join(workdir, fp_outdir)}
+
+def demultiplex(fps_illuminadata: [str], fps_demuxsheet: [str], fp_output: str, use_bclconvert=True,
+                bin_bclconvert = '/vol/jlab/bin/bcl-convert',
+                ppn=10, pmem='16GB', ignore_warnings=False, environment=settings.SPIKE_ENV, **executor_args):
+    """Demultiplexes (and de-compresses) multiple Illumina raw-data.
+
+    Parameters
+    ----------
+    fps_illuminadata : [str]
+        List of file-paths that either point to raw Illumina-directories OR to
+        compressed archive files, containing these directories. Data will be
+        de-compressed automatically.
+    fps_demuxsheet : [str]
+        List of file-paths to demultiplexing sheets. Ensure same order as
+        in fp_illuminadata!!
+    fp_output : str
+        Output directory of all demultiplexing jobs.
+    use_bclconvert : Bool or [Bool]
+        Default: True or [True]
+        When setting to False, older bcl2fastq will be used.
+        If a list is provided, this value can be set for each demux job
+    ignore_warnings : Bool
+        Default: False
+        Set to True, if you want to continue processing even if:
+         - Illumina Demux-Sheets look wrong (no '[Header]', 'IEMFileVersion', 'Local Run Manager Analysis Id', 'FileFormatVersion' in first two lines)
+         - Illumina data directory looks wrong ('RunInfo.xml', 'Data/Intensities/BaseCalls' missing)
+         - Ignore too loose barcode mismatches
+    bin_bclconvert : str
+        Filepath to bclconvert binary.
+    """
+    # check number of fp_illuminadata and fp_demuxsheet match
+    if isinstance(fps_illuminadata, str):
+        raise ValueError("Provide fps_illuminadata as list, not single str!")
+    if isinstance(fps_demuxsheet, str):
+        raise ValueError("Provide fps_demuxsheet as list, not single str!")
+    if len(fps_illuminadata) != len(fps_demuxsheet):
+        raise ValueError('Numbers mismatch, you provide %i fps_illuminadata but %i fps_demuxsheet!' % (len(fps_illuminadata), len(fps_demuxsheet)))
+    if isinstance(use_bclconvert, list):
+        if len(fps_illuminadata) != len(use_bclconvert):
+            raise ValueError('Number mismatch between %i demux jobs and %i flags for use_bclconvert!' % (len(fps_illuminadata), len(use_bclconvert)))
+    else:
+        # if only one global flag for use_bclconvert has been provided, make it a list of these flags
+        use_bclconvert = [use_bclconvert] * len(fps_illuminadata)
+    for i, (fp_data, fp_sheet, flag) in enumerate(zip(fps_illuminadata, fps_demuxsheet, use_bclconvert)):
+        if not os.path.exists(fp_data):
+            raise ValueError('File-path "%s" (%i-th element in fps_illuminadata) does not exist!' % (fp_data, (i+1)))
+        if not os.path.exists(fp_sheet):
+            raise ValueError('File-path "%s" (%i-th element in fps_demuxsheet) does not exist!' % (fp_sheet, (i+1)))
+
+        # peek into demux sheet
+        with open(fp_sheet, 'r') as f:
+            firstlines = f.readlines()[:2]
+            msg = ''
+            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1]) and ('FileFormatVersion' not in firstlines[1])):
+                msg = "Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check." % fp_sheet
+                if ignore_warnings:
+                    print(msg, file=sys.stderr)
+                else:
+                    msg += " If you are certain it is correct, switch parameter 'ignore_warnings' to True."
+                    raise ValueError(msg)
+
+        # In bcl2fastq the number of mismatch barcode nucleotides was set via cmd parameter.
+        # In bcl-covert, this is set via according lines in the demux sheet, i.e. is under
+        # control of the user. Therefore, this mechanism warns users IF values is too low.
+        msg_warning = []
+        with open(fp_sheet, 'r') as f:
+            for line in f.readlines():
+                if line.startswith('BarcodeMismatchesIndex'):
+                    direction, value = line.split(',')[:2]
+                    value = int(value)
+                    if value <= 0:
+                        msg_warning.append("In your demux sheet '%s', allowed barcode mismatch is probably too loose: %s=%i. I strongly recommend to increase to at least 1!" % (fp_sheet, direction, value))
+        if len(msg_warning) > 0:
+            if ignore_warnings:
+                print('\n'.join(msg_warning), file=sys.stderr)
+            else:
+                msg = '\n'.join(msg_warning) + " Should you accept this setting, switch parameter 'ignore_warnings' to True."
+                raise ValueError(msg)
+
+
+        # peek into Illumina data directory
+        if os.path.isfile(fp_data):
+            # might be an archive, we here call the _add_decompression just to check if we know how to decompress, other results will be wrong
+            res = _demux_decompression(fp_data, 'empty', 0, verbose=None)
+        else:
+            if not os.path.exists(os.path.join(fp_data, 'RunInfo.xml')) or not os.path.exists(os.path.join(fp_data, 'Data', 'Intensities', 'BaseCalls')):
+                msg = "Your path '%s' does not look like a typical Illumina raw data directory. Please double check." % fp_data
+                if ignore_warnings:
+                    print(msg, file=sys.stderr)
+                else:
+                    msg += " If you are certain it is correct, switch parameter 'ignore_warnings' to True."
+                    raise ValueError(msg)
+
+    def pre_execute(workdir, args):
+        os.makedirs(fp_output, exist_ok=True)
+        if not os.access(fp_output, os.W_OK):
+            raise ValueError("No write permission in %s directory!" % fp_output)
+
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        for i, (fp_data, fp_sheet, flag) in enumerate(zip(args['fps_illuminadata'], args['fps_demuxsheet'], args['use_bclconvert'])):
+            commands['main'].append(
+                ('if [ ${%s} -eq %i ]; then '
+                 'echo "demultiplexing with sheet %s"; '
+                 'fi') % (
+                 settings.VARNAME_PBSARRAY, i+1,
+                 fp_sheet)
+                )
+
+            fp_illumina_input = fp_data
+            if os.path.isfile(fp_data):
+                decomp = _demux_decompression(fp_data, workdir, ppn, executor_args.get('verbose', sys.stderr))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then '
+                     '%s; '
+                     'fi') % (
+                     settings.VARNAME_PBSARRAY, i+1,
+                     '\n'.join(decomp['cmds']))
+                    )
+                fp_illumina_input = decomp['fp_data']
+            out_dir = os.path.abspath(os.path.join(fp_output, os.path.basename(fp_illumina_input)))
+
+            cmd = ""
+            if flag:
+                cmd = '%s --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
+                    bin_bclconvert,
+                    out_dir,  # --output-directory
+                    fp_illumina_input,  # --bcl-input-directory
+                    fp_sheet,  # --sample-sheet
+                    ppn,  # --bcl-num-conversion-threads
+                    ppn,  # --bcl-num-compression-threads
+                    ppn,  # --bcl-num-decompression-threads
+                )
+            else:
+                cmd = "bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
+                    fp_illumina_input,
+                    out_dir,
+                    fp_sheet,
+                    ppn, ppn, ppn)
+            commands['main'].append(
+                ('if [ ${%s} -eq %i ]; then '
+                 '%s; '
+                 'fi') % (
+                 settings.VARNAME_PBSARRAY, i+1,
+                 cmd)
+                )
+
+        return commands
+
+    def post_execute(workdir, args):
+        return fp_output
+
+    return _executor('demux',
+                     {'fps_illuminadata': list(map(os.path.abspath, fps_illuminadata)),
+                      'fps_demuxsheet': list(map(os.path.abspath, fps_demuxsheet)),
+                      'use_bclconvert': use_bclconvert},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=environment,
+                     ppn=ppn,
+                     pmem=pmem,
+                     array=len(fps_illuminadata),
                      **executor_args)
