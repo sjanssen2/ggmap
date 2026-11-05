@@ -17,6 +17,9 @@ from glob import glob
 from IPython.display import Image
 from tqdm import tqdm
 import warnings
+import operator
+import tarfile
+import py7zr
 
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
@@ -26,6 +29,7 @@ from matplotlib.ticker import FuncFormatter
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from skbio import OrdinationResults
+import taxopy
 
 from skbio.stats.distance import DistanceMatrix
 from skbio.tree import TreeNode
@@ -35,8 +39,10 @@ from skbio import DNA
 from biom.table import Table
 from biom.util import biom_open
 
-from ggmap.snippets import (pandas2biom, cluster_run, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, get_conda_activate_cmd, plotTaxonomy)
+from ggmap.snippets import (pandas2biom, biom2pandas, sync_counts_metadata, check_column_presents, adjust_saturation, collapseCounts_objects, plotTaxonomy)
 from ggmap import settings
+from ggmap.execute import *
+from ggmap.execute import _executor
 import seaborn as sns
 import networkx as nx
 
@@ -369,6 +375,12 @@ def writeReferenceTree(fp_reftree, workdir, fix_zero_len_branches=False,
             workdir+'/reference.tree')
 
 
+def _update_metric_alpha(metric):
+    if metric == 'PD_whole_tree':
+        return 'faith_pd'
+    return metric
+
+
 def rarefaction_curves(counts,
                        metrics=["PD_whole_tree", "shannon", "observed_features"],
                        num_steps=20, reference_tree=None, max_depth=None,
@@ -629,12 +641,6 @@ def rarefy(counts, rarefaction_depth,
                      **executor_args)
 
 
-def _update_metric_alpha(metric):
-    if metric == 'PD_whole_tree':
-        return 'faith_pd'
-    return metric
-
-
 def alpha_diversity(counts, rarefaction_depth,
                     metrics=["PD_whole_tree", "shannon", "observed_features"],
                     num_iterations=10, reference_tree=None,
@@ -652,7 +658,7 @@ def alpha_diversity(counts, rarefaction_depth,
         Alpha diversity metrics to be computed.
     num_iterations : int
         Number of iterations to rarefy the input table.
-    reference_tree : str
+    reference_tree : str OR skbio.TreeNode
         Reference tree file name for phylogenetic metics like unifrac.
     executor_args:
         dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
@@ -678,9 +684,14 @@ def alpha_diversity(counts, rarefaction_depth,
                 verbose = sys.stderr
             else:
                 verbose = executor_args['verbose']
-            writeReferenceTree(args['reference_tree'], workdir,
-                               fix_zero_len_branches, verbose=verbose,
-                               name_analysis='alpha_diversity')
+            if isinstance(args['reference_tree'], TreeNode):
+                if fix_zero_len_branches:
+                    raise ValueError("You provided a skbio.TreeNode NOT a filepath to a newick file. I cannot fix zero branch length issues four you!")
+                args['reference_tree'].write(workdir+'/reference.tree')
+            else:
+                writeReferenceTree(args['reference_tree'], workdir,
+                                   fix_zero_len_branches, verbose=verbose,
+                                   name_analysis='alpha_diversity')
 
     def commands(workdir, ppn, args):
         commands = {'pre': [], 'main': [], 'post': []}
@@ -783,14 +794,6 @@ def alpha_diversity(counts, rarefaction_depth,
                      **executor_args)
 
 
-def _update_metric_beta(metric):
-    if metric == 'bray_curtis':
-        return 'braycurtis'
-    elif metric == 'weighted_unifrac':
-        return 'weighted_normalized_unifrac'
-    return metric
-
-
 def beta_diversity(counts,
                    metrics=["unweighted_unifrac",
                             "weighted_unifrac",
@@ -821,6 +824,13 @@ def beta_diversity(counts,
     Returns
     -------
     Dict of Pandas.DataFrame, one per metric."""
+    def _update_metric_beta(metric):
+        if metric == 'bray_curtis':
+            return 'braycurtis'
+        elif metric == 'weighted_unifrac':
+            return 'weighted_normalized_unifrac'
+        return metric
+
     assert isinstance(counts, pd.DataFrame) or isinstance(counts, Table)
     if isinstance(counts, pd.DataFrame):
         counts = counts.fillna(0.0)
@@ -1177,7 +1187,9 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                 result="%s/all_tree.nwk" % workdir,
                 ppn=1, pmem='100GB', walltime='1:00:00',
                 dry=dry,
-                wait=True, use_grid=use_grid)
+                wait=True, use_grid=use_grid,
+                timing=True, file_timing='%s/timing_guppy' % workdir,
+                file_qid=workdir+'/slurm_process_id_guppy.txt')
             sys.stderr.write(' done.\n')
         else:
             sys.stderr.write("step 1+2) extracting newick tree and placements: ")
@@ -1241,427 +1253,6 @@ def sepp(counts, chunksize=10000, reference_database=settings.FILE_REFERENCE_SEP
                      ppn=ppn, pmem=pmem, walltime=walltime,
                      array=len(range(0, len(seqs), chunksize)),
                      environment=environment,
-                     **executor_args)
-
-
-def sepp_old(counts, chunksize=10000, reference=None, stopdecomposition=None,
-             ppn=20, pmem='50GB', walltime='12:00:00',
-             **executor_args):
-    """Tip insertion of deblur sequences into GreenGenes backbone tree.
-
-    Parameters
-    ----------
-    counts : Pandas.DataFrame | Pandas.Series
-        a) OTU counts in form of a Pandas.DataFrame.
-        b) If providing a Pandas.Series, we expect the index to be a fasta
-           headers and the colum the fasta sequences.
-    reference : str
-        Default: None.
-        Valid values are ['pynast']. Use a different alignment file for SEPP.
-    executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
-    chunksize: int
-        Default: 30000
-        SEPP jobs seem to fail if too many sequences are submitted per job.
-        Therefore, we can split your sequences in chunks of chunksize.
-
-    Returns
-    -------
-    ???"""
-    def pre_execute(workdir, args):
-        chunks = range(0, seqs.shape[0], args['chunksize'])
-        for chunk, i in enumerate(chunks):
-            # write all deblur sequences into one file per chunk
-            file_fragments = workdir + '/sequences%s.mfa' % (chunk + 1)
-            f = open(file_fragments, 'w')
-            chunk_seqs = seqs.iloc[i:i + args['chunksize']]
-            for header, sequence in chunk_seqs.items():
-                f.write('>%s\n%s\n' % (header, sequence))
-            f.close()
-
-    def commands(workdir, ppn, args):
-        commands = []
-        commands.append('cd %s' % workdir)
-        ref = ''
-        if args['reference'] is not None:
-            ref = ' -r %s' % args['reference']
-        sdcomp = ''
-        if 'stopdecomposition' in args:
-            sdcomp = ' -M %f ' % args['stopdecomposition']
-        fp_sepp = '$CONDA_PREFIX/'
-        commands.append('%sbin/run-sepp.sh "%s/sequences%s.mfa" res${%s} -x %i %s %s -r %sshare/sepp/ref/RAxML_info-reference-gg-raxml-bl.info -b 1' % (
-            fp_sepp,
-            workdir,
-            '${%s}' % settings.VARNAME_PBSARRAY if len(range(0, seqs.shape[0], chunksize)) > 1 else '1',
-            settings.VARNAME_PBSARRAY,
-            ppn,
-            ref,
-            sdcomp,
-            fp_sepp))
-        return commands
-
-    def post_execute(workdir, args):
-        files_placement = sorted(
-            [workdir + '/' + file_placement
-             for file_placement in next(os.walk(workdir))[2]
-             if file_placement.endswith('_placement.json')])
-        if len(files_placement) > 1:
-            file_mergedplacements = workdir + '/merged_placements.json'
-            if not os.path.exists(file_mergedplacements):
-                sys.stderr.write("step 1) merging placement files: ")
-                fout = open(file_mergedplacements, 'w')
-                for i, file_placement in enumerate(files_placement):
-                    sys.stderr.write('.')
-                    fin = open(file_placement, 'r')
-                    write = i == 0
-                    for line in fin.readlines():
-                        if '"placements": [{' in line:
-                            write = True
-                            if i != 0:
-                                continue
-                        if '}],' in line:
-                            write = i+1 == len(files_placement)
-                        if write is True:
-                            fout.write(line)
-                    fin.close()
-                    if i+1 != len(files_placement):
-                        fout.write('    },\n')
-                        fout.write('    {\n')
-                fout.close()
-                sys.stderr.write(' done.\n')
-
-            sys.stderr.write("step 2) placing fragments into tree: ...")
-            # guppy ran for: and consumed 45 GB of memory for 2M, chunked 10k
-            # sepp benchmark:
-            # real	37m39.772s
-            # user	31m3.906s
-            # sys	3m49.602s
-            file_merged_tree = file_mergedplacements[:-5] +\
-                '.tog.relabelled.tre'
-            cluster_run([
-                'cd %s' % workdir,
-                '$CONDA_PREFIX/bin/guppy tog %s' %
-                file_mergedplacements,
-                'cat %s | python %s > %s' % (
-                    file_mergedplacements.replace('.json', '.tog.tre'),
-                    files_placement[0].replace('placement.json',
-                                               'rename-json.py'),
-                    file_merged_tree)],
-                environment='sepp',
-                jobname='guppy_rename',
-                result=file_merged_tree,
-                ppn=1, pmem='100GB', walltime='1:00:00', dry=False,
-                wait=True)
-            sys.stderr.write(' done.\n')
-        else:
-            file_merged_tree = files_placement[0].replace(
-                '.json', '.tog.relabelled.tre')
-
-        sys.stderr.write("step 3) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree, format='newick')
-        sys.stderr.write(' done.\n')
-
-        sys.stderr.write("step 4) use the phylogeny to det"
-                         "ermine tips lineage: ")
-        lineages = []
-        features = []
-        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
-        for i, tip in enumerate(tree.tips()):
-            if i % divisor == 0:
-                sys.stderr.write('.')
-            if tip.name.isdigit():
-                continue
-
-            lineage = []
-            for ancestor in tip.ancestors():
-                try:
-                    float(ancestor.name)
-                except TypeError:
-                    pass
-                except ValueError:
-                    lineage.append(ancestor.name)
-
-            lineages.append("; ".join(reversed(lineage)))
-            features.append(tip.name)
-        sys.stderr.write(' done.\n')
-
-        # storing tree as newick string is necessary since large trees would
-        # result in too many recursions for the python heap :-/
-        newick = StringIO()
-        tree.write(newick)
-        return {'taxonomy': pd.DataFrame(data=lineages,
-                                         index=features,
-                                         columns=['taxonomy']),
-                'tree': newick.getvalue(),
-                'reference': args['reference']}
-
-    inp = sorted(counts.index)
-    if type(counts) == pd.Series:
-        # typically, the input is an OTU table with index holding sequences.
-        # However, if provided a Pandas.Series, we expect index are sequence
-        # headers and single column holds sequences.
-        inp = counts.sort_index()
-
-    def post_cache(cache_results):
-        newicks = []
-        for tree in cache_results['trees']:
-            newicks.append(TreeNode.read(StringIO(tree), format='newick'))
-        cache_results['trees'] = newicks
-        return cache_results
-
-    seqs = inp
-    if type(inp) != pd.Series:
-        seqs = pd.Series(inp, index=inp).sort_index()
-    args = {'seqs': seqs,
-            'reference': reference,
-            'chunksize': chunksize}
-    if stopdecomposition is not None:
-        args['stopdecomposition'] = stopdecomposition
-    return _executor('sepp',
-                     args,
-                     pre_execute,
-                     commands,
-                     post_execute,
-                     ppn=ppn, pmem=pmem, walltime=walltime,
-                     array=len(range(0, seqs.shape[0], chunksize)),
-                     **executor_args)
-
-
-def sepp_stepbystep(counts, reference=None,
-                    stopdecomposition=None,
-                    ppn=20, pmem='8GB', walltime='12:00:00',
-                    **executor_args):
-    """Step by Step version of SEPP to track memory consumption more closely.
-       Tip insertion of deblur sequences into GreenGenes backbone tree.
-
-    Parameters
-    ----------
-    counts : Pandas.DataFrame | Pandas.Series
-        a) OTU counts in form of a Pandas.DataFrame.
-        b) If providing a Pandas.Series, we expect the index to be a fasta
-           headers and the colum the fasta sequences.
-    reference : str
-        Default: None.
-        Valid values are ['pynast']. Use a different alignment file for SEPP.
-    executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
-    chunksize: int
-        Default: 30000
-        SEPP jobs seem to fail if too many sequences are submitted per job.
-        Therefore, we can split your sequences in chunks of chunksize.
-
-    Returns
-    -------
-    ???"""
-    def pre_execute(workdir, args):
-        file_fragments = workdir + '/sequences.mfa'
-        f = open(file_fragments, 'w')
-        for header, sequence in seqs.items():
-            f.write('>%s\n%s\n' % (header, sequence))
-        f.close()
-        os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
-
-    def commands(workdir, ppn, args):
-        commands = []
-        name = 'seppstepbysteprun'
-        dir_base = ('/home/sjanssen/miniconda3/envs/seppGG_py3/'
-                    'src/sepp-package/')
-        dir_tmp = workdir + '/sepp-tempssd/'
-
-        commands.append('cd %s' % workdir)
-
-        commands.append(
-            ('python %s -P %i -A %s -t %s -a %s -r %s -f %s -cp '
-             '%s/chpoint-%s -o %s -d %s -p %s '
-             '1>>%s/sepp-%s-out.log 2>%s/sepp-%s-err.log') % (
-                ('%ssepp/run_sepp.py' % dir_base),  # python script of SEPP
-                5000,  # problem size for tree
-                1000,  # problem size for alignment
-                # reference tree file
-                ('%sref/reference-gg-raxml-bl-rooted-relabelled.tre' %
-                    dir_base),
-                # reference alignment file
-                ('%sref/gg_13_5_ssu_align_99_pfiltered.fasta' % dir_base),
-                # reference info file
-                ('%sref/RAxML_info-reference-gg-raxml-bl.info' % dir_base),
-                workdir + '/sequences.mfa',  # sequence input file
-                dir_tmp,  # tmpdir
-                name,
-                name,
-                workdir,
-                dir_tmp,
-                workdir,
-                name,
-                workdir,
-                name))
-
-        commands.append(('%s/sepp/tools/bundled/Linux/guppy-64 tog %s/%s_plac'
-                         'ement.json') % (dir_base, workdir, name))
-        commands.append(('python %s/%s_rename-json.py < %s/%s_placement.tog.t'
-                         're > %s/%s_placement.tog.relabelled.tre') %
-                        (workdir, name, workdir, name, workdir, name))
-        commands.append(('%s/sepp/tools/bundled/Linux/guppy-64 tog --xml %s/%'
-                         's_placement.json') % (dir_base, workdir, name))
-        commands.append(('python %s/%s_rename-json.py < %s/%s_placement.tog.x'
-                         'ml > %s/%s_placement.tog.relabelled.xml') %
-                        (workdir, name, workdir, name, workdir, name))
-
-        return commands
-
-    def post_execute(workdir, args):
-        file_merged_tree = workdir +\
-            '/seppstepbysteprun_placement.tog.relabelled.tre'
-        sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree, format='newick')
-        sys.stderr.write(' done.\n')
-
-        sys.stderr.write("step 2/2) use the phylogeny to det"
-                         "ermine tips lineage: ")
-        lineages = []
-        features = []
-        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
-        for i, tip in enumerate(tree.tips()):
-            if i % divisor == 0:
-                sys.stderr.write('.')
-            if tip.name.isdigit():
-                continue
-
-            lineage = []
-            for ancestor in tip.ancestors():
-                try:
-                    float(ancestor.name)
-                except TypeError:
-                    pass
-                except ValueError:
-                    lineage.append(ancestor.name)
-
-            lineages.append("; ".join(reversed(lineage)))
-            features.append(tip.name)
-        sys.stderr.write(' done.\n')
-
-        # storing tree as newick string is necessary since large trees would
-        # result in too many recursions for the python heap :-/
-        newick = StringIO()
-        tree.write(newick)
-        return {'taxonomy': pd.DataFrame(data=lineages,
-                                         index=features,
-                                         columns=['taxonomy']),
-                'tree': newick.getvalue(),
-                'reference': args['reference']}
-
-    inp = sorted(counts.index)
-    if type(counts) == pd.Series:
-        # typically, the input is an OTU table with index holding sequences.
-        # However, if provided a Pandas.Series, we expect index are sequence
-        # headers and single column holds sequences.
-        inp = counts.sort_index()
-
-    seqs = inp
-    if type(inp) != pd.Series:
-        seqs = pd.Series(inp, index=inp).sort_index()
-    return _executor('seppstep',
-                     {'seqs': seqs,
-                      'reference': reference},
-                     pre_execute,
-                     commands,
-                     post_execute,
-                     ppn=ppn, pmem=pmem, walltime=walltime,
-                     **executor_args)
-
-
-def sepp_git(counts,
-             ppn=20, pmem='8GB', walltime='12:00:00',
-             **executor_args):
-    """Latest git version of SEPP.
-       Tip insertion of deblur sequences into GreenGenes backbone tree.
-
-    Parameters
-    ----------
-    counts : Pandas.DataFrame | Pandas.Series
-        a) OTU counts in form of a Pandas.DataFrame.
-        b) If providing a Pandas.Series, we expect the index to be a fasta
-           headers and the colum the fasta sequences.
-    executor_args:
-        dry, use_grid, nocache, wait, walltime, ppn, pmem, timing, verbose
-
-    Returns
-    -------
-    ???"""
-    def pre_execute(workdir, args):
-        file_fragments = workdir + '/sequences.mfa'
-        f = open(file_fragments, 'w')
-        for header, sequence in seqs.iter():
-            f.write('>%s\n%s\n' % (header, sequence))
-        f.close()
-        os.makedirs(workdir + '/sepp-tempssd/', exist_ok=True)
-
-    def commands(workdir, ppn, args):
-        commands = []
-        commands.append('cd %s' % workdir)
-        commands.append('%srun-sepp.sh "%s" res -x %i' % (
-            ('/home/sjanssen/Benchmark_insertiontree/'
-             'Software/sepp/sepp-package/'),
-            workdir+'/sequences.mfa',
-            ppn))
-        return commands
-
-    def post_execute(workdir, args):
-        file_merged_tree = workdir +\
-            '/res_placement.tog.relabelled.tre'
-        sys.stderr.write("step 1/2) reading skbio tree: ...")
-        tree = TreeNode.read(file_merged_tree, format='newick')
-        sys.stderr.write(' done.\n')
-
-        sys.stderr.write("step 2/2) use the phylogeny to det"
-                         "ermine tips lineage: ")
-        lineages = []
-        features = []
-        divisor = int(tree.count(tips=True) / min(10, tree.count(tips=True)))
-        for i, tip in enumerate(tree.tips()):
-            if i % divisor == 0:
-                sys.stderr.write('.')
-            if tip.name.isdigit():
-                continue
-
-            lineage = []
-            for ancestor in tip.ancestors():
-                try:
-                    float(ancestor.name)
-                except TypeError:
-                    pass
-                except ValueError:
-                    lineage.append(ancestor.name)
-
-            lineages.append("; ".join(reversed(lineage)))
-            features.append(tip.name)
-        sys.stderr.write(' done.\n')
-
-        # storing tree as newick string is necessary since large trees would
-        # result in too many recursions for the python heap :-/
-        newick = StringIO()
-        tree.write(newick)
-        return {'taxonomy': pd.DataFrame(data=lineages,
-                                         index=features,
-                                         columns=['taxonomy']),
-                'tree': newick.getvalue()}
-
-    inp = sorted(counts.index)
-    if type(counts) == pd.Series:
-        # typically, the input is an OTU table with index holding sequences.
-        # However, if provided a Pandas.Series, we expect index are sequence
-        # headers and single column holds sequences.
-        inp = counts.sort_index()
-
-    seqs = inp
-    if type(inp) != pd.Series:
-        seqs = pd.Series(inp, index=inp).sort_index()
-    return _executor('seppgit',
-                     {'seqs': seqs},
-                     pre_execute,
-                     commands,
-                     post_execute,
-                     environment='sepp_git',
-                     ppn=ppn, pmem=pmem, walltime=walltime,
                      **executor_args)
 
 
@@ -2792,8 +2383,13 @@ def correlation_diversity_metacolumns(metadata, categorial, alpha_diversities,
             ((alpha_diversities is not None) and (len(idx_samples) < alpha_diversities.shape[0])) |\
             any([len(idx_samples) < m.shape[0]
                  for m in beta_diversities.values()]):
-        sys.stderr.write(
-            'Reducing analysis to %i samples.\n' % len(idx_samples))
+        verbose = sys.stderr
+        if 'verbose' in executor_args.keys():
+            if executor_args['verbose'] is None:
+                verbose = None
+        if verbose is not None:
+            verbose.write(
+                'Reducing analysis to %i samples.\n' % len(idx_samples))
 
     idx_samples = list(idx_samples)
     # find columns that a) have only one value for all samples ...
@@ -4064,12 +3660,6 @@ def taxonomy(metadata : pd.DataFrame, counts : pd.DataFrame, taxonomy : pd.Serie
                      **executor_args)
 
 
-def _update_metric_alpha(metric):
-    if metric == 'PD_whole_tree':
-        return 'faith_pd'
-    return metric
-
-
 def scnic(counts: pd.DataFrame,
           method: str='sparcc',
           min_reads_per_feature: float=500,
@@ -4237,6 +3827,7 @@ def scnic(counts: pd.DataFrame,
                      array=1,
                      **executor_args)
 
+
 def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, min_mean_abundance_per_feature: float=0.005,
           ppn=1, pmem='4GB', **executor_args):
     """Execute ANCOM analysis through Qiime2.
@@ -4281,7 +3872,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
         raise ValueError("Rank cannot be empty, choose from %s or set to 'raw'." % settings.RANKS)
     if (taxonomy is None) and rank != 'raw':
         raise ValueError("You must provide a taxonomy pd.Series if 'rank' is not 'raw'!")
-    counts = collapseCounts_objects(counts, rank, taxonomy)[0]
+    counts = collapseCounts_objects(counts, rank, taxonomy, out=executor_args.get('verbose', None))[0]
 
     def pre_execute(workdir, args):
         def _is_numeric(element):
@@ -4356,7 +3947,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
 
         return results
 
-    def post_cache(cache_results, palette=None, feature_order=None, hue_order=None):
+    def post_cache(cache_results, palette=None, feature_order=None, hue_order=None, title=None):
         feat_sigdiff = cache_results['results']['ancom'][cache_results['results']['ancom']['Reject null hypothesis']].index
 
         data = cache_results['results']['features'][
@@ -4372,7 +3963,8 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
             'relAbundance': '>= %f mean rel. abundance' % min_mean_abundance_per_feature,
             'Reject null hypothesis': 'significantly different'
         })
-        display(report_taxa)
+        if executor_args.get('verbose', sys.stderr) is not None:
+            display(report_taxa)
 
         srt_feat = srt_feat[srt_feat >= min_mean_abundance_per_feature]
         if report_taxa[report_taxa['significantly different'] & report_taxa['>= %f mean rel. abundance' % min_mean_abundance_per_feature]].shape[0] > 0:
@@ -4383,6 +3975,9 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
                 order=srt_feat.index if feature_order is None else feature_order,
                 hue_order=hue_order,
                 orient='h', ax=axes, palette=palette)
+            if title != None:
+                cache_results['plot'].set_title(title)
+                axes.legend(bbox_to_anchor=(1.1, 1.05), title=grouping.name)
             cache_results['results']['figure'] = fig
 
         cache_results['results']['reported_features'] = srt_feat
@@ -4402,6 +3997,7 @@ def ancom(counts: pd.DataFrame, rank, taxonomy: pd.Series, grouping: pd.Series, 
                      ppn=ppn,
                      pmem=pmem,
                      **executor_args)
+
 
 def tempted(counts: pd.DataFrame, sample_metadata: pd.DataFrame,
             pivot_samples: pd.Series, fp_results: str, infix: str="",
@@ -4977,10 +4573,11 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
                      pmem=pmem,
                      **executor_args)
 
+
 def QC(dir_fastqs:str,
        pattern_fwdfiles:str="*_R1_*.fastq.gz",
        r1r2_replace:(str, str)=("_R1_", "_R2_"),
-       no_rev_seqs:bool=False, force_interactive=False,
+       no_rev_seqs:bool=False, force_interactive=False, ignore_missing_R2=False,
        ppn:int=1, pmem:str='2GB', environment:str=settings.SPIKE_ENV,
        **executor_args):
     """Generates multiQC reports for all fastq files in a directory.
@@ -5000,6 +4597,16 @@ def QC(dir_fastqs:str,
         Default False. Enforce creation of --interactive plots. Only useful if
         you keep the TMP directory via dirty=True, might lead to very large
         memory consumption of your browser.
+    ignore_missing_R2 : Boolean
+        Default is False.
+        By default, this method checks if it find a R2 file for every R1 file.
+        This is because R2 is infered from R1 filenames but sometimes they are
+        just indicated by "1" and "2" instead of "_R1_" and "_R2_". Thus, the
+        user need to define the r1r2_replace pattern, which might not fit to a
+        specific set of sequence files. An Error is issued in this case.
+        If you combine files from different runs, some might actually be SE and
+        thus lack R2 altogether. Use `ignore_missing_R2`=True to surpress the
+        error.
     """
     files_fwd = []
     files_rev = []
@@ -5008,15 +4615,18 @@ def QC(dir_fastqs:str,
             continue
 
         files_fwd.append(os.path.abspath(fp_fastq))
-        if not no_rev_seqs:
+        if (not no_rev_seqs):
             fp_rev = os.path.join(os.path.dirname(fp_fastq), os.path.basename(fp_fastq).replace(r1r2_replace[0], r1r2_replace[1]))
             if not os.path.exists(fp_rev):
-                raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
-            files_rev.append(os.path.abspath(fp_rev))
+                 if not ignore_missing_R2:
+                     raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
+            else:
+                files_rev.append(os.path.abspath(fp_rev))
     if (len(files_fwd) + len(files_rev)) <= 0:
         raise ValueError("No fwd fastQ files in '%s' found. Check dir_fastqs and pattern_fwdfiles!" % dir_fastqs)
     if (not no_rev_seqs) & (len(files_fwd) != len(files_rev)):
-        raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
+        if ignore_missing_R2 is False:
+            raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
 
     def pre_execute(workdir, args):
         with open("%s/commands.txt" % workdir, "w") as f:
@@ -5724,12 +5334,51 @@ We compiled a set of full length 16S rRNA sequences for all XXX isolates from YY
                      **executor_args)
 
 
-def blast_local(fp_query, fp_db, blast_type = 'blastn',
-           max_target_seqs=10, max_evalue='1e-5', outformat='6 qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
-           environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
-    """Local blast search against HUGE local databases.
+def _taxid2gglineage(taxid, taxdb:taxopy.core.TaxDb):
+    """Obtaining a GreenGenes like lineage string from NCBI taxids is surprisingly
+       complicated as e.g. higher ranks can be empty, not all taxa use same ranks, ...
+       I therefore here use "taxopy" to obtain a full lineage from a taxID and
+       then extract major ranks as used in GreenGenes.
 
-    Paramaters
+    Parameters
+    ----------
+    taxid : int
+        The NCBI taxonomy ID of the taxon for which the lineage shall be retrieved
+    taxdb : taxopy.core.TaxDb
+        An initialized taxopy.core.TaxDb object, i.e. loading according taxonomy SQL dump.
+
+    Returns
+    -------
+    pd.Series with index gg_lineage for one combined lineage string and one index per
+    RANK (except Isolate).
+    """
+    taxInfo = taxopy.Taxon(taxid, taxdb)
+    lineage = []
+    for rank in settings.RANKS[:-1]:
+        rank = rank.replace('Kingdom', 'Domain')
+        norm_rank = rank.lower()
+        if norm_rank in taxInfo._rank_name_dictionary.keys():
+            lineage.append((norm_rank[0], rank, taxInfo._rank_name_dictionary[norm_rank]))
+        else:
+            lineage.append((norm_rank[0], rank, ""))
+    # special treatment for viruses: we have a clash in lineage concepts between NCBI and GG
+    # as NCBI knows multiple ranks above "Kingdom/Domain" for viruses, i.e. kingdom, realm, acellular root
+    if ('acellular root' in taxInfo._rank_name_dictionary.keys()) and (taxInfo._rank_name_dictionary['acellular root'] == 'Viruses') and (lineage[0][-1] == ""):
+        lineage[0] = (lineage[0][0], lineage[0][1], taxInfo._rank_name_dictionary['acellular root'])
+    results = {
+        'gg_lineage': '; '.join(map(lambda x: '%s__%s' % (x[0], x[2]), lineage)),
+        'taxopy_lineage': '; '.join(['%s=%s' % (k,v) for k,v in taxInfo._rank_name_dictionary.items()])}
+    for x in lineage:
+        results[x[1]] = x[2]
+
+    return pd.Series(results)
+
+def blast_local(fp_query, fp_db, blast_type='blastn',
+                max_target_seqs=10, max_evalue='1e-5', outformat = '6 qseqid qaccver saccver sallseqid sgi pident length mismatch gapopen qstart qend sstart send evalue bitscore',
+                earlyfiltering=None, word_size=11,
+                environment:str=settings.ISOLATEASVS_ENV, ppn=1, pmem='4GB', **executor_args):
+    """Local blast search against HUGE local databases.
+    Parameters
     ----------
     fp_query : str
         Path to the query FASTA file
@@ -5749,37 +5398,46 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
         outformat='6 qseqid qaccver saccver sallseqid sgi pident length
                    mismatch gapopen qstart qend sstart send evalue bitscore sseq'
         Note: 'sseq' significantly increases output file size.
+    earlyfiltering : dict[str: threshold]
+        Default: False.
+        Hit file can get HUGE (> 15GB) which might break pandas. Try parsing partial files instead
+        with earlyfiltering = True.
+    word_site : int
+        Word size for high scoring segment pair of BLAST.
     """
+
     #Validates the blast_type
     valid_types = ['blastn', 'blastp']
     if blast_type not in valid_types:
         raise ValueError("blast_type must be one of %s" % ', '.join(map(lambda x: "'%s'" % x, valid_types)))
-        
+
     #Validates that outformat contains a number between 0-18
     if not (outformat.split()[0].isdigit() and 0 <= int(outformat.split()[0]) <= 18):
         raise ValueError(f"Invalid outformat: '{outformat.split()[0]}' expected a number between 0 and 20")
-        
+
     #Database is choosen depending on blast_type
     num_parts = len(glob(fp_db + '*.%ssq' % blast_type[-1]))
-    
+
     #Validate that outformat contains 'saccver' and 'sallseqid' for taxonomy/lineage
     outformat_list = outformat.split()
-    
+
     if 'saccver' not in outformat_list:
         raise ValueError("Custom tabular outformat must include 'saccver' for taxonomy/lineage extraction.")
     if 'sallseqid' not in outformat_list:
-            raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")
-    
+        raise ValueError("Custom tabular outformat must include 'sallseqid' for taxonomy extraction.")
+
     def pre_execute(workdir, args):
         pass
+
     def commands(workdir, ppn, args):
         commands = {'pre': [], 'main': [], 'post': []}
 
         commands['main'].append('var_num=`echo "${%s} - 1" | bc`; var_num=`printf "%%03d" $var_num`' % (
             settings.VARNAME_PBSARRAY
         ))
-        commands['main'].append('%s -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "%s" -max_target_seqs %i -evalue %s' % (
-            blast_type,
+        commands['main'].append('%s -word_size %i -query %s -db %s.$var_num -out %s/blastres.$var_num -outfmt "%s" -max_target_seqs %i -evalue %s' % (
+            args['blast_type'],
+            args['word_size'],
             os.path.abspath(fp_query),
             os.path.abspath(fp_db),
             workdir,
@@ -5793,47 +5451,43 @@ def blast_local(fp_query, fp_db, blast_type = 'blastn',
             os.path.abspath(fp_db),
             workdir
         ))
-        commands['main'].append('cat %s/blast.taxids.$var_num | cut -f %i -d ";" | /vol/jlab/bin/taxonkit --data-dir %s lineage --show-lineage-ranks > %s/lineage.$var_num' % (
-            workdir,
-            outformat_list.index('sallseqid'),
-            os.path.dirname(os.path.abspath(fp_db)),
-            workdir
-        ))
         commands['post'].append('cat %s/blastres.* > %s/final.blastres' % ( workdir, workdir))
         commands['post'].append('cat %s/blast.taxids.* | sort -u > %s/final.blast.taxids' % (workdir, workdir))
-        commands['post'].append('cat %s/lineage.* | sort -u > %s/final.lineage' % (workdir, workdir))
-        
+
         return commands
+
     def post_execute(workdir, args):
-        
-    # load blast hits
-        hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=str, names=outformat.split()[1:])
-        for f in ['evalue', 'pident', 'length', 'bitscore']:
-            if f in hits.columns:
-                hits[f] = hits[f].astype({'evalue': float, 'pident': float, 'length': float, 'bitscore': float}[f])
+        FLOAT_COLS = ['evalue', 'pident', 'length', 'bitscore']
+        COL_TYPES = {field: float if field in FLOAT_COLS else str for field in outformat.split()}
+
+        hits = []
+        if earlyfiltering is not None:
+            for fp_partialhits in tqdm(sorted(glob('%s/blastres.*' % workdir)), 'parsing blast hits in parts'):
+                phits = pd.read_csv(fp_partialhits, sep="\t", dtype=COL_TYPES, names=outformat.split())
+                for field in earlyfiltering.keys():
+                    phits = phits[earlyfiltering[field]['operator'](phits[field], earlyfiltering[field]['threshold'])]
+                hits.append(phits)
+            hits = pd.concat(hits)
+        else:
+            # load blast hits
+            hits = pd.read_csv('%s/final.blastres' % workdir, sep="\t", dtype=COL_TYPES, names=outformat.split())
 
         # load blastdbcmd table
         taxids = pd.read_csv('%s/final.blast.taxids' % workdir, sep=";", header=None, names=['accession', 'gi', 'ordinal_id', 'taxid'], index_col=0)
 
-        # load lineages
-        lineages = pd.read_csv("%s/final.lineage" % workdir, sep="\t", names=['taxid', 'lineage', 'ranks'], index_col=0)
-        for idx, row in lineages.iterrows():
-            for (taxon, rank) in zip(row['lineage'].split(';'), row['ranks'].split(';')):
-                if rank in ['domain', 'phylum', 'order', 'family', 'genus', 'species']:
-                    lineages.loc[idx, rank] = taxon
-
-        # merge all three tables
-        merged = hits.merge(
-            taxids[['taxid']], left_on='saccver', right_index=True, how='left').merge(
-                lineages, left_on='taxid', right_index=True, how='left')
-
-        return merged #{'hits': hits, 'taxids': taxids, 'lineages': lineages}
+        taxdb = taxopy.TaxDb(nodes_dmp="%s/nodes.dmp" % os.path.dirname(fp_db), names_dmp="%s/names.dmp" % os.path.dirname(fp_db), merged_dmp="%s/merged.dmp" % os.path.dirname(fp_db))
+        # extend taxids table by gg lineage string and columns for gg ranks
+        taxids = pd.concat([taxids, taxids['taxid'].apply(lambda x: _taxid2gglineage(x, taxdb))], axis=1)
+        return {'hits': hits.merge(taxids, left_on='qaccver', right_index=True, how='left'),
+                'taxids': taxids}
 
     return _executor('blastn',
                      {'fp_query': os.path.abspath(fp_query),
                       'fp_db': os.path.abspath(fp_db),
                       'max_target_seqs': max_target_seqs,
                       'max_evalue': max_evalue,
+                      'word_size': word_size,
+                      'blast_type': blast_type,
                      },
                      pre_execute,
                      commands,
@@ -5983,6 +5637,7 @@ def trainGG138(fp_basedir_taxonomy='/vol/jlab/MicrobiomeAnalyses/References/gg_1
                      pmem=pmem,
                      **executor_args)
 
+
 def deblur(dir_fastqs:str, trimlength:int=150,
            pattern_fwdfiles:str="*_R1_001.fastq.gz",
            ppn=10, pmem:str='2GB', walltime='4:00:00',
@@ -6066,6 +5721,12 @@ def deblur(dir_fastqs:str, trimlength:int=150,
             for line in f.readlines():
                 exp_samplenames.append(line.strip())
 
+        fps_parts = glob(os.path.join(workdir, 'chunked_results', 'deblur.logfile.*'))
+        results['logfiles'] = dict()
+        for fp_part in tqdm(fps_parts, "collecting %i chunked log-files" % len(fps_parts)):
+            with open(fp_part, 'r') as f:
+                results['logfiles'][int(os.path.basename(fp_part).split('.logfile.')[-1])] = f.readlines()
+
         for biomtype in ['all.biom', 'reference-hit.biom', 'reference-non-hit.biom']:
             fps_parts = glob(os.path.join(workdir, 'chunked_results', 'results_chunk_*', biomtype))
 
@@ -6111,306 +5772,203 @@ def deblur(dir_fastqs:str, trimlength:int=150,
                      **executor_args)
 
 
-def _parse_timing(workdir, jobname):
-    """If existant, parses timing information.
+def _demux_decompression(fp, workdir, ppn, verbose=None):
+    archive_type = None
+    cmds = []
+    env = None
+    fp_outdir = None
 
-    Parameters
-    ----------
-    workdir : str
-        Path to tmp workdir of _executor containing cr_ana_<jobname>.t* file
-    jobname : str
-        Name of ran job.
-
-    Parameters
-    ----------
-    None if file could not be found. Otherwise: [str]
-    """
-    files_timing = [workdir + '/' + d
-                    for d in next(os.walk(workdir))[2]
-                    if 'cr_ana_%s.t' % jobname in d]
-    for file_timing in files_timing:
-        with open(file_timing, 'r') as content_file:
-            return content_file.readlines()
-        # stop after reading first found file, since there should only be one
-        break
-    return None
-
-
-def _md5(filepath):
-    """Returns md5sum of file path"""
-    hash_md5 = hashlib.md5()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
-
-def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
-              post_cache=None, post_cache_arguments=dict(),
-              dry=True, use_grid=True, ppn=10, nocache=False,
-              pmem='20GB', environment=settings.QIIME_ENV, walltime='4:00:00',
-              wait=True, timing=True, verbose=sys.stderr, array=1,
-              dirty=False):
-    """
-
-    Parameters
-    ----------
-    jobname : str
-    cache_arguments : []
-    pre_execute : function
-    commands : [] or dict:{'pre': [], 'main': [], 'post': []}
-    post_execute : function
-    post_cache : function
-        A function that is called, after results have been loaded from cache /
-        were generated. E.g. drawing rarefaction curves.
-    environment : str
-
-    ==template arguments that should be copied to calling analysis function==
-    dry : bool
-        Default: True.
-        If True: only prepare working directory and create necessary input
-        files and print the command that would be executed in a non dry run.
-        For debugging. Workdir is not deleted.
-        "pre_execute" is called, but not "post_execute".
-    use_grid : bool
-        Default: True.
-        If True, use qsub to schedule as a grid job, otherwise run locally.
-    nocache : bool
-        Default: False.
-        Normally, successful results are cached in .anacache directory to be
-        retrieved when called a second time. You can deactivate this feature
-        (useful for testing) by setting "nocache" to True.
-    wait : bool
-        Default: True.
-        Wait for results.
-    walltime : str
-        Default: "12:00:00".
-        hh:mm:ss formated wall runtime on cluster.
-    ppn : int
-        Default: 10.
-        Number of CPU cores to be used.
-    pmem : str
-        Default: '8GB'.
-        Resource request for cluster jobs. Multiply by ppn!
-    timing : bool
-        Default: True
-        Use '/usr/bin/time' to log run time of commands.
-    verbose : stream
-        Default: sys.stderr
-        To silence this function, set verbose=None.
-    array : int
-        Default: 1 = deactivated.
-        Only for Torque submits: make the job an array job.
-        You need to take care of correct use of ${PBS_JOBID} !
-    dirty : bool
-        Defaul: False.
-        If True, temporary working directory will not be removed.
-
-    Returns
-    -------
-    """
-    DIR_CACHE = '.anacache'
-    FILE_STATUS = 'finished.info'
-    results = {'results': None,
-               'workdir': None,
-               'qid': None,
-               'file_cache': None,
-               'cached_inputs': dict(),
-               'timing': None,
-               'cache_version': 20200826,
-               'created_on': None,
-               'conda_env': 'unknown',
-               'jobname': jobname}
-
-    # create an ID function if no post_cache function is supplied
-    def _id(x):
-        return x
-    if post_cache is None:
-        post_cache = _id
-
-    # phase 1: compute signature for cache file
-    # convert skbio.DistanceMatrix object to a sorted version of its data for
-    # hashing
-    cache_args_original = dict()
-    for arg in cache_arguments.keys():
-        if type(cache_arguments[arg]) == DistanceMatrix:
-            cache_args_original[arg] = cache_arguments[arg]
-            dm = cache_arguments[arg]
-            cache_arguments[arg] = dm.filter(sorted(dm.ids)).data
-        if (type(cache_arguments[arg]) == dict):
-            if (len({type(v) for v in cache_arguments[arg].values()} ^
-                    set([DistanceMatrix])) == 0):
-                cache_args_original[arg] = cache_arguments[arg]
-                cache_arguments[arg] = collections.OrderedDict(
-                    {k: dm.filter(sorted(dm.ids)).data
-                     for k, dm
-                     in cache_arguments[arg].items()})
-        if (type(cache_arguments[arg]) == pd.Series):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = cache_arguments[arg].sort_index()
-        if (type(cache_arguments[arg]) == pd.DataFrame):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = cache_arguments[arg].loc[
-                sorted(cache_arguments[arg].index),
-                sorted(cache_arguments[arg].columns)]
-        if isinstance(cache_arguments[arg], Table):
-            cache_args_original[arg] = cache_arguments[arg]
-            cache_arguments[arg] = sorted(list(cache_arguments[arg].ids('sample'))) + \
-                                   sorted(list(cache_arguments[arg].ids('observation'))) + \
-                                   [cache_arguments[arg].get_table_density()]
-        if (type(cache_arguments[arg]) == str) and os.path.exists(cache_arguments[arg]):
-            cache_args_original[arg] = cache_arguments[arg]
-            if os.path.isfile(cache_arguments[arg]):
-                # if argument can be used as a file path and the file actually exists...
-                # ... than use the md5sum of the file instead of the filepath for cache fingerprint
-                # Thus, moving the file will not affect the cache fingerprint
-                cache_arguments[arg] = _md5(cache_arguments[arg])
-            else:
-                # assume path is directory
-                cache_arguments[arg] = os.path.abspath(cache_arguments[arg])
-
-        # for better debugging, write hash sum for each input argument in result object
-        if cache_arguments[arg] is None:
-            results['cached_inputs'][arg] = None
-        else:
-             results['cached_inputs'][arg] = hashlib.md5(str(cache_arguments[arg]).encode()).hexdigest()
-
-    _input = collections.OrderedDict(sorted(cache_arguments.items()))
-    results['file_cache'] = "%s/%s.%s" % (DIR_CACHE, hashlib.md5(
-        str(_input).encode()).hexdigest(), jobname)
-
-    # convert back cache arguments if necessary
-    for arg in cache_args_original.keys():
-        cache_arguments[arg] = cache_args_original[arg]
-
-    # phase 2: if cache contains matching file, load from cache and return
-    if os.path.exists(results['file_cache']) and (nocache is not True):
-        if verbose:
-            verbose.write("Using existing results from '%s'. \n" %
-                          results['file_cache'])
-        f = open(results['file_cache'], 'rb')
-        results = pickle.load(f)
-        f.close()
-        return post_cache(results, **post_cache_arguments)
-
-    # phase 3: search in TMP dir if non-collected results are
-    # ready or are waited for
-    dir_tmp = tempfile.gettempdir()
-    if use_grid:
-        dir_tmp = os.environ['HOME'] + '/TMP/'
-        if not os.path.exists(dir_tmp):
-            raise ValueError('Temporary directory "%s" does not exist. '
-                             'Please create it and restart.' % dir_tmp)
-
-    # collect all tmp workdirs that contain the right cache signature
-    pot_workdirs = []
-    for _dir in next(os.walk(dir_tmp))[1]:
-        # a potential working directory needs to have the matching job name
-        if _dir.startswith('ana_%s_' % results['jobname']):
-            # for shared computers, make sure you have permission to read dir contents
-            if not os.access(os.path.join(dir_tmp, _dir), os.R_OK):
-                continue
-            potwd = os.path.join(dir_tmp, _dir)
-            # and a matching cache file signature
-            if results['file_cache'].split('/')[-1] in next(os.walk(potwd))[2]:
-                pot_workdirs.append(potwd)
-    finished_workdirs = []
-    for wd in pot_workdirs:
-        all_finished = os.path.exists('%s/finished.info' % wd)
-        # for i in range(array):
-        #     exp_finish_suffix = ""
-        #     if array > 1:
-        #         exp_finish_suffix = str(int(i+1))
-        #     if (array == 1):
-        #         if (settings.GRIDNAME == 'JLU'):
-        #             if use_grid:
-        #                 exp_finish_suffix = 'undefined'
-        #             else:
-        #                 exp_finish_suffix = '1'
-        #         else:
-        #             exp_finish_suffix = '1'
-        #     if not os.path.exists('%s/finished.info%s' % (wd, exp_finish_suffix)):
-        #         all_finished = False
-        #         break
-        if all_finished:
-            finished_workdirs.append(wd)
-    if len(pot_workdirs) > 0 and len(finished_workdirs) <= 0:
-        if verbose:
-            verbose.write(
-                ('Found %i temporary working directories, but non of '
-                 'them have finished (missing "finished.info" file). If no job is currently running,'
-                 ' you might want to delete these directories and res'
-                 'tart:\n  %s\n') % (len(pot_workdirs),
-                                     "\n  ".join(pot_workdirs)))
-        return results
-    if len(finished_workdirs) > 0:
-        # arbitrarily pick first found workdir
-        results['workdir'] = finished_workdirs[0]
-        if verbose:
-            verbose.write('found matching working dir "%s"\n' %
-                          results['workdir'])
+    if fp.endswith('.tgz') or fp.endswith('.tar.gz'):
+        archive_type = 'tgz'
+        cmds = ['tar xzf %s -C %s/' % (fp, workdir)]
+        ppn = 1
+        # obtain root dir name in archive
+        with tarfile.open(fp, "r:gz") as tar:
+            first = tar.next()
+            fp_outdir = os.path.join(workdir, first.name.split("/")[0])
+    elif fp.endswith('.7z'):
+        archive_type = '7zip'
+        cmds = ['7z x %s -o%s/ -mmt=on' % (fp, workdir)]
+        env = 'ggmap_spike'
+        # obtain root dir name in archive
+        with py7zr.SevenZipFile(fp, mode="r") as z:
+            first = next(iter(z.list()))
+            fp_outdir = os.path.join(workdir, first.filename.split("/")[0])
     else:
-        # create a temporary working directory
-        prefix = 'ana_%s_' % jobname
-        results['workdir'] = tempfile.mkdtemp(prefix=prefix, dir=dir_tmp)
-        if verbose:
-            verbose.write("Working directory is '%s', cachefile is '%s'. " %
-                          (results['workdir'], results['file_cache']))
-        # leave an empty file in workdir with cache file name to later
-        # parse results from tmp dir
-        f = open("%s/%s" % (results['workdir'],
-                            results['file_cache'].split('/')[-1]), 'w')
-        f.close()
+        raise NotImplementedError("Extraction not implemented for file type %s" % os.path.basename(fp))
 
-        pre_execute(results['workdir'], cache_arguments)
+    msg = "Found a compressed archive (%s)" % archive_type
+    if os.path.exists(os.path.join(fp_outdir, 'RunInfo.xml')) and os.path.exists(os.path.join(fp_outdir, 'Data', 'Intensities', 'BaseCalls')):
+        msg += ', which is already extracted in %s' % fp_outdir
+        cmds = []
+    else:
+        msg += ', which will be automatically extract into %s' % fp_outdir
+    if verbose:
+        verbose.write(msg + '.\n')
 
-        lst_commands = commands(results['workdir'], ppn, cache_arguments)
-        # convert to new dict structure instead of flat list
-        if isinstance(lst_commands, list):
-            lst_commands = {'main': lst_commands, 'pre': [], 'post': []}
-        # device creation of a file _after_ execution of the job in workdir
-        final_cmd = 'touch %s/%s' % (results['workdir'], FILE_STATUS)
-        lst_commands['post'].append(final_cmd)
+    return {'cmds': cmds, 'ppn': ppn, 'environment': env, 'archive_type': archive_type, 'fp_data': os.path.join(workdir, fp_outdir)}
 
-        results['qid'] = cluster_run(
-            lst_commands, 'ana_%s' % jobname, results['workdir']+'mock',
-            environment, ppn=ppn, wait=wait, dry=dry,
-            pmem=pmem, walltime=walltime,
-            file_qid=results['workdir']+'/cluster_job_id.txt',
-            file_condaenvinfo=results['workdir']+'/conda_info.txt',
-            timing=timing,
-            file_timing=results['workdir']+('/timing${%s}.txt' % settings.VARNAME_PBSARRAY),
-            array=array, use_grid=use_grid)
-        if dry:
-            return results
-        if wait is False:
-            return results
+def demultiplex(fps_illuminadata: [str], fps_demuxsheet: [str], fp_output: str, use_bclconvert=True,
+                bin_bclconvert = '/vol/jlab/bin/bcl-convert',
+                ppn=10, pmem='16GB', ignore_warnings=False, environment=settings.SPIKE_ENV, **executor_args):
+    """Demultiplexes (and de-compresses) multiple Illumina raw-data.
 
-    results['results'] = post_execute(results['workdir'],
-                                      cache_arguments)
-    results['created_on'] = datetime.datetime.fromtimestamp(
-        time.time()).strftime('%Y-%m-%d %H:%M:%S')
+    Parameters
+    ----------
+    fps_illuminadata : [str]
+        List of file-paths that either point to raw Illumina-directories OR to
+        compressed archive files, containing these directories. Data will be
+        de-compressed automatically.
+    fps_demuxsheet : [str]
+        List of file-paths to demultiplexing sheets. Ensure same order as
+        in fp_illuminadata!!
+    fp_output : str
+        Output directory of all demultiplexing jobs.
+    use_bclconvert : Bool or [Bool]
+        Default: True or [True]
+        When setting to False, older bcl2fastq will be used.
+        If a list is provided, this value can be set for each demux job
+    ignore_warnings : Bool
+        Default: False
+        Set to True, if you want to continue processing even if:
+         - Illumina Demux-Sheets look wrong (no '[Header]', 'IEMFileVersion', 'Local Run Manager Analysis Id', 'FileFormatVersion' in first two lines)
+         - Illumina data directory looks wrong ('RunInfo.xml', 'Data/Intensities/BaseCalls' missing)
+         - Ignore too loose barcode mismatches
+    bin_bclconvert : str
+        Filepath to bclconvert binary.
+    """
+    # check number of fp_illuminadata and fp_demuxsheet match
+    if isinstance(fps_illuminadata, str):
+        raise ValueError("Provide fps_illuminadata as list, not single str!")
+    if isinstance(fps_demuxsheet, str):
+        raise ValueError("Provide fps_demuxsheet as list, not single str!")
+    if len(fps_illuminadata) != len(fps_demuxsheet):
+        raise ValueError('Numbers mismatch, you provide %i fps_illuminadata but %i fps_demuxsheet!' % (len(fps_illuminadata), len(fps_demuxsheet)))
+    if isinstance(use_bclconvert, list):
+        if len(fps_illuminadata) != len(use_bclconvert):
+            raise ValueError('Number mismatch between %i demux jobs and %i flags for use_bclconvert!' % (len(fps_illuminadata), len(use_bclconvert)))
+    else:
+        # if only one global flag for use_bclconvert has been provided, make it a list of these flags
+        use_bclconvert = [use_bclconvert] * len(fps_illuminadata)
+    for i, (fp_data, fp_sheet, flag) in enumerate(zip(fps_illuminadata, fps_demuxsheet, use_bclconvert)):
+        if not os.path.exists(fp_data):
+            raise ValueError('File-path "%s" (%i-th element in fps_illuminadata) does not exist!' % (fp_data, (i+1)))
+        if not os.path.exists(fp_sheet):
+            raise ValueError('File-path "%s" (%i-th element in fps_demuxsheet) does not exist!' % (fp_sheet, (i+1)))
 
-    results['conda_env'] = environment
-    if environment is not None:
-        with open(results['workdir']+'/conda_info.txt', 'r') as f:
-            results['conda_list'] = f.readlines()
+        # peek into demux sheet
+        with open(fp_sheet, 'r') as f:
+            firstlines = f.readlines()[:2]
+            msg = ''
+            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1]) and ('FileFormatVersion' not in firstlines[1])):
+                msg = "Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check." % fp_sheet
+                if ignore_warnings:
+                    print(msg, file=sys.stderr)
+                else:
+                    msg += " If you are certain it is correct, switch parameter 'ignore_warnings' to True."
+                    raise ValueError(msg)
 
-    results['timing'] = []
-    for timingfile in next(os.walk(results['workdir']))[2]:
-        if timingfile.startswith('timing'):
-            with open(results['workdir']+'/'+timingfile, 'r') as content_file:
-                results['timing'] += content_file.readlines()
+        # In bcl2fastq the number of mismatch barcode nucleotides was set via cmd parameter.
+        # In bcl-covert, this is set via according lines in the demux sheet, i.e. is under
+        # control of the user. Therefore, this mechanism warns users IF values is too low.
+        msg_warning = []
+        with open(fp_sheet, 'r') as f:
+            for line in f.readlines():
+                if line.startswith('BarcodeMismatchesIndex'):
+                    direction, value = line.split(',')[:2]
+                    value = int(value)
+                    if value <= 0:
+                        msg_warning.append("In your demux sheet '%s', allowed barcode mismatch is probably too loose: %s=%i. I strongly recommend to increase to at least 1!" % (fp_sheet, direction, value))
+        if len(msg_warning) > 0:
+            if ignore_warnings:
+                print('\n'.join(msg_warning), file=sys.stderr)
+            else:
+                msg = '\n'.join(msg_warning) + " Should you accept this setting, switch parameter 'ignore_warnings' to True."
+                raise ValueError(msg)
 
-    if results['results'] is not None:
-        if not dirty:
-            shutil.rmtree(results['workdir'])
-            if verbose:
-                verbose.write(" Was removed.\n")
 
-    os.makedirs(os.path.dirname(results['file_cache']), exist_ok=True)
-    f = open(results['file_cache'], 'wb')
-    pickle.dump(results, f)
-    f.close()
+        # peek into Illumina data directory
+        if os.path.isfile(fp_data):
+            # might be an archive, we here call the _add_decompression just to check if we know how to decompress, other results will be wrong
+            res = _demux_decompression(fp_data, 'empty', 0, verbose=None)
+        else:
+            if not os.path.exists(os.path.join(fp_data, 'RunInfo.xml')) or not os.path.exists(os.path.join(fp_data, 'Data', 'Intensities', 'BaseCalls')):
+                msg = "Your path '%s' does not look like a typical Illumina raw data directory. Please double check." % fp_data
+                if ignore_warnings:
+                    print(msg, file=sys.stderr)
+                else:
+                    msg += " If you are certain it is correct, switch parameter 'ignore_warnings' to True."
+                    raise ValueError(msg)
 
-    return post_cache(results, **post_cache_arguments)
+    def pre_execute(workdir, args):
+        os.makedirs(fp_output, exist_ok=True)
+        if not os.access(fp_output, os.W_OK):
+            raise ValueError("No write permission in %s directory!" % fp_output)
+
+    def commands(workdir, ppn, args):
+        commands = {'pre': [], 'main': [], 'post': []}
+
+        for i, (fp_data, fp_sheet, flag) in enumerate(zip(args['fps_illuminadata'], args['fps_demuxsheet'], args['use_bclconvert'])):
+            commands['main'].append(
+                ('if [ ${%s} -eq %i ]; then '
+                 'echo "demultiplexing with sheet %s"; '
+                 'fi') % (
+                 settings.VARNAME_PBSARRAY, i+1,
+                 fp_sheet)
+                )
+
+            fp_illumina_input = fp_data
+            if os.path.isfile(fp_data):
+                decomp = _demux_decompression(fp_data, workdir, ppn, executor_args.get('verbose', sys.stderr))
+                commands['main'].append(
+                    ('if [ ${%s} -eq %i ]; then '
+                     '%s; '
+                     'fi') % (
+                     settings.VARNAME_PBSARRAY, i+1,
+                     '\n'.join(decomp['cmds']))
+                    )
+                fp_illumina_input = decomp['fp_data']
+            out_dir = os.path.abspath(os.path.join(fp_output, os.path.basename(fp_illumina_input)))
+
+            cmd = ""
+            if flag:
+                cmd = '%s --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
+                    bin_bclconvert,
+                    out_dir,  # --output-directory
+                    fp_illumina_input,  # --bcl-input-directory
+                    fp_sheet,  # --sample-sheet
+                    ppn,  # --bcl-num-conversion-threads
+                    ppn,  # --bcl-num-compression-threads
+                    ppn,  # --bcl-num-decompression-threads
+                )
+            else:
+                cmd = "bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
+                    fp_illumina_input,
+                    out_dir,
+                    fp_sheet,
+                    ppn, ppn, ppn)
+            commands['main'].append(
+                ('if [ ${%s} -eq %i ]; then '
+                 '%s; '
+                 'fi') % (
+                 settings.VARNAME_PBSARRAY, i+1,
+                 cmd)
+                )
+
+        return commands
+
+    def post_execute(workdir, args):
+        return fp_output
+
+    return _executor('demux',
+                     {'fps_illuminadata': list(map(os.path.abspath, fps_illuminadata)),
+                      'fps_demuxsheet': list(map(os.path.abspath, fps_demuxsheet)),
+                      'use_bclconvert': use_bclconvert},
+                     pre_execute,
+                     commands,
+                     post_execute,
+                     environment=environment,
+                     ppn=ppn,
+                     pmem=pmem,
+                     array=len(fps_illuminadata),
+                     **executor_args)

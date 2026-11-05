@@ -69,6 +69,17 @@ DEFAULTS = {'condaenv_qiime1': {'default': 'qiime_env',
             }
 
 
+# a pretty version of metrics names
+NICE_METRICS = {
+    'shannon': 'Shannon',
+    'observed_features': 'number observed ASVs',
+    'PD_whole_tree': 'Faith\'s PD',
+
+    'bray_curtis': 'Bray-Curtis',
+    'unweighted_unifrac': 'unweighted UniFrac',
+    'weighted_unifrac': 'weighted UniFrac'}
+
+
 # stolen from https://stackoverflow.com/questions/13034496/
 # using-global-variables-between-files
 def init(err=sys.stderr, force_commit_msg=False):

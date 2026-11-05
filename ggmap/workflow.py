@@ -1,3 +1,9 @@
+# This file shall contain code for a rapid processing (demux, trimming, deblur, fragment-insertion)
+# and default analysis (alpha, beta, emperor, ) of 16S data.
+# All data shall be stored in a dictionary called "prj_data", which is updated through
+# the below functions. Main output, is the result of function process_study which
+# is my best practise recommendation for normalization, filtering, ... of a 16S data set
+
 from os.path import exists
 import sys
 import requests
@@ -71,93 +77,58 @@ def init_project(pi, name, prj_data, project_dir_prefix='/vol/jlab/MicrobiomeAna
 
     return prj_data
 
-def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, pmem='16GB', verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True):
+def project_demux(fp_illuminadata, fp_demuxsheet, prj_data, force=False, ppn=10, pmem='16GB', verbose=sys.stderr, demux_dirname='demultiplex', use_bclconvert=True, dry=False):
+    """
+    Parameters
+    ----------
+    fp_illuminadata: str
+    fp_demuxsheet: str
+    prj_data: dict
+    force: Bool
+        Default is False.
+        Enforce demultiplexing, regardless if there are issues with demux sheet or the Illumina run directory.
+        Also enforced submission as a cluster job.
+    ppn: int
+    pmem: str
+    verbose: Bool
+    demux_dirname: str
+    use_bclconvert: bool, True
+        Uses the more modern bcl-convert instead of the older bcl2fastq
+    """
     bin_bclconvert = '/vol/jlab/bin/bcl-convert'
 
-    # peek into demux sheet
-    with open(fp_demuxsheet, 'r') as f:
-        firstlines = f.readlines()[:2]
-        if not force:
-            if ('[Header]' not in firstlines[0]) or (('IEMFileVersion' not in firstlines[1]) and ('Local Run Manager Analysis Id' not in firstlines[1]) and ('FileFormatVersion' not in firstlines[1])):
-                raise ValueError("Your file '%s' does not look like a typical Illumina demultiplexing sheet. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_demuxsheet)
-
-    # peek into Illumina data directory
-    fp_tmp_dir = None
-    if os.path.isfile(fp_illuminadata) and (fp_illuminadata.endswith('.tgz') or fp_illuminadata.endswith('.tar.gz')):
-        fp_tmp_dir = os.path.join(prj_data['paths']['tmp_workdir'], os.path.basename(fp_demuxsheet)[:-4])
-        verbose.write("Found a compressed tar archive. Extracting into temporary directory '%s'" % fp_tmp_dir)
-        os.makedirs(fp_tmp_dir, exist_ok=True)
-        cluster_run(['tar xzf %s -C %s/' % (fp_illuminadata, prj_data['paths']['tmp_workdir'])],
-            'untar_seqdata',
-            os.path.join(fp_tmp_dir, 'RunInfo.xml'),
-            ppn=1,
-            dry=False, use_grid=False, wait=True)
-        fp_illuminadata = fp_tmp_dir
-
-    if not force:
-        if not os.path.exists(os.path.join(fp_illuminadata, 'RunInfo.xml')) or not os.path.exists(os.path.join(fp_illuminadata, 'Data', 'Intensities', 'BaseCalls')):
-            raise ValueError("Your path '%s' does not look like a typical Illumina raw data directory. Please double check. If you are certain it is correct, switch parameter 'force' to True." % fp_illuminadata)
+    # check version numbers
+    if verbose:
+        _, fp_tmp = tempfile.mkstemp()
+        cmds = []
+        cmds.append('%s --version > %s 2>&1' % (bin_bclconvert, fp_tmp))
+        cmds.append('bcl2fastq --version >> %s 2>&1' % fp_tmp)
+        cluster_run(cmds, 'info', '/dev/null/kurt', environment=settings.SPIKE_ENV, dry=False, use_grid=False)
+        with open(fp_tmp, 'r') as f:
+            version_bclconvert = '?'
+            version_bcl2fastq = '?'
+            for i, line in enumerate(f.readlines()):
+                if i == 0:
+                    version_bclconvert = line.strip()
+                elif i == 2:
+                    version_bcl2fastq = line.strip()
+            if use_bclconvert:
+                print('using version: %s' % version_bclconvert)
+            else:
+                print('using version: %s' % version_bcl2fastq)
 
     prj_data['paths']['demux'] = os.path.join(prj_data['paths']['tmp_workdir'], demux_dirname)
     os.makedirs(prj_data['paths']['demux'], exist_ok=True)
     prj_data['paths']['illumina_rawdata'] = os.path.abspath(fp_illuminadata)
     prj_data['paths']['illumina_demuxsheet'] = os.path.abspath(fp_demuxsheet)
 
-    if verbose:
-        _, fp_tmp = tempfile.mkstemp()
-        if use_bclconvert:
-            env = None
-            cmd = '%s --version > %s 2>&1' % (bin_bclconvert, fp_tmp)
-        else:
-            env = settings.SPIKE_ENV
-            cmd = 'bcl2fastq --version > %s 2>&1' % fp_tmp
-        cluster_run([cmd], 'info', '/dev/null/kurt', environment=settings.SPIKE_ENV, dry=False, use_grid=False)
-        with open(fp_tmp, 'r') as f:
-            if use_bclconvert:
-                print('using version: %s' % f.readlines()[0].strip())
-            else:
-                print('using version: %s' % f.readlines()[1].strip())
-
-    if use_bclconvert:
-        env = None
-
-        # In bcl2fastq the number of mismatch barcode nucleotides was set via cmd parameter.
-        # In bcl-covert, this is set via according lines in the demux sheet, i.e. is under
-        # control of the user. Therefore, this mechanism warns users IF values is too low.
-        msg_warning = []
-        with open(fp_demuxsheet, 'r') as f:
-            for line in f.readlines():
-                if line.startswith('BarcodeMismatchesIndex'):
-                    direction, value = line.split(',')[:2]
-                    value = int(value)
-                    if value <= 0:
-                        msg_warning.append("In your demux sheet '%s', allowed barcode mismatch is probably too loose: %s=%i. I strongly recommend to increase to at least 1!" % (fp_demuxsheet, direction, value))
-        if (len(msg_warning) > 0) and (force is False):
-            raise ValueError('\n'.join(msg_warning) + '\n\nShould you accept this setting, provide parameter force=True to this function.')
-
-        cmds = ['%s --force --output-directory %s --bcl-input-directory %s --sample-sheet %s --strict-mode false --bcl-sampleproject-subdirectories true --bcl-num-conversion-threads %i --bcl-num-compression-threads %i --bcl-num-decompression-threads %i --output-legacy-stats true' % (
-            bin_bclconvert,
-            os.path.abspath(prj_data['paths']['demux']),  # --output-directory
-            prj_data['paths']['illumina_rawdata'],  # --bcl-input-directory
-            prj_data['paths']['illumina_demuxsheet'],  # --sample-sheet
-            ppn,  # --bcl-num-conversion-threads
-            ppn,  # --bcl-num-compression-threads
-            ppn,  # --bcl-num-decompression-threads
-        )]
-    else:
-        print('Since bcl2fastq opens a LOT of file handles, I recommand you copy and paste the below command and ssh into machine `hp-dl560.internal.computational.bio.uni-giessen.de` where you execute the command:\n')
-        env = settings.SPIKE_ENV
-        cmds = ["bcl2fastq --runfolder-dir %s --output-dir %s --ignore-missing-bcls --sample-sheet %s --loading-threads %i --processing-threads %i --writing-threads %i" % (
-            prj_data['paths']['illumina_rawdata'],
-            os.path.abspath(prj_data['paths']['demux']),
-            prj_data['paths']['illumina_demuxsheet'],
-            ppn, ppn, ppn)]
-    fp_indicator = prj_data['paths']['demux']+"/Undetermined_S0_L001_R1_001.fastq.gz"
-    # newer demux sheets do not contain lane information
-    if os.path.exists(fp_indicator.replace('_L001', '')):
-        fp_indicator = fp_indicator.replace('_L001', '')
-    cluster_run(cmds, "demux", fp_indicator, environment=env, ppn=ppn, pmem=pmem,
-        use_grid=use_bclconvert, dry=not use_bclconvert)
+    demultiplex(
+        fps_illuminadata=[prj_data['paths']['illumina_rawdata']],
+        fps_demuxsheet=[prj_data['paths']['illumina_demuxsheet']],
+        fp_output=prj_data['paths']['demux'],
+        use_bclconvert=use_bclconvert, bin_bclconvert=bin_bclconvert,
+        ppn=ppn, pmem=pmem, environment=settings.SPIKE_ENV, dry=dry, wait=True,
+        )
 
     return prj_data
 
@@ -205,14 +176,15 @@ def project_trimprimers(primerseq_fwd:str, primerseq_rev:str, prj_data, verbose=
 def project_deblur(prj_data, trimlength=150, ppn=10, pattern_fwdfiles="*_R1_001.fastq.gz", pmem='8GB', walltime='4:00:00', outdir=None):
     """Expects to find fastq files in prj_data['paths']['trimmed']
        Writes results into prj_data['paths']['deblur'] and prj_data['paths']['deblur_table']"""
-    prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur' if outdir is None else outdir)
-
     res_deblur = deblur(prj_data['paths']['trimmed'], trimlength, pattern_fwdfiles, ppn=ppn, dry=False, wait=False, walltime=walltime, pmem=pmem)
     if res_deblur['results'] is not None:
+        prj_data['paths']['deblur'] = os.path.join(prj_data['paths']['tmp_workdir'], 'deblur' if outdir is None else outdir)
         # create temp dir
         os.makedirs('%s/deblur_res' % prj_data['paths']['deblur'], exist_ok=True)
         prj_data['paths']['deblur_table'] = os.path.join(prj_data['paths']['deblur'], 'deblur_res', 'reference-hit.biom')
         pandas2biom(prj_data['paths']['deblur_table'], res_deblur['results']['reference-hit.biom'])
+    else:
+        raise ValueError("Be patient and wait/poll for deblur results!")
 
     return prj_data
 
@@ -224,12 +196,12 @@ def project_sepp(prj_data, ppn=8, verbose=sys.stderr, use_grid=True, debug=False
     res_sepp = sepp(biom2pandas(prj_data['paths']['deblur_table']), ppn=ppn, dry=False, environment=settings.QIIME2_ENV, use_grid=use_grid, debug=debug)
     print('SEPP version number: %s' % ', '.join([line.split()[1] for line in res_sepp['conda_list'] if line.startswith('sepp') or line.startswith('q2-fragment-insertion')]))
     fp_tree = os.path.join(prj_data['paths']['tmp_workdir'], 'sepp_uncorrected_tree.tmp')
-    if not os.path.exists(fp_tree):
+    prj_data['paths']['insertion_tree'] = os.path.join(prj_data['paths']['tmp_workdir'], 'insertion_tree.nwk')
+    if (not os.path.exists(fp_tree)) or (not os.path.exists(prj_data['paths']['insertion_tree'])):
         with open(fp_tree, 'w') as f:
             f.write(res_sepp['results']['tree'])
 
     # correct zero branch length
-    prj_data['paths']['insertion_tree'] = os.path.join(prj_data['paths']['tmp_workdir'], 'insertion_tree.nwk')
     if not os.path.exists(prj_data['paths']['insertion_tree']):
         writeReferenceTree(fp_tree, prj_data['paths']['tmp_workdir'], fix_zero_len_branches=True)
         os.rename(os.path.join(prj_data['paths']['tmp_workdir'], 'reference.tree'), prj_data['paths']['insertion_tree'])
@@ -384,21 +356,25 @@ def process_study(metadata: pd.DataFrame,
     # See here:
     # https://forum.qiime2.org/t/taxonomy-filtering-greengenes2/28334
     # GG2 does include chloroplast and mitochondria, but the labels were accidentally not part of the taxonomy decoration, which I'm very well aware of but while this is incredibly important, it is not the highest priority I have at the moment
-    res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
+    idx_chloroplast_mitochondria = set([])
+    res_taxonomy_GG138 = None
+    if fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval is not None:
+        res_taxonomy_GG138 = taxonomy_RDP(counts, fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval, dry=dry, wait=True, use_grid=use_grid, ppn=ppn, environment=conda_env_gg138_chloroMitoRemoval)
+        idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     # compute taxonomic lineages for feature sequences
-    if fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval:
+    res_taxonomy = None
+    if (fp_taxonomy_trained_classifier is not None) and (fp_taxonomy_trained_classifier != fp_taxonomy_trained_classifier_gg138_chloroMitoRemoval):
         res_taxonomy = taxonomy_RDP(counts, fp_taxonomy_trained_classifier, dry=dry, wait=True, use_grid=use_grid, ppn=ppn)
     else:
         res_taxonomy = res_taxonomy_GG138
-    idx_chloroplast_mitochondria = res_taxonomy_GG138['results'][res_taxonomy_GG138['results']['Taxon'].apply(lambda lineage: 'c__Chloroplast' in lineage or 'f__mitochondria' in lineage)]['Taxon'].index
 
     if type(control_samples) != set:
         raise ValueError('control samples need to be provided as a SET, not as %s.' % type(control_samples))
-    plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
-    if plant_ratio.min() < 0.95:
-        verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
+    if len(idx_chloroplast_mitochondria) > 0:
+        plant_ratio = counts.loc[[feature for feature in counts.index if feature not in idx_chloroplast_mitochondria], [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0) / counts.loc[:, [sample for sample in counts.columns if sample not in control_samples]].sum(axis=0)
+        if plant_ratio.min() < 0.95:
+            verbose.write('Information: You are loosing a significant amount of reads due to filtration of plant material!\n%s\n' % (1-plant_ratio).sort_values(ascending=False).iloc[:10])
 
     if (tree_insert is None) and (fp_insertiontree is not None):
         if tree_insert.count() <= 1:
@@ -410,6 +386,9 @@ def process_study(metadata: pd.DataFrame,
     else:
         # default to all features of the counts table, if no insertion tree has been provided
         features_inserted = set(counts.index)
+    num_overlap_features_table_tree = len(set(counts.index) & set(features_inserted))
+    if num_overlap_features_table_tree <= 0:
+        raise ValueError("There are no ASVs of your feature-table inserted in the SEPP tree!!")
 
     # remove features assigned taxonomy to chloroplasts / mitochondria,
     # report min, max removal
@@ -417,7 +396,6 @@ def process_study(metadata: pd.DataFrame,
     results = dict()
     results['counts_plantsStillIn'] = counts
     counts = counts.loc[sorted([feature for feature in counts.index if feature not in idx_chloroplast_mitochondria and feature in features_inserted]), sorted(counts.columns)]
-
     results['taxonomy'] = {'RDP': res_taxonomy, 'GG138': res_taxonomy_GG138}
     results['counts_plantsremoved'] = counts
 
