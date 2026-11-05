@@ -3633,7 +3633,7 @@ def adjust_saturation(color, amount=0.5):
         c = mc.cnames[color]
     except:
         c = color
-    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    c = colorsys.rgb_to_hls(*mcolors.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], amount, amount)
 
 def plot_plate(meta:pd.DataFrame, col_position='well_id', col_label='sample_type', col_texts=None, colors=dict(), highlight_samples=set(), show_legend=True, num_rows=8, num_cols=12):
