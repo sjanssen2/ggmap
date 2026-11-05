@@ -4575,7 +4575,7 @@ def decontam(counts_raw: pd.DataFrame, sample_metadata: pd.DataFrame, taxonomy: 
 def QC(dir_fastqs:str,
        pattern_fwdfiles:str="*_R1_*.fastq.gz",
        r1r2_replace:(str, str)=("_R1_", "_R2_"),
-       no_rev_seqs:bool=False, force_interactive=False,
+       no_rev_seqs:bool=False, force_interactive=False, ignore_missing_R2=False,
        ppn:int=1, pmem:str='2GB', environment:str=settings.SPIKE_ENV,
        **executor_args):
     """Generates multiQC reports for all fastq files in a directory.
@@ -4595,6 +4595,16 @@ def QC(dir_fastqs:str,
         Default False. Enforce creation of --interactive plots. Only useful if
         you keep the TMP directory via dirty=True, might lead to very large
         memory consumption of your browser.
+    ignore_missing_R2 : Boolean
+        Default is False.
+        By default, this method checks if it find a R2 file for every R1 file.
+        This is because R2 is infered from R1 filenames but sometimes they are
+        just indicated by "1" and "2" instead of "_R1_" and "_R2_". Thus, the
+        user need to define the r1r2_replace pattern, which might not fit to a
+        specific set of sequence files. An Error is issued in this case.
+        If you combine files from different runs, some might actually be SE and
+        thus lack R2 altogether. Use `ignore_missing_R2`=True to surpress the
+        error.
     """
     files_fwd = []
     files_rev = []
@@ -4603,15 +4613,18 @@ def QC(dir_fastqs:str,
             continue
 
         files_fwd.append(os.path.abspath(fp_fastq))
-        if not no_rev_seqs:
+        if (not no_rev_seqs):
             fp_rev = os.path.join(os.path.dirname(fp_fastq), os.path.basename(fp_fastq).replace(r1r2_replace[0], r1r2_replace[1]))
             if not os.path.exists(fp_rev):
-                raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
-            files_rev.append(os.path.abspath(fp_rev))
+                 if not ignore_missing_R2:
+                     raise ValueError('Cannot find reverse file for forward file:\n  fwd: %s\n   rev: %s\nCheck r1r2_replace pattern!' % (fp_fastq, fp_rev))
+            else:
+                files_rev.append(os.path.abspath(fp_rev))
     if (len(files_fwd) + len(files_rev)) <= 0:
         raise ValueError("No fwd fastQ files in '%s' found. Check dir_fastqs and pattern_fwdfiles!" % dir_fastqs)
     if (not no_rev_seqs) & (len(files_fwd) != len(files_rev)):
-        raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
+        if ignore_missing_R2 is False:
+            raise ValueError("Number of fwd (%i) and rev (%i) files no not match!" % (len(files_fwd), len(files_rev)))
 
     def pre_execute(workdir, args):
         with open("%s/commands.txt" % workdir, "w") as f:
