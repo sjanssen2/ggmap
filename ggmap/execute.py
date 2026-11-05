@@ -487,12 +487,13 @@ def cluster_run(cmds, jobname, result, environment=None,
             cmd_list['SPAWN'] += ' && %ssbatch --parsable --depend=afterany:$qid_main %s' % (settings.GRIDENGINE_BINDIR, fps_scripts['post'])
 
     if dry is True:
-        if use_grid and slurm:
-            for cmdtype in VALID_CMDS_KEYS:
-                out.write('CONTENT OF %s:\n' % fps_scripts[cmdtype])
-                with open(fps_scripts[cmdtype], 'r') as f:
-                    out.write(''.join(f.readlines()) + "\n\n")
-        out.write(cmd_list['SPAWN'] + "\n")
+        if out is not None:
+            if use_grid and slurm:
+                for cmdtype in VALID_CMDS_KEYS:
+                    out.write('CONTENT OF %s:\n' % fps_scripts[cmdtype])
+                    with open(fps_scripts[cmdtype], 'r') as f:
+                        out.write(''.join(f.readlines()) + "\n\n")
+            out.write(cmd_list['SPAWN'] + "\n")
         return None
     else:
         if use_grid is True:
@@ -893,7 +894,7 @@ def _executor(jobname, cache_arguments, pre_execute, commands, post_execute,
             file_condaenvinfo=results['workdir']+'/conda_info.txt',
             timing=timing,
             file_timing=results['workdir']+('/timing${%s}.txt' % settings.VARNAME_PBSARRAY),
-            array=array, use_grid=use_grid)
+            array=array, use_grid=use_grid, out=stdout if verbose is not None else None)
         if dry:
             return results
         if wait is False:
